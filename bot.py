@@ -383,7 +383,7 @@ async def main():
     app.add_handler(CommandHandler("model", find_model))
     app.add_handler(CommandHandler("price", add_price))
     # ဓာတ်ပုံ handler ရှိရင် ထည့်ပါ
-    # app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(button_callback))
     # အခြား handlers တွေ လိုရင် ထည့်ပါ
 
