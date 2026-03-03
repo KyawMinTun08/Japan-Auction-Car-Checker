@@ -14,8 +14,9 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 TOKEN = os.environ.get('BOT_TOKEN', '')
 SHEET_WEBHOOK = os.environ.get('SHEET_WEBHOOK', '')
 
-# ── Auction Checklist Database ─────────────────────────
+# ── Auction Checklist Database (Updated: March 3, 2026) ───
 CARS = [
+    # ── Original List ──
     {"chassis": "MNH15-0039667", "model": "ALPHARD", "color": "WHITE", "year": 2005},
     {"chassis": "CD48R-30111", "model": "BIG THUMB", "color": "GREEN", "year": 2005},
     {"chassis": "FE82EEV500266", "model": "CANTER", "color": "WHITE", "year": 2002},
@@ -59,13 +60,55 @@ CARS = [
     {"chassis": "NT32-531693", "model": "X-TRAIL", "color": "BLACK", "year": 2015},
     {"chassis": "NT31-316873", "model": "X-TRAIL", "color": "PEARL WHITE", "year": 2013},
     {"chassis": "NT32-508661", "model": "X-TRAIL", "color": "PEARL WHITE", "year": 2015},
+    # ── March 3, 2026 Auction List ──
+    {"chassis": "SKP2T-108324", "model": "BONGO TRUCK", "color": "WHITE", "year": 2013},
+    {"chassis": "FE82D-570692", "model": "CANTER", "color": "WHITE", "year": 2010},
+    {"chassis": "FE82D-530430", "model": "CANTER", "color": "PEARL WHITE", "year": 2007},
+    {"chassis": "FE72EE-500637", "model": "CANTER", "color": "WHITE", "year": 2003},
+    {"chassis": "GRS201-0006860", "model": "CROWN", "color": "SILVER", "year": 2011},
+    {"chassis": "GRS200-0061216", "model": "CROWN", "color": "PEARL WHITE", "year": 2011},
+    {"chassis": "GRS200-0063933", "model": "CROWN", "color": "BLACK", "year": 2011},
+    {"chassis": "GWS204-0025870", "model": "CROWN HYBRID", "color": "SILVER", "year": 2012},
+    {"chassis": "GK3-1029686", "model": "FIT", "color": "WHITE", "year": 2014},
+    {"chassis": "GP1-1011906", "model": "FIT HYBRID", "color": "BLUE", "year": 2010},
+    {"chassis": "GP5-3040254", "model": "FIT HYBRID", "color": "WHITE", "year": 2014},
+    {"chassis": "GP1-1096649", "model": "FIT HYBRID", "color": "BLACK", "year": 2011},
+    {"chassis": "GP1-1014176", "model": "FIT HYBRID", "color": "PEARL WHITE", "year": 2010},
+    {"chassis": "GB3-1312198", "model": "FREED SPIKE", "color": "PEARL WHITE", "year": 2010},
+    {"chassis": "FQ62F-520185", "model": "FUSO FIGHTER", "color": "WHITE", "year": 2008},
+    {"chassis": "FEA50-521744", "model": "FUSO TRUCK", "color": "PEARL WHITE", "year": 2013},
+    {"chassis": "KDH201-0056284", "model": "HIACE VAN", "color": "WHITE", "year": 2010},
+    {"chassis": "S211P-0276262", "model": "HIJET TRUCK", "color": "SILVER", "year": 2014},
+    {"chassis": "S510P-0147424", "model": "HIJET TRUCK", "color": "WHITE", "year": 2017},
+    {"chassis": "S210P-2060815", "model": "HIJET TRUCK", "color": "WHITE", "year": 2006},
+    {"chassis": "S510P-0149349", "model": "HIJET TRUCK", "color": "SILVER", "year": 2017},
+    {"chassis": "S210P-2006882", "model": "HIJET TRUCK", "color": "SILVER", "year": 2005},
+    {"chassis": "ZE2-1130682", "model": "INSIGHT", "color": "WHITE", "year": 2009},
+    {"chassis": "YF15-033275", "model": "JUKE", "color": "WHITE", "year": 2011},
+    {"chassis": "HDJ101-0031030", "model": "LAND CRUISER", "color": "PEARL WHITE", "year": 2007},
+    {"chassis": "AZE0-062459", "model": "LEAF", "color": "PEARL WHITE", "year": 2013},
+    {"chassis": "GRX133-6003681", "model": "MARK X", "color": "SILVER", "year": 2013},
+    {"chassis": "WVWZZZ16ZDM685003", "model": "NEW BEETLE", "color": "BLACK", "year": 2013},
+    {"chassis": "NCP165-0001511", "model": "PROBOX VAN", "color": "PEARL WHITE", "year": 2014},
+    {"chassis": "GK6XA-10555", "model": "QUON", "color": "WHITE", "year": 2013},
+    {"chassis": "FC6JLW-10241", "model": "RANGER", "color": "PEARL WHITE", "year": 2006},
+    {"chassis": "FY54JTY530030", "model": "SUPER GREAT", "color": "PEARL WHITE", "year": 2003},
+    {"chassis": "FS54JZ-570431", "model": "SUPER GREAT", "color": "BLACK", "year": 2010},
+    {"chassis": "FV50MJX520729", "model": "SUPER GREAT", "color": "BLACK", "year": 2001},
+    {"chassis": "CG5ZA-01150", "model": "UD", "color": "GREEN", "year": 2011},
+    {"chassis": "CG5ZE-30138", "model": "UD", "color": "WHITE", "year": 2015},
+    {"chassis": "MK38L-30952", "model": "UD", "color": "YELLOW", "year": 2014},
+    {"chassis": "MK36A-12656", "model": "UD", "color": "WHITE", "year": 2006},
+    {"chassis": "ZGE20-0041580", "model": "WISH", "color": "PEARL WHITE", "year": 2009},
+    {"chassis": "ZGE20-0004342", "model": "WISH", "color": "WHITE", "year": 2009},
+    {"chassis": "NT32-024640", "model": "X-TRAIL", "color": "BLACK", "year": 2014},
+    {"chassis": "NT32-037944", "model": "X-TRAIL", "color": "BLACK", "year": 2015},
+    {"chassis": "NT31-244285", "model": "X-TRAIL", "color": "PEARL WHITE", "year": 2012},
+    {"chassis": "DNT31-209100", "model": "X-TRAIL", "color": "WHITE", "year": 2011},
 ]
 
-# In-memory price history
 PRICE_HISTORY = []
-
-# Pending photo waiting for price
-pending_photo = {}  # user_id -> {chassis, model, color, year, file_id}
+pending_photo = {}
 
 # ── Helper Functions ──────────────────────────────────
 def find_by_chassis(chassis_input):
@@ -80,11 +123,12 @@ def find_by_model(model_input):
     return [c for c in CARS if model_input in c["model"].upper()]
 
 def extract_chassis_from_text(text):
+    """Extract chassis number - improved patterns for all formats"""
     text = text.upper().strip()
     patterns = [
-        r'\b[A-Z]{1,5}\d{1,4}[A-Z]{0,3}-\d{4,7}\b',
-        r'\b[A-Z]{2,6}\d{2,4}[A-Z]{1,2}-\d{5,7}\b',
-        r'\b[A-Z]{2,4}[A-Z0-9]{12,15}\b',
+        r'[A-Z]{1,5}\d{1,4}[A-Z]{0,2}\d{0,2}-\d{4,7}',
+        r'[A-Z]{2,6}\d{2,4}-\d{4,7}',
+        r'[A-Z0-9]{4,20}-\d{4,7}',
     ]
     for pattern in patterns:
         matches = re.findall(pattern, text)
@@ -155,7 +199,9 @@ async def find_car(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt, parse_mode='Markdown',
                                         reply_markup=InlineKeyboardMarkup(keyboard))
     else:
-        await update.message.reply_text(f"❌ `{chassis}` မတွေ့ပါ\n\nChecklist မှာ မပါဘူး — ဈေးထည့်လိုရင် `/price {chassis} [ဈေး]`", parse_mode='Markdown')
+        await update.message.reply_text(
+            f"❌ `{chassis}` မတွေ့ပါ\n\nChecklist မှာ မပါဘူး — ဈေးထည့်လိုရင် `/price {chassis} [ဈေး]`",
+            parse_mode='Markdown')
 
 async def find_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -254,9 +300,9 @@ async def gemini_ocr_chassis(file_bytes: bytes) -> str:
     """Use Gemini Vision to extract chassis number from car photo"""
     try:
         import base64
-        import json
 
         if not GEMINI_API_KEY:
+            logger.warning("GEMINI_API_KEY not set")
             return ""
 
         img_b64 = base64.b64encode(file_bytes).decode()
@@ -265,7 +311,7 @@ async def gemini_ocr_chassis(file_bytes: bytes) -> str:
         payload = {
             "contents": [{
                 "parts": [
-                    {"text": "Japan auction car photo. Find the chassis number written with marker pen on windshield. Format examples: NT32-024640, DNT31-209100, GRS201-0006860, S510P-0147424, GP1-1011906. Return ONLY the chassis number. Nothing else."},
+                    {"text": "This is a Japan auction car photo. There is a chassis number written with a marker pen on the windshield. Examples of chassis numbers: NT32-024640, DNT31-209100, GRS201-0006860, GP1-1011906, S510P-0147424. Please find and return ONLY the chassis number, nothing else."},
                     {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
                 ]
             }]
@@ -273,17 +319,29 @@ async def gemini_ocr_chassis(file_bytes: bytes) -> str:
 
         resp = requests.post(url, json=payload, timeout=30)
         data = resp.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
+        if "candidates" not in data:
+            logger.error(f"Gemini error: {data}")
+            return ""
+
+        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        logger.info(f"Gemini raw: {text}")
+
+        # ✅ Improved regex patterns
         patterns = [
-            r'\b[A-Z]{1,5}\d{1,4}[A-Z]{0,3}-\d{4,7}\b',
-            r'\b[A-Z0-9]{4,20}-\d{4,7}\b',
+            r'[A-Z]{1,5}\d{1,4}[A-Z]{0,2}\d{0,2}-\d{4,7}',
+            r'[A-Z]{2,6}\d{2,4}-\d{4,7}',
+            r'[A-Z0-9]{4,20}-\d{4,7}',
         ]
         for pattern in patterns:
             match = re.search(pattern, text.upper())
             if match:
-                return match.group()
+                result = match.group().replace(' ', '-')
+                logger.info(f"Chassis found: {result}")
+                return result
+
         return ""
+
     except Exception as e:
         logger.error(f"Gemini OCR error: {e}")
         return ""
@@ -307,7 +365,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Photo download error: {e}")
 
     car = find_by_chassis(chassis) if chassis else None
-
     price_match = re.search(r'\d{4,6}', caption)
     price = int(price_match.group()) if price_match else None
 
@@ -407,13 +464,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Main ───────────────────────────────────────────────
 async def main():
     logger.info("Bot starting...")
-    # Kill other instances first
     import httpx
     async with httpx.AsyncClient() as client:
         await client.post(
             f"https://api.telegram.org/bot{TOKEN}/deleteWebhook",
             params={"drop_pending_updates": True}
         )
+
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -423,13 +480,8 @@ async def main():
     app.add_handler(CommandHandler("history", price_history))
     app.add_handler(CommandHandler("list", list_cars))
     app.add_handler(CommandHandler("web", web_link))
-
-    # ✅ Photo handler - အလုပ်လုပ်အောင် ပြင်ထားတယ်
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-
-    # ✅ Text handler - ဈေးထည့်နိုင်အောင်
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
     app.add_handler(CallbackQueryHandler(button_callback))
 
     await app.initialize()
