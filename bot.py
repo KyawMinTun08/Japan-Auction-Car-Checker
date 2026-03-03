@@ -80,16 +80,16 @@ def find_by_model(model_input):
     return [c for c in CARS if model_input in c["model"].upper()]
 
 def extract_chassis_from_text(text):
+    text = text.upper().strip()
     patterns = [
-        r'[A-Z]{2,4}\d{2,3}-\d{6,7}',
-        r'[A-Z]{3}\d{2}[A-Z]-\d{7}',
-        r'[A-Z]{2}\d{1}[A-Z]{2}-\d{7}',
-        r'[A-Z0-9]{5,20}-\d{4,7}',
+        r'\b[A-Z]{1,5}\d{1,4}[A-Z]{0,3}-\d{4,7}\b',
+        r'\b[A-Z]{2,6}\d{2,4}[A-Z]{1,2}-\d{5,7}\b',
+        r'\b[A-Z]{2,4}[A-Z0-9]{12,15}\b',
     ]
     for pattern in patterns:
-        matches = re.findall(pattern, text.upper())
+        matches = re.findall(pattern, text)
         if matches:
-            return matches[0]
+            return max(matches, key=len)
     return None
 
 def get_price_history(chassis):
@@ -264,8 +264,7 @@ async def gemini_ocr_chassis(file_bytes: bytes) -> str:
 
         payload = {
             "contents": [{
-                "parts": [
-                    {"text": "Look at this car photo. Find the chassis number or VIN number written on the windshield or body. Return ONLY the chassis number (like NT32-504837 or similar format). If you cannot find it, return empty string."},
+                "parts": [Japan auction car photo. Find the chassis number written with marker pen on windshield. Format examples: NT32-024640, DNT31-209100, GRS201-0006860, S510P-0147424, GP1-1011906. Return ONLY the chassis number. Nothing else.
                     {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
                 ]
             }]
