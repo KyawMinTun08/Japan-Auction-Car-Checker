@@ -402,7 +402,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Main ───────────────────────────────────────────────
 async def main():
     logger.info("Bot starting...")
-
+    # Kill other instances first
+    import httpx
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"https://api.telegram.org/bot{TOKEN}/deleteWebhook",
+            params={"drop_pending_updates": True}
+        )
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
