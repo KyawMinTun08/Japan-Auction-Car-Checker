@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Japan Auction Car Checker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+
+  .header { background: linear-gradient(135deg, #1B3A6B, #2563eb); padding: 18px 24px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { font-size: 1.4rem; color: #FFD700; font-weight: 800; letter-spacing: 1px; }
+  .header p  { font-size: 0.8rem; color: #93c5fd; margin-top: 2px; }
+  .badge { background: #FFD700; color: #1B3A6B; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; margin-left: auto; white-space: nowrap; }
+
+  .main { max-width: 1200px; margin: 0 auto; padding: 20px 16px; }
+
+  /* Stats Row */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: #1e293b; border-radius: 12px; padding: 16px; text-align: center; border: 1px solid #334155; }
+  .stat-card .num { font-size: 1.8rem; font-weight: 800; color: #FFD700; }
+  .stat-card .lbl { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab { padding: 8px 20px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #94a3b8; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all .2s; }
+  .tab.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .tab.locked { opacity: 0.5; cursor: not-allowed; }
+
+  /* Cards */
+  .card { background: #1e293b; border-radius: 14px; padding: 20px; border: 1px solid #334155; margin-bottom: 20px; }
+  .card h2 { font-size: 1rem; font-weight: 700; color: #FFD700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+  /* Search */
+  .search-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .search-row input, .search-row select { flex: 1; min-width: 140px; padding: 10px 14px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.9rem; }
+  .search-row input::placeholder { color: #475569; }
+  .btn { padding: 10px 20px; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; font-size: 0.85rem; }
+  .btn-blue { background: #2563eb; color: #fff; }
+  .btn-green { background: #16a34a; color: #fff; }
+  .btn-red { background: #dc2626; color: #fff; }
+  .btn-gold { background: #FFD700; color: #1B3A6B; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th { background: #1B3A6B; color: #FFD700; padding: 10px 8px; text-align: center; font-weight: 700; position: sticky; top: 0; }
+  td { padding: 9px 8px; text-align: center; border-bottom: 1px solid #1e293b; }
+  tr:hover td { background: #0f172a; }
+  tr:nth-child(even) td { background: #162032; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+  .pill-green { background: #14532d; color: #4ade80; }
+  .pill-red   { background: #450a0a; color: #f87171; }
+  .pill-gray  { background: #1e293b; color: #94a3b8; }
+  .price-up   { color: #4ade80; font-weight: 700; }
+  .price-down { color: #f87171; font-weight: 700; }
+  .price-same { color: #94a3b8; }
+
+  /* Chart area */
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chart-box { background: #0f172a; border-radius: 10px; padding: 16px; }
+  canvas { max-height: 280px; }
+
+  /* Add price form */
+  .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .form-grid input, .form-grid select { padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.9rem; width: 100%; }
+  .form-row { display: flex; gap: 10px; margin-top: 10px; }
+
+  /* Trend indicator */
+  .trend-big { font-size: 1.5rem; }
+
+  /* Lock icon */
+  .lock-cell { color: #475569; font-size: 1rem; }
+
+  /* ── PASSWORD MODAL ── */
+  #pw-modal {
+    display: none;
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.75);
+    align-items: center; justify-content: center;
+  }
+  #pw-modal.show { display: flex; }
+  .pw-box {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 16px;
+    padding: 32px 28px;
+    width: 320px;
+    text-align: center;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+  }
+  .pw-box h3 { color: #FFD700; font-size: 1.1rem; margin-bottom: 8px; }
+  .pw-box p { color: #94a3b8; font-size: 0.82rem; margin-bottom: 20px; }
+  .pw-box input {
+    width: 100%; padding: 12px; border-radius: 8px;
+    border: 1px solid #334155; background: #0f172a;
+    color: #e2e8f0; font-size: 1rem; text-align: center;
+    letter-spacing: 2px; margin-bottom: 12px;
+  }
+  .pw-box input:focus { outline: none; border-color: #2563eb; }
+  .pw-error { color: #f87171; font-size: 0.82rem; margin-bottom: 10px; min-height: 20px; }
+
+  /* Login status bar */
+  #login-bar {
+    display: none;
+    background: #14532d;
+    color: #4ade80;
+    text-align: center;
+    padding: 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  #login-bar.show { display: block; }
+  #guest-bar {
+    background: #1e293b;
+    color: #94a3b8;
+    text-align: center;
+    padding: 8px;
+    font-size: 0.82rem;
+    border-bottom: 1px solid #334155;
+  }
+
+  @media(max-width: 700px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .chart-grid { grid-template-columns: 1fr; }
+    .form-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Password Modal -->
+<div id="pw-modal">
+  <div class="pw-box">
+    <h3>🔐 Password ထည့်ပါ</h3>
+    <p>ဈေးနှုန်း အသေးစိတ်ကြည့်ရန်<br>Password လိုအပ်ပါသည်</p>
+    <input type="password" id="pw-input" placeholder="••••••••••" onkeydown="if(event.key==='Enter')checkPw()">
+    <div class="pw-error" id="pw-error"></div>
+    <button class="btn btn-gold" style="width:100%;padding:12px;" onclick="checkPw()">🔓 ဝင်ရောက်မည်</button>
+    <br><br>
+    <button class="btn" style="background:#334155;color:#94a3b8;width:100%;padding:10px;" onclick="closePwModal()">ပယ်ဖျက်မည်</button>
+  </div>
+</div>
+
+<!-- Guest bar -->
+<div id="guest-bar">
+  🔒 ဈေးနှုန်းအသေးစိတ်၊ Chart၊ မှတ်တမ်းကြည့်ရန် &nbsp;<span style="color:#FFD700;cursor:pointer;text-decoration:underline;" onclick="showPwModal()">Password ထည့်ပါ →</span>
+</div>
+
+<!-- Login bar -->
+<div id="login-bar" onclick="logout()">
+  ✅ Login ဝင်ပြီးပြီ — ဈေးအသေးစိတ်အားလုံး ကြည့်နိုင်ပြီ &nbsp;|&nbsp; 🔓 Logout
+</div>
+
+<div class="header">
+  <div>
+    <h1>🚗 JAPAN AUCTION CAR CHECKER</h1>
+    <p>Maesot Freezone — ဈေးနှုန်း Tracker</p>
+  </div>
+  <div class="badge">Mar 2026</div>
+</div>
+
+<div class="main">
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card"><div class="num" id="s-total">0</div><div class="lbl">ကားစုစုပေါင်း</div></div>
+    <div class="stat-card"><div class="num" id="s-priced">0</div><div class="lbl">ဈေးရပြီး</div></div>
+    <div class="stat-card"><div class="num" id="s-entries">0</div><div class="lbl">History မှတ်တမ်း</div></div>
+    <div class="stat-card"><div class="num" id="s-models">0</div><div class="lbl">Model အမျိုးအစား</div></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('search')">🚗 ကားစာရင်း</div>
+    <div class="tab" id="tab-btn-chart" onclick="requireLogin('chart')">📈 ဈေးကြည့် 🔒</div>
+    <div class="tab" id="tab-btn-history" onclick="requireLogin('history')">📋 မှတ်တမ်း 🔒</div>
+  </div>
+
+  <!-- TAB: SEARCH (Public) -->
+  <div id="tab-search">
+    <div class="card">
+      <h2>🚗 ကားစာရင်း</h2>
+      <div class="search-row">
+        <input type="text" id="q-chassis" placeholder="Chassis (e.g. NT32-504837)" oninput="doSearch()">
+        <input type="text" id="q-model" placeholder="Model (e.g. X-TRAIL, WISH)" oninput="doSearch()">
+        <select id="q-year" onchange="doSearch()">
+          <option value="">Year အားလုံး</option>
+        </select>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Chassis</th>
+              <th>Model</th>
+              <th>Color</th>
+              <th>Year</th>
+              <th id="th-price">Latest Price 🔒</th>
+              <th id="th-change" style="display:none;">Change</th>
+              <th id="th-status" style="display:none;">Status</th>
+            </tr>
+          </thead>
+          <tbody id="search-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: CHART (Login required) -->
+  <div id="tab-chart" style="display:none;">
+    <div class="card">
+      <h2>📈 ဈေးနှုန်း Chart</h2>
+      <div class="search-row" style="margin-bottom:16px;">
+        <select id="chart-model" onchange="updateCharts()">
+          <option value="X-TRAIL">X-TRAIL</option>
+          <option value="WISH">WISH</option>
+          <option value="FIT">FIT</option>
+          <option value="CROWN">CROWN</option>
+          <option value="HIACE VAN">HIACE VAN</option>
+        </select>
+        <select id="chart-year" onchange="updateCharts()">
+          <option value="">Year အားလုံး</option>
+        </select>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-box">
+          <p style="color:#94a3b8;font-size:.8rem;margin-bottom:8px;">Chassis ခွဲ — ဈေးနှုန်းတစ်ကြောင်းချင်း</p>
+          <canvas id="lineChart"></canvas>
+        </div>
+        <div class="chart-box">
+          <p style="color:#94a3b8;font-size:.8rem;margin-bottom:8px;">Model ပျမ်းမျှဈေး (တစ်လချင်း)</p>
+          <canvas id="avgChart"></canvas>
+        </div>
+      </div>
+      <div id="trend-summary" style="margin-top:16px; display:grid; grid-template-columns:repeat(3,1fr); gap:12px;"></div>
+    </div>
+  </div>
+
+  <!-- TAB: HISTORY (Login required) -->
+  <div id="tab-history" style="display:none;">
+    <div class="card">
+      <h2>📋 ဈေးနှုန်း မှတ်တမ်းအားလုံး</h2>
+      <div class="search-row">
+        <input type="text" id="h-filter" placeholder="Model/Chassis ဖြင့် စစ်..." oninput="renderHistory()">
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Date</th><th>Chassis</th><th>Model</th><th>Color</th><th>Year</th><th>Price (THB)</th><th>vs ယခင်</th><th>Location</th><th>Added By</th></tr>
+          </thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<script>
+// ─── PASSWORD ──────────────────────────────────────────
+const PASSWORD = 'KMTAuction#26';
+let isLoggedIn = false;
+
+function showPwModal() {
+  document.getElementById('pw-modal').classList.add('show');
+  document.getElementById('pw-input').value = '';
+  document.getElementById('pw-error').textContent = '';
+  setTimeout(() => document.getElementById('pw-input').focus(), 100);
+}
+
+function closePwModal() {
+  document.getElementById('pw-modal').classList.remove('show');
+}
+
+function checkPw() {
+  const val = document.getElementById('pw-input').value;
+  if (val === PASSWORD) {
+    isLoggedIn = true;
+    closePwModal();
+    document.getElementById('guest-bar').style.display = 'none';
+    document.getElementById('login-bar').classList.add('show');
+    // Update tab labels
+    document.getElementById('tab-btn-chart').textContent = '📈 ဈေးကြည့်';
+    document.getElementById('tab-btn-history').textContent = '📋 မှတ်တမ်း';
+    // Update table header
+    document.getElementById('th-price').textContent = 'Latest Price';
+    document.getElementById('th-change').style.display = '';
+    document.getElementById('th-status').style.display = '';
+    doSearch();
+  } else {
+    document.getElementById('pw-error').textContent = '❌ Password မမှန်ပါ — ထပ်ကြိုးစားပါ';
+    document.getElementById('pw-input').value = '';
+    document.getElementById('pw-input').focus();
+  }
+}
+
+function logout() {
+  if (!confirm('Logout လုပ်မည်လား?')) return;
+  isLoggedIn = false;
+  document.getElementById('guest-bar').style.display = 'block';
+  document.getElementById('login-bar').classList.remove('show');
+  document.getElementById('tab-btn-chart').textContent = '📈 ဈေးကြည့် 🔒';
+  document.getElementById('tab-btn-history').textContent = '📋 မှတ်တမ်း 🔒';
+  document.getElementById('th-price').textContent = 'Latest Price 🔒';
+  document.getElementById('th-change').style.display = 'none';
+  document.getElementById('th-status').style.display = 'none';
+  showTab('search');
+  doSearch();
+}
+
+function requireLogin(tab) {
+  if (isLoggedIn) {
+    showTab(tab);
+  } else {
+    showPwModal();
+  }
+}
+
+// ─── DATA ─────────────────────────────────────────────
+const CARS = [
+  {chassis:"MNH15-0039667",model:"ALPHARD",color:"WHITE",year:2005},
+  {chassis:"CD48R-30111",model:"BIG THUMB",color:"GREEN",year:2005},
+  {chassis:"FE82EEV500266",model:"CANTER",color:"WHITE",year:2002},
+  {chassis:"FE84DV-550674",model:"CANTER",color:"BLUE",year:2008},
+  {chassis:"FB70BB-512392",model:"CANTER GUTS",color:"WHITE",year:2005},
+  {chassis:"MK35A-10405",model:"CONDOR",color:"PEARL WHITE",year:2006},
+  {chassis:"JNCLSC0A1GU006386",model:"CONDOR",color:"WHITE",year:2016},
+  {chassis:"GRS210-6004548",model:"CROWN",color:"PEARL WHITE",year:2013},
+  {chassis:"GRS200-0001831",model:"CROWN",color:"WHITE",year:2008},
+  {chassis:"GRS200-0020080",model:"CROWN",color:"WHITE",year:2008},
+  {chassis:"GRS202-0002603",model:"CROWN",color:"WHITE",year:2008},
+  {chassis:"XZC610-0001005",model:"DUTRO",color:"WHITE",year:2011},
+  {chassis:"GE6-1539486",model:"FIT",color:"PEARL WHITE",year:2011},
+  {chassis:"GP5-3032237",model:"FIT HYBRID",color:"PEARL WHITE",year:2014},
+  {chassis:"GP1-1131390",model:"FIT HYBRID",color:"WHITE",year:2012},
+  {chassis:"GP1-1049821",model:"FIT HYBRID",color:"PEARL WHITE",year:2011},
+  {chassis:"GP7-1000970",model:"FIT SHUTTLE HYBRID",color:"PEARL WHITE",year:2015},
+  {chassis:"GP2-3106770",model:"FIT SHUTTLE HYBRID",color:"SILVER",year:2013},
+  {chassis:"FK61FM765129",model:"FUSO FIGHTER",color:"WHITE",year:2003},
+  {chassis:"KDH201-0140123",model:"HIACE VAN",color:"WHITE",year:2014},
+  {chassis:"S211P-0217418",model:"HIJET TRUCK",color:"WHITE",year:2013},
+  {chassis:"S210P-2037788",model:"HIJET TRUCK",color:"WHITE",year:2005},
+  {chassis:"S510P-0173458",model:"HIJET TRUCK",color:"WHITE",year:2017},
+  {chassis:"UZJ100-0151432",model:"LAND CRUISER",color:"SILVER",year:2004},
+  {chassis:"USF40-5006069",model:"LEXUS LS",color:"WHITE",year:2006},
+  {chassis:"WVWZZZ16ZDM638030",model:"NEW BEETLE",color:"BLACK",year:2013},
+  {chassis:"ZRR75-0068964",model:"NOAH",color:"PEARL WHITE",year:2010},
+  {chassis:"V98W-0300140",model:"PAJERO",color:"PEARL WHITE",year:2010},
+  {chassis:"S211U-0000227",model:"PIXIS TRUCK",color:"WHITE",year:2011},
+  {chassis:"FC7JKY-14910",model:"RANGER",color:"BLUE",year:2011},
+  {chassis:"NCP165-0001505",model:"SUCCEED VAN",color:"PEARL WHITE",year:2014},
+  {chassis:"NCP59-0012188",model:"SUCCEED WAGON",color:"SILVER",year:2005},
+  {chassis:"FV50JJX-530670",model:"SUPER GREAT",color:"BLACK",year:2004},
+  {chassis:"CG5ZA-30374",model:"UD",color:"PEARL WHITE",year:2014},
+  {chassis:"CD5ZA-30191",model:"UD",color:"SILVER",year:2014},
+  {chassis:"CG4ZA-01338",model:"UD",color:"LIGHT BLUE",year:2006},
+  {chassis:"ZGE22-0005423",model:"WISH",color:"BLACK",year:2011},
+  {chassis:"ZGE20-0010786",model:"WISH",color:"PEARL WHITE",year:2009},
+  {chassis:"ZGE25-0015283",model:"WISH",color:"WHITE",year:2011},
+  {chassis:"NT32-504837",model:"X-TRAIL",color:"BLACK",year:2014},
+  {chassis:"NT32-531693",model:"X-TRAIL",color:"BLACK",year:2015},
+  {chassis:"NT31-316873",model:"X-TRAIL",color:"PEARL WHITE",year:2013},
+  {chassis:"NT32-508661",model:"X-TRAIL",color:"PEARL WHITE",year:2015},
+  // March 3, 2026
+  {chassis:"SKP2T-108324",model:"BONGO TRUCK",color:"WHITE",year:2013},
+  {chassis:"FE82D-570692",model:"CANTER",color:"WHITE",year:2010},
+  {chassis:"FE82D-530430",model:"CANTER",color:"PEARL WHITE",year:2007},
+  {chassis:"FE72EE-500637",model:"CANTER",color:"WHITE",year:2003},
+  {chassis:"GRS201-0006860",model:"CROWN",color:"SILVER",year:2011},
+  {chassis:"GRS200-0061216",model:"CROWN",color:"PEARL WHITE",year:2011},
+  {chassis:"GRS200-0063933",model:"CROWN",color:"BLACK",year:2011},
+  {chassis:"GWS204-0025870",model:"CROWN HYBRID",color:"SILVER",year:2012},
+  {chassis:"GK3-1029686",model:"FIT",color:"WHITE",year:2014},
+  {chassis:"GP1-1011906",model:"FIT HYBRID",color:"BLUE",year:2010},
+  {chassis:"GP5-3040254",model:"FIT HYBRID",color:"WHITE",year:2014},
+  {chassis:"GP1-1096649",model:"FIT HYBRID",color:"BLACK",year:2011},
+  {chassis:"GP1-1014176",model:"FIT HYBRID",color:"PEARL WHITE",year:2010},
+  {chassis:"GB3-1312198",model:"FREED SPIKE",color:"PEARL WHITE",year:2010},
+  {chassis:"FQ62F-520185",model:"FUSO FIGHTER",color:"WHITE",year:2008},
+  {chassis:"FEA50-521744",model:"FUSO TRUCK",color:"PEARL WHITE",year:2013},
+  {chassis:"KDH201-0056284",model:"HIACE VAN",color:"WHITE",year:2010},
+  {chassis:"S211P-0276262",model:"HIJET TRUCK",color:"SILVER",year:2014},
+  {chassis:"S510P-0147424",model:"HIJET TRUCK",color:"WHITE",year:2017},
+  {chassis:"S210P-2060815",model:"HIJET TRUCK",color:"WHITE",year:2006},
+  {chassis:"S510P-0149349",model:"HIJET TRUCK",color:"SILVER",year:2017},
+  {chassis:"S210P-2006882",model:"HIJET TRUCK",color:"SILVER",year:2005},
+  {chassis:"ZE2-1130682",model:"INSIGHT",color:"WHITE",year:2009},
+  {chassis:"YF15-033275",model:"JUKE",color:"WHITE",year:2011},
+  {chassis:"HDJ101-0031030",model:"LAND CRUISER",color:"PEARL WHITE",year:2007},
+  {chassis:"AZE0-062459",model:"LEAF",color:"PEARL WHITE",year:2013},
+  {chassis:"GRX133-6003681",model:"MARK X",color:"SILVER",year:2013},
+  {chassis:"WVWZZZ16ZDM685003",model:"NEW BEETLE",color:"BLACK",year:2013},
+  {chassis:"NCP165-0001511",model:"PROBOX VAN",color:"PEARL WHITE",year:2014},
+  {chassis:"GK6XA-10555",model:"QUON",color:"WHITE",year:2013},
+  {chassis:"FC6JLW-10241",model:"RANGER",color:"PEARL WHITE",year:2006},
+  {chassis:"FY54JTY530030",model:"SUPER GREAT",color:"PEARL WHITE",year:2003},
+  {chassis:"FS54JZ-570431",model:"SUPER GREAT",color:"BLACK",year:2010},
+  {chassis:"FV50MJX520729",model:"SUPER GREAT",color:"BLACK",year:2001},
+  {chassis:"CG5ZA-01150",model:"UD",color:"GREEN",year:2011},
+  {chassis:"CG5ZE-30138",model:"UD",color:"WHITE",year:2015},
+  {chassis:"MK38L-30952",model:"UD",color:"YELLOW",year:2014},
+  {chassis:"MK36A-12656",model:"UD",color:"WHITE",year:2006},
+  {chassis:"ZGE20-0041580",model:"WISH",color:"PEARL WHITE",year:2009},
+  {chassis:"ZGE20-0004342",model:"WISH",color:"WHITE",year:2009},
+  {chassis:"NT32-024640",model:"X-TRAIL",color:"BLACK",year:2014},
+  {chassis:"NT32-037944",model:"X-TRAIL",color:"BLACK",year:2015},
+  {chassis:"NT31-244285",model:"X-TRAIL",color:"PEARL WHITE",year:2012},
+  {chassis:"DNT31-209100",model:"X-TRAIL",color:"WHITE",year:2011},
+];
+
+let priceHistory = [];
+let lineChartObj = null, avgChartObj = null;
+
+// ─── GOOGLE SHEET DATA ────────────────────────────────
+const SHEET_ID = '1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHDO6K3zG1mpY';
+const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
+
+async function loadFromSheet() {
+  try {
+    const resp = await fetch(SHEET_URL);
+    const text = await resp.text();
+    const json = JSON.parse(text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*?)\);/)[1]);
+    const rows = json.table.rows;
+    priceHistory = rows.map(r => ({
+      chassis:  r.c[0]?.v || '',
+      model:    r.c[1]?.v || '',
+      color:    r.c[2]?.v || '',
+      year:     r.c[3]?.v || 0,
+      price:    r.c[4]?.v || 0,
+      date:     r.c[5]?.v || '',
+      location: r.c[6]?.v || '',
+      added_by: r.c[7]?.v || '',
+    })).filter(r => r.chassis && r.price);
+    updateStats();
+    doSearch();
+    renderHistory();
+  } catch(e) {
+    console.log('Sheet load failed:', e);
+  }
+}
+
+// ─── INIT ─────────────────────────────────────────────
+function init() {
+  const years = [...new Set(CARS.map(c=>c.year))].sort((a,b)=>b-a);
+  ['q-year','chart-year'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el && el.tagName==='SELECT') years.forEach(y=>{
+      const o=document.createElement('option'); o.value=y; o.text=y; el.appendChild(o);
+    });
+  });
+
+  updateStats();
+  doSearch();
+  loadFromSheet();
+}
+
+function fmt(n){ return n ? Number(n).toLocaleString() : '-'; }
+
+// ─── TABS ─────────────────────────────────────────────
+function showTab(name){
+  ['search','chart','history'].forEach(t=>{
+    document.getElementById('tab-'+t).style.display = t===name?'':'none';
+  });
+  document.querySelectorAll('.tab').forEach(el=>{
+    el.classList.remove('active');
+  });
+  const tabMap = {search:0, chart:1, history:2};
+  document.querySelectorAll('.tab')[tabMap[name]]?.classList.add('active');
+  if(name==='chart') setTimeout(updateCharts,100);
+}
+
+// ─── SEARCH ───────────────────────────────────────────
+function doSearch(){
+  const qc = document.getElementById('q-chassis').value.toUpperCase();
+  const qm = document.getElementById('q-model').value.toUpperCase();
+  const qy = document.getElementById('q-year').value;
+  const tb = document.getElementById('search-tbody');
+  tb.innerHTML='';
+
+  CARS.filter(c=>
+    (!qc || c.chassis.includes(qc)) &&
+    (!qm || c.model.includes(qm)) &&
+    (!qy || c.year==qy)
+  ).forEach(c=>{
+    const hist = priceHistory.filter(h=>h.chassis===c.chassis)
+                             .sort((a,b)=>new Date(b.date)-new Date(a.date));
+    const latest = hist.length ? hist[0] : null;
+    const prev   = hist.length>1 ? hist[1] : null;
+    const price  = latest ? latest.price : null;
+    const diff   = (latest && prev) ? latest.price - prev.price : null;
+
+    let diffHtml = '<span class="price-same">—</span>';
+    if(diff!==null) diffHtml = diff>0
+      ? `<span class="price-up">▲ ${fmt(diff)}</span>`
+      : diff<0 ? `<span class="price-down">▼ ${fmt(Math.abs(diff))}</span>`
+      : '<span class="price-same">—</span>';
+
+    const statusPill = price
+      ? '<span class="pill pill-green">ဈေးရပြီ</span>'
+      : '<span class="pill pill-gray">ဈေးမရသေး</span>';
+
+    if (isLoggedIn) {
+      tb.innerHTML+=`<tr>
+        <td style="font-size:.75rem;color:#94a3b8">${c.chassis}</td>
+        <td style="font-weight:700;color:#e2e8f0">${c.model}</td>
+        <td>${c.color}</td><td>${c.year}</td>
+        <td style="font-weight:700;color:#FFD700">${price ? fmt(price)+' ฿' : '—'}</td>
+        <td>${diffHtml}</td>
+        <td>${statusPill}</td>
+      </tr>`;
+    } else {
+      tb.innerHTML+=`<tr>
+        <td style="font-size:.75rem;color:#94a3b8">${c.chassis}</td>
+        <td style="font-weight:700;color:#e2e8f0">${c.model}</td>
+        <td>${c.color}</td><td>${c.year}</td>
+        <td class="lock-cell">🔒</td>
+      </tr>`;
+    }
+  });
+}
+
+// ─── STATS ────────────────────────────────────────────
+function updateStats(){
+  const priced = new Set(priceHistory.map(h=>h.chassis)).size;
+  const models = new Set(CARS.map(c=>c.model)).size;
+  document.getElementById('s-priced').textContent = priced;
+  document.getElementById('s-entries').textContent = priceHistory.length;
+  document.getElementById('s-total').textContent = CARS.length;
+  document.getElementById('s-models').textContent = models;
+}
+
+// ─── HISTORY ─────────────────────────────────────────
+function renderHistory(){
+  if (!isLoggedIn) return;
+  const q = (document.getElementById('h-filter').value||'').toUpperCase();
+  const tb = document.getElementById('history-tbody');
+  const sorted = [...priceHistory].reverse();
+  tb.innerHTML='';
+  sorted.filter(h=> !q || h.chassis.includes(q)||h.model.includes(q)).forEach((h,i)=>{
+    const earlier = priceHistory.filter(x=>x.chassis===h.chassis && x!==h);
+    const prev = earlier.length ? earlier[earlier.length-1] : null;
+    let diffHtml='—';
+    if(prev){
+      const d=h.price-prev.price;
+      diffHtml=d>0?`<span class="price-up">▲${fmt(d)}</span>`:d<0?`<span class="price-down">▼${fmt(Math.abs(d))}</span>`:'—';
+    }
+    tb.innerHTML+=`<tr>
+      <td style="color:#475569">${i+1}</td>
+      <td style="font-size:.8rem">${h.date}</td>
+      <td style="font-size:.75rem;color:#94a3b8">${h.chassis}</td>
+      <td style="font-weight:700">${h.model}</td>
+      <td>${h.color||'—'}</td>
+      <td>${h.year||'—'}</td>
+      <td style="font-weight:700;color:#FFD700">฿${fmt(h.price)}</td>
+      <td>${diffHtml}</td>
+      <td style="font-size:.8rem;color:#475569">${h.location||'—'}</td>
+      <td style="font-size:.8rem;color:#94a3b8">${h.added_by||'—'}</td>
+    </tr>`;
+  });
+}
+
+// ─── CHARTS ───────────────────────────────────────────
+const COLORS=['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899'];
+
+function updateCharts(){
+  if (!isLoggedIn) return;
+  const selModel = document.getElementById('chart-model').value;
+  const selYear  = document.getElementById('chart-year').value;
+
+  let filtered = priceHistory.filter(h=>h.model===selModel && (!selYear||h.year==selYear));
+  const byChassis = {};
+  filtered.forEach(h=>{
+    if(!byChassis[h.chassis]) byChassis[h.chassis]=[];
+    byChassis[h.chassis].push(h);
+  });
+
+  const lineDatasets = Object.entries(byChassis).map(([ch,entries],i)=>{
+    const sorted=entries.sort((a,b)=>{
+      const pa=a.date.split('/').reverse().join(''), pb=b.date.split('/').reverse().join('');
+      return pa>pb?1:-1;
+    });
+    return {
+      label: ch+' ('+sorted[0].year+')',
+      data: sorted.map(e=>e.price),
+      borderColor: COLORS[i%COLORS.length],
+      backgroundColor: COLORS[i%COLORS.length]+'33',
+      tension:0.3, fill:true, pointRadius:5, pointHoverRadius:8,
+    };
+  });
+
+  if(lineChartObj) lineChartObj.destroy();
+  const firstChassis = Object.values(byChassis)[0];
+  lineChartObj = new Chart(document.getElementById('lineChart'),{
+    type:'line',
+    data:{
+      labels: firstChassis?.sort((a,b)=>{const pa=a.date.split('/').reverse().join(''),pb=b.date.split('/').reverse().join('');return pa>pb?1:-1;}).map(e=>e.date)||[],
+      datasets:lineDatasets
+    },
+    options:{responsive:true, plugins:{legend:{labels:{color:'#e2e8f0',font:{size:10}}}},
+      scales:{x:{ticks:{color:'#94a3b8',font:{size:9}},grid:{color:'#1e293b'}},
+              y:{ticks:{color:'#94a3b8',callback:v=>'฿'+v.toLocaleString()},grid:{color:'#1e293b'}}}
+    }
+  });
+
+  const months=['Oct-25','Nov-25','Dec-25','Jan-26','Feb-26','Mar-26'];
+  const monthMap={'10/2025':'Oct-25','11/2025':'Nov-25','12/2025':'Dec-25','01/2026':'Jan-26','02/2026':'Feb-26','03/2026':'Mar-26'};
+  const avgByMonth={};
+  months.forEach(m=>avgByMonth[m]=[]);
+  filtered.forEach(h=>{
+    const parts=h.date.split('/');
+    const key=parts[1]+'/'+parts[2];
+    if(monthMap[key]) avgByMonth[monthMap[key]].push(h.price);
+  });
+  const avgData=months.map(m=>avgByMonth[m].length ? Math.round(avgByMonth[m].reduce((a,b)=>a+b)/avgByMonth[m].length) : null);
+
+  if(avgChartObj) avgChartObj.destroy();
+  avgChartObj = new Chart(document.getElementById('avgChart'),{
+    type:'bar',
+    data:{labels:months, datasets:[{
+      label:'ပျမ်းမျှဈေး (THB)', data:avgData,
+      backgroundColor:avgData.map((v,i)=>i===0||!avgData[i-1]?'#3b82f6':v>avgData[i-1]?'#10b981':'#ef4444'),
+      borderRadius:6,
+    }]},
+    options:{responsive:true, plugins:{legend:{labels:{color:'#e2e8f0'}}},
+      scales:{x:{ticks:{color:'#94a3b8'},grid:{color:'#1e293b'}},
+              y:{ticks:{color:'#94a3b8',callback:v=>'฿'+v.toLocaleString()},grid:{color:'#1e293b'}}}
+    }
+  });
+
+  renderTrendSummary(selModel, avgData, months);
+}
+
+function renderTrendSummary(model, avgData, months){
+  const valid = avgData.filter(v=>v);
+  if(valid.length<2){document.getElementById('trend-summary').innerHTML='';return;}
+  const first=valid[0], last=valid[valid.length-1];
+  const change=last-first, pct=((change/first)*100).toFixed(1);
+  const isUp=change>0;
+  document.getElementById('trend-summary').innerHTML=`
+    <div class="stat-card"><div class="num trend-big">${isUp?'📈':'📉'}</div><div class="lbl">${isUp?'ဈေးတက်နေတယ်':'ဈေးကျနေတယ်'}</div></div>
+    <div class="stat-card"><div class="num" style="color:${isUp?'#4ade80':'#f87171'}">${isUp?'+':''}${pct}%</div><div class="lbl">${months[0]} မှ ${months[months.length-1]} ထိ</div></div>
+    <div class="stat-card"><div class="num" style="color:#FFD700">฿${last.toLocaleString()}</div><div class="lbl">နောက်ဆုံးပျမ်းမျှဈေး</div></div>
+  `;
+}
+
+init();
+</script>
+</body>
+</html>
