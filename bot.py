@@ -3,7 +3,8 @@ import os
 import re
 import logging
 import requests
-from datetime import datetime
+import httpx
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
@@ -126,7 +127,7 @@ CARS = [
     {"chassis": "UZJ100-0151432", "model": "LAND CRUISER", "color": "SILVER", "year": 2004},
     {"chassis": "USF40-5006069", "model": "LEXUS LS", "color": "WHITE", "year": 2006},
     {"chassis": "WVWZZZ16ZDM638030", "model": "NEW BEETLE", "color": "BLACK", "year": 2013},
-    {"chassis": "ZRR75-0068964", "model": "NOAH", "color": "PEARL WHITE", "year": 2010},
+    {"chassis": "ZRR75-0068964", "model": "VOXY", "color": "PEARL WHITE", "year": 2010},
     {"chassis": "V98W-0300140", "model": "PAJERO", "color": "PEARL WHITE", "year": 2010},
     {"chassis": "S211U-0000227", "model": "PIXIS TRUCK", "color": "WHITE", "year": 2011},
     {"chassis": "FC7JKY-14910", "model": "RANGER", "color": "BLUE", "year": 2011},
@@ -208,7 +209,6 @@ async def guess_model_from_chassis_gemini(chassis_input):
     if not GEMINI_API_KEY:
         return "UNKNOWN"
     try:
-        import httpx, json
         prefix = chassis_input.split("-")[0] if "-" in chassis_input else chassis_input[:6]
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
         payload = {
@@ -280,7 +280,6 @@ async def upload_to_cloudinary(file_bytes: bytes, chassis: str) -> str:
         import base64
         import hashlib
         import time
-        import httpx
 
         timestamp = str(int(time.time()))
         public_id = f"auction/{chassis.replace('-', '_')}_{timestamp}"
@@ -555,7 +554,6 @@ Important rules:
             }]
         }
 
-        import httpx
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, json=payload, timeout=60)
         data = resp.json()
@@ -612,7 +610,6 @@ COLOR: PEARL WHITE"""},
                 }]
             }
 
-            import httpx
             async with httpx.AsyncClient() as client:
                 resp = await client.post(url, json=payload, timeout=60)
             data = resp.json()
@@ -951,7 +948,6 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         invite_url = None
         logger.error(f"Invite link error: {e}")
 
-    from datetime import timedelta
     expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
     txt = (
         f"✅ *Membership Approved!*\n\n"
@@ -1028,7 +1024,6 @@ async def check_expired_members(context):
 # ── Main ───────────────────────────────────────────────
 async def main():
     logger.info("Bot starting...")
-    import httpx
     async with httpx.AsyncClient() as client:
         await client.post(
             f"https://api.telegram.org/bot{TOKEN}/deleteWebhook",
