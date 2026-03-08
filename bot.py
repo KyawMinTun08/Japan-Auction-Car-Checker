@@ -28,6 +28,7 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 TOKEN = os.environ.get('BOT_TOKEN', '')
 SHEET_WEBHOOK = os.environ.get('SHEET_WEBHOOK', '')
 CHANNEL_ID = os.environ.get('CHANNEL_ID', '-1003749046571')
+ADMIN_IDS = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip().isdigit()]
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
 CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
@@ -899,6 +900,131 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             f"💰 `{chassis}` ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`", parse_mode='Markdown')
 
+# ── Membership Commands ────────────────────────────────
+async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if ADMIN_IDS and user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "❌ Format မှားတယ်\nဥပမာ: `/approve @username 1` သို့မဟုတ် `/approve 123456789 3`",
+            parse_mode='Markdown')
+        return
+    username_or_id = context.args[0].replace('@', '')
+    try:
+        months = int(context.args[1])
+    except:
+        await update.message.reply_text("❌ လ အရေအတွက် ဂဏန်းထည့်ပါ\nဥပမာ: `/approve @username 1`", parse_mode='Markdown')
+        return
+    days = months * 30
+    # Try to get user info from Telegram
+    try:
+        # If numeric ID given
+        member_id = int(username_or_id)
+        member_username = f"user_{member_id}"
+    except:
+        member_id = 0
+        member_username = username_or_id
+
+    # Save to Sheet
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(SHEET_WEBHOOK, json={
+                "action": "saveMember",
+                "userId": str(member_id) if member_id else username_or_id,
+                "username": member_username,
+                "days": days
+            }, timeout=10)
+    except Exception as e:
+        logger.error(f"saveMember error: {e}")
+
+    # Generate invite link
+    try:
+        invite = await context.bot.create_chat_invite_link(
+            chat_id=CHANNEL_ID,
+            member_limit=1,
+            expire_date=int((__import__('time').time()) + days * 86400)
+        )
+        invite_url = invite.invite_link
+    except Exception as e:
+        invite_url = None
+        logger.error(f"Invite link error: {e}")
+
+    from datetime import timedelta
+    expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
+    txt = (
+        f"✅ *Membership Approved!*\n\n"
+        f"👤 @{member_username}\n"
+        f"📅 သက်တမ်း: *{months} လ*\n"
+        f"⏰ ကုန်ဆုံးရက်: `{expire_date}`\n"
+    )
+    if invite_url:
+        txt += f"\n🔗 Invite Link:\n{invite_url}"
+    await update.message.reply_text(txt, parse_mode='Markdown')
+
+async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if ADMIN_IDS and user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(SHEET_WEBHOOK, json={"action": "getMembers"}, timeout=10)
+            data = resp.json()
+            members = data.get("members", [])
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+        return
+    if not members:
+        await update.message.reply_text("👥 Member မရှိသေးဘူး")
+        return
+    active = [m for m in members if m['status'] == 'ACTIVE']
+    expired = [m for m in members if m['status'] == 'EXPIRED']
+    txt = f"👥 *Members စာရင်း*\n✅ Active: {len(active)} | ❌ Expired: {len(expired)}\n\n"
+    txt += "*✅ Active:*\n"
+    for m in active:
+        txt += f"• @{m['username']} — ကုန်: `{m['expireDate']}`\n"
+    if expired:
+        txt += "\n*❌ Expired:*\n"
+        for m in expired[:5]:
+            txt += f"• @{m['username']} — `{m['expireDate']}`\n"
+    await update.message.reply_text(txt, parse_mode='Markdown')
+
+async def kick_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if ADMIN_IDS and user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if not context.args:
+        await update.message.reply_text("❌ Format: `/kick 123456789`", parse_mode='Markdown')
+        return
+    try:
+        target_id = int(context.args[0])
+        await context.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=target_id)
+        await context.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=target_id)
+        await update.message.reply_text(f"✅ User `{target_id}` ကို channel ကထုတ်ပြီ", parse_mode='Markdown')
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+async def check_expired_members(context):
+    """Auto kick expired members - runs daily"""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(SHEET_WEBHOOK, json={"action": "getMembers"}, timeout=10)
+            data = resp.json()
+            members = data.get("members", [])
+        for m in members:
+            if m['status'] == 'EXPIRED' and m['userId'].isdigit():
+                try:
+                    await context.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=int(m['userId']))
+                    await context.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=int(m['userId']))
+                    logger.info(f"Auto kicked expired member: {m['username']}")
+                except Exception as e:
+                    logger.error(f"Auto kick error {m['username']}: {e}")
+    except Exception as e:
+        logger.error(f"check_expired_members error: {e}")
+
 # ── Main ───────────────────────────────────────────────
 async def main():
     logger.info("Bot starting...")
@@ -918,9 +1044,15 @@ async def main():
     app.add_handler(CommandHandler("history", price_history))
     app.add_handler(CommandHandler("list", list_cars))
     app.add_handler(CommandHandler("web", web_link))
+    app.add_handler(CommandHandler("approve", approve_member))
+    app.add_handler(CommandHandler("members", members_list))
+    app.add_handler(CommandHandler("kick", kick_member))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
+
+    # Auto check expired members every 12 hours
+    app.job_queue.run_repeating(check_expired_members, interval=43200, first=60)
 
     await app.initialize()
     await app.start()
