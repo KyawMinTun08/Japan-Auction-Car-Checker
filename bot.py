@@ -24,9 +24,10 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 TOKEN = os.environ.get('BOT_TOKEN', '')
 SHEET_WEBHOOK = os.environ.get('SHEET_WEBHOOK', '')
+CHANNEL_ID = os.environ.get('CHANNEL_ID', '-1003749046571')
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
 CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
@@ -267,7 +268,7 @@ def format_car_info(car, price=None, history=None):
         txt += f"\n📈 *ဈေးမှတ်တမ်း ({len(history)} ကြိမ်):*\n"
         for h in history[-5:]:
             txt += f"  • {h['date']} → ฿{h['price']:,}\n"
-    txt += f"\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/JanJapan-Auction/)"
+    txt += f"\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     return txt
 
 async def upload_to_cloudinary(file_bytes: bytes, chassis: str) -> str:
@@ -329,6 +330,42 @@ def save_price(chassis, model, color, year, price, user_name, image_url=""):
             pass
     return entry
 
+# ── Channel Post ──────────────────────────────────────
+async def post_to_channel(context, chassis, model, color, year, price, image_url=""):
+    if not CHANNEL_ID:
+        return
+    year_str = str(year) if year and year != 0 else "—"
+    color_str = color if color and color not in ["-", ""] else "—"
+    price_str = f"฿{int(price):,}" if price else "—"
+    text = (
+        f"🚗 *ကားသစ်ဝင်ပြီ!*\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"🔑 Chassis : `{chassis}`\n"
+        f"🚘 Model   : *{model}*\n"
+        f"🎨 Color   : {color_str}\n"
+        f"📅 Year    : {year_str}\n"
+        f"💰 Price   : *{price_str}*\n"
+        f"📍 Maesot Freezone\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"🌐 [Japan Auction Car Checker](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
+    )
+    try:
+        if image_url:
+            await context.bot.send_photo(
+                chat_id=CHANNEL_ID,
+                photo=image_url,
+                caption=text,
+                parse_mode='Markdown'
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=CHANNEL_ID,
+                text=text,
+                parse_mode='Markdown'
+            )
+    except Exception as e:
+        logger.error(f"Channel post error: {e}")
+
 # ── Command Handlers ──────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -389,7 +426,7 @@ async def find_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = get_price_history(car['chassis'])
         price_str = f"฿{history[-1]['price']:,}" if history else "ဈေးမရသေး"
         txt += f"• `{car['chassis']}` — {car['color']} {car['year']} — *{price_str}*\n"
-    txt += f"\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/JanJapan-Auction/)"
+    txt += f"\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     await update.message.reply_text(txt, parse_mode='Markdown')
 
 async def add_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -417,7 +454,7 @@ async def add_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💰 ฿{price:,}\n"
         f"📅 {entry['date']}\n"
         f"👤 {user_name}\n\n"
-        f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/JanJapan-Auction/)"
+        f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     )
     await update.message.reply_text(txt, parse_mode='Markdown')
 
@@ -457,13 +494,13 @@ async def list_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt += f"{status} `{car['chassis']}` — {car['model']} {car['year']}\n"
     if len(CARS) > 20:
         txt += f"\n... နှင့် {len(CARS)-20} စီး ထပ်ရှိသေးတယ်"
-    txt += f"\n\n🌐 [အားလုံးကြည့်ရန်](https://kyawmintun08.github.io/JanJapan-Auction/)"
+    txt += f"\n\n🌐 [အားလုံးကြည့်ရန်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     await update.message.reply_text(txt, parse_mode='Markdown')
 
 async def web_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = (
         "🌐 *JAN JAPAN Auction Web App*\n\n"
-        "https://kyawmintun08.github.io/JanJapan-Auction/\n\n"
+        "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/\n\n"
         "• ကားရှာနိုင် 🔍\n"
         "• ဈေးကြည့်နိုင် 📈\n"
         "• Chart ကြည့်နိုင် 📊\n"
@@ -726,9 +763,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔑 `{car['chassis']}`\n"
             f"🎨 {car['color']}\n"
             f"💰 ฿{price:,}\n\n"
-            f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/JanJapan-Auction/)"
+            f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
         )
         await update.message.reply_text(txt, parse_mode='Markdown')
+        await post_to_channel(context, car['chassis'], car['model'], car['color'], car['year'], price, image_url)
     elif car:
         pending_photo[user_id] = {
             "chassis": car['chassis'], "model": car['model'],
@@ -758,9 +796,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔑 `{chassis}`\n"
                 f"🎨 {display_color}\n"
                 f"💰 ฿{price:,}\n\n"
-                f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/JanJapan-Auction/)"
+                f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
             )
             await update.message.reply_text(txt, parse_mode='Markdown')
+            await post_to_channel(context, chassis, guessed_model, display_color, 0, price, image_url)
         else:
             pending_photo[user_id] = {
                 "chassis": chassis, "model": guessed_model, "color": display_color,
@@ -808,9 +847,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"✅ *ဈေးထည့်ပြီးပါပြီ!*\n\n"
                     f"🚗 {data['model']} — `{data['chassis']}`\n"
                     f"💰 ฿{price:,}\n\n"
-                    f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/JanJapan-Auction/)"
+                    f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
                 )
                 await update.message.reply_text(txt, parse_mode='Markdown')
+                await post_to_channel(context, data['chassis'], data['model'], data['color'], data['year'], price, data.get('image_url', ''))
                 return
             except:
                 pass
