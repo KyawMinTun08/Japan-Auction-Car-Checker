@@ -24,16 +24,14 @@ TOKEN                 = os.environ.get('BOT_TOKEN', '')
 SHEET_WEBHOOK         = os.environ.get('SHEET_WEBHOOK', '')
 CHANNEL_ID            = os.environ.get('CHANNEL_ID', '-1003749046571')
 ADMIN_IDS             = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip().isdigit()]
-ADMIN_USERNAME        = os.environ.get('ADMIN_USERNAME', '')   # e.g. Steve985
+ADMIN_USERNAME        = os.environ.get('ADMIN_USERNAME', '')
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
 CLOUDINARY_API_KEY    = os.environ.get('CLOUDINARY_API_KEY', '')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
 
-# ── Location Constants ────────────────────────────────
 LOC_MAESOT = "MaeSot Freezone"
 LOC_KLANG9 = "Klang9 Freezone"
 
-# ── Chassis Prefix Map ────────────────────────────────
 CHASSIS_PREFIX_MAP = {
     "VZNY12":"ADVAN",
     "GRS200":"CROWN","GRS201":"CROWN","GRS202":"CROWN","GRS204":"CROWN","GRS210":"CROWN",
@@ -244,7 +242,7 @@ async def guess_model_gemini(chassis_input: str) -> str:
     try:
         prefix  = chassis_input.split("-")[0] if "-" in chassis_input else chassis_input[:6]
         url     = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-        payload = {"contents":[{"parts":[{"text":f"What Japanese car model has chassis prefix '{prefix}'? Reply ONLY the model name UPPERCASE (e.g. HIJET TRUCK). If unknown reply UNKNOWN."}]}]}
+        payload = {"contents":[{"parts":[{"text":f"What Japanese car model has chassis prefix '{prefix}'? Reply ONLY the model name UPPERCASE. If unknown reply UNKNOWN."}]}]}
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, json=payload, timeout=15)
         data = resp.json()
@@ -252,7 +250,7 @@ async def guess_model_gemini(chassis_input: str) -> str:
             m = data["candidates"][0]["content"]["parts"][0]["text"].strip().upper().split("\n")[0].strip()
             return m if m and m != "UNKNOWN" else "UNKNOWN"
     except Exception as e:
-        logger.error(f"Gemini model guess: {e}")
+        logger.error(f"Gemini model: {e}")
     return "UNKNOWN"
 
 def find_by_chassis(chassis_input: str):
@@ -362,24 +360,44 @@ async def notify_admins(context, text: str, reply_markup=None):
         try:
             await context.bot.send_message(
                 chat_id=admin_id, text=text,
-                parse_mode='Markdown',
-                reply_markup=reply_markup)
+                parse_mode='Markdown', reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Admin notify {admin_id}: {e}")
+
+# ── Confirm helper ────────────────────────────────────
+async def send_confirm(update_or_query, data: dict, is_callback=False):
+    """
+    Save မလုပ်သေး — Confirm / Cancel မေးတဲ့ message ပေးပို့
+    """
+    txt = (
+        f"⚠️ *စစ်ဆေးပါ — မှန်ကန်ပါသလား?*\n\n"
+        f"🚗 *{data['model']}* ({ys(data.get('year',0))})\n"
+        f"🔑 `{data['chassis']}`\n"
+        f"🎨 {data['color']}\n"
+        f"📍 {data['loc']}\n"
+        f"💰 ฿{data['price']:,}\n\n"
+        f"✅ မှန်ရင် *Save* နှိပ်ပါ\n"
+        f"❌ မှားရင် *Cancel* နှိပ်ပါ\n"
+        f"✏️ Chassis မှားရင် `/price [chassis] [ဈေး]`"
+    )
+    uid = data['user_id']
+    kb  = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ မှန်တယ် Save",    callback_data=f"cs_{uid}"),
+        InlineKeyboardButton("❌ မှားတယ် Cancel", callback_data=f"cc_{uid}"),
+    ]])
+    if is_callback:
+        await update_or_query.message.reply_text(txt, parse_mode='Markdown', reply_markup=kb)
+    else:
+        await update_or_query.message.reply_text(txt, parse_mode='Markdown', reply_markup=kb)
 
 # ── Commands ──────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = []
     if ADMIN_USERNAME:
-        kb.append([InlineKeyboardButton(
-            "💬 Admin ကို ဆက်သွယ်", url=f"https://t.me/{ADMIN_USERNAME}"
-        )])
-    kb.append([InlineKeyboardButton(
-        "🌐 Web App ကြည့်", url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/"
-    )])
-
+        kb.append([InlineKeyboardButton("💬 Admin ကို ဆက်သွယ်", url=f"https://t.me/{ADMIN_USERNAME}")])
+    kb.append([InlineKeyboardButton("🌐 Web App ကြည့်", url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/")])
     await update.message.reply_text(
-        "🚗 *JAN JAPAN Auction Bot*\n"
+        f"🚗 *JAN JAPAN Auction Bot*\n"
         f"📍 {LOC_MAESOT} & {LOC_KLANG9}\n\n"
         "*Commands:*\n"
         "📸 ကားပုံ တင် → Chassis auto ဖတ်\n"
@@ -466,7 +484,7 @@ async def price_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prev = None
     for h in history:
         if prev:
-            diff = h['price'] - prev
+            diff  = h['price'] - prev
             arrow = "📈" if diff > 0 else "📉" if diff < 0 else "➡"
             txt += f"• {h['date']} → *฿{h['price']:,}* ({arrow} {diff:+,})\n"
         else:
@@ -495,20 +513,16 @@ async def web_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• {LOC_MAESOT} + {LOC_KLANG9} 🚗\n• ဈေးကြည့်နိုင် 📈\n• Chart ကြည့်နိုင် 📊",
         parse_mode='Markdown')
 
-# ── /renew — Customer → Admin ─────────────────────────
 async def renew_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user     = update.effective_user
     user_id  = user.id
     name     = user.first_name or "Unknown"
     username = f"@{user.username}" if user.username else str(user_id)
 
-    # ✅ Customer ကို confirm + Admin direct link
     customer_kb = []
     if ADMIN_USERNAME:
         customer_kb.append([InlineKeyboardButton(
-            "💬 Admin ကို တိုက်ရိုက် Message ပို့",
-            url=f"https://t.me/{ADMIN_USERNAME}"
-        )])
+            "💬 Admin ကို တိုက်ရိုက် Message ပို့", url=f"https://t.me/{ADMIN_USERNAME}")])
     await update.message.reply_text(
         "✅ *Membership သက်တမ်းတိုး တောင်းဆိုပြီးပါပြီ!*\n\n"
         "Admin မှ ဆက်သွယ်ပေးမှာပါ — ခဏစောင့်ပါ 🙏\n\n"
@@ -516,21 +530,20 @@ async def renew_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(customer_kb) if customer_kb else None)
 
-    # ✅ Admin ကို notify + Quick Approve buttons
     admin_text = (
         f"🔔 *Membership Renewal Request!*\n\n"
         f"👤 {name} ({username})\n"
         f"🆔 ID: `{user_id}`\n\n"
         f"ထပ်တိုးဖို့ ခလုတ် နှိပ်ပါ 👇"
     )
-    admin_kb = [
+    admin_kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"💬 {name} ကို Message ပို့", url=f"tg://user?id={user_id}")],
         [
             InlineKeyboardButton("✅ 1 လ Approve", callback_data=f"qa_{user_id}_1"),
             InlineKeyboardButton("✅ 3 လ Approve", callback_data=f"qa_{user_id}_3"),
         ],
-    ]
-    await notify_admins(context, admin_text, reply_markup=InlineKeyboardMarkup(admin_kb))
+    ])
+    await notify_admins(context, admin_text, reply_markup=admin_kb)
 
 # ── OCR ───────────────────────────────────────────────
 def tesseract_ocr_chassis(file_bytes: bytes) -> str:
@@ -576,7 +589,7 @@ async def gemini_ocr_chassis(file_bytes: bytes) -> dict:
             img_b64 = base64.b64encode(file_bytes).decode()
             url     = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
             payload = {"contents":[{"parts":[
-                {"text":"Japan auction car photo. Find chassis on windshield.\nReturn EXACTLY:\nCHASSIS: NT32-024640\nMODEL: X-TRAIL\nCOLOR: BLACK\nYEAR: 2014"},
+                {"text":"Japan auction car photo. Find chassis number written on windshield with marker.\nReturn EXACTLY:\nCHASSIS: NT32-024640\nMODEL: X-TRAIL\nCOLOR: BLACK\nYEAR: 2014"},
                 {"inline_data":{"mime_type":"image/jpeg","data":img_b64}}
             ]}]}
             async with httpx.AsyncClient() as client:
@@ -589,7 +602,9 @@ async def gemini_ocr_chassis(file_bytes: bytes) -> dict:
                     line = line.strip()
                     if line.startswith("CHASSIS:"):
                         raw = line.replace("CHASSIS:","").strip()
-                        for pat in [r'[A-Z]{1,5}\d{1,4}[A-Z]{0,2}\d{0,2}-\d{4,7}',r'[A-Z]{2,6}\d{2,4}-\d{4,7}',r'[A-Z0-9]{4,20}-\d{4,7}']:
+                        for pat in [r'[A-Z]{1,5}\d{1,4}[A-Z]{0,2}\d{0,2}-\d{4,7}',
+                                    r'[A-Z]{2,6}\d{2,4}-\d{4,7}',
+                                    r'[A-Z0-9]{4,20}-\d{4,7}']:
                             m = re.search(pat, raw)
                             if m: chassis = m.group().replace(' ','-'); break
                     elif line.startswith("MODEL:"): model = line.replace("MODEL:","").strip()
@@ -611,10 +626,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo   = update.message.photo[-1]
     caption = (update.message.caption or "").strip().lower()
 
+    # ── Auction List Mode ──
     if "list" in caption:
-        is_klang9   = "klang9" in caption or "klang" in caption
-        import_loc  = "Klang9" if is_klang9 else "MaeSot"
-        loc_name    = LOC_KLANG9 if is_klang9 else LOC_MAESOT
+        is_klang9  = "klang9" in caption or "klang" in caption
+        import_loc = "Klang9" if is_klang9 else "MaeSot"
+        loc_name   = LOC_KLANG9 if is_klang9 else LOC_MAESOT
         await update.message.reply_text(f"📋 {loc_name} Auction List ဖတ်နေတယ်... ⏳")
         try:
             file       = await photo.get_file()
@@ -632,8 +648,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for car in new_cars:
             ch = str(car.get("chassis","")).upper().strip()
             if ch and ch not in existing:
-                CARS.append({"chassis":ch,"model":car.get("model","") or guess_model_from_chassis(ch),
-                             "color":car.get("color","-"),"year":int(car.get("year",0)),"loc":import_loc})
+                CARS.append({"chassis":ch,
+                             "model":car.get("model","") or guess_model_from_chassis(ch),
+                             "color":car.get("color","-"),
+                             "year":int(car.get("year",0)),
+                             "loc":import_loc})
                 existing.add(ch); added.append(ch)
 
         txt = f"✅ *{loc_name} List Update ပြီး!*\n\n📊 ဖတ်ရ: {len(new_cars)} စီး\n✨ အသစ်: {len(added)} စီး\n"
@@ -644,11 +663,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt, parse_mode='Markdown')
         return
 
+    # ── Car Photo Mode ──
     await update.message.reply_text("🔍 Chassis ရှာနေတယ်... ⏳")
 
-    chassis = extract_chassis_from_text(caption) if caption else None
-    price_match = re.search(r'(?<![A-Z0-9])(\d{4,6})(?![A-Z0-9])', caption.upper()) if caption else None
-    price       = int(price_match.group(1)) if price_match else None
+    chassis      = extract_chassis_from_text(caption) if caption else None
+    price_match  = re.search(r'(?<![A-Z0-9])(\d{4,6})(?![A-Z0-9])', caption.upper()) if caption else None
+    price        = int(price_match.group(1)) if price_match else None
     gemini_model = ""; gemini_color = ""; gemini_year = 0; file_bytes = None
 
     if not chassis:
@@ -656,8 +676,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file       = await photo.get_file()
             file_bytes = bytes(await file.download_as_bytearray())
             result     = await gemini_ocr_chassis(file_bytes)
-            chassis = result.get("chassis",""); gemini_model = result.get("model","")
-            gemini_color = result.get("color",""); gemini_year = result.get("year",0)
+            chassis      = result.get("chassis","")
+            gemini_model = result.get("model","")
+            gemini_color = result.get("color","")
+            gemini_year  = result.get("year",0)
         except Exception as e:
             logger.error(f"Photo: {e}")
 
@@ -668,21 +690,49 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     car_loc = loc_display(car.get('loc','MaeSot')) if car else LOC_MAESOT
 
+    # ── ✅ Chassis + Price တွေ့ → Confirm မေး (Auto Save မလုပ်) ──
     if car and price:
-        user_name = update.effective_user.first_name or "Unknown"
-        await save_price(car['chassis'], car['model'], car['color'], car['year'], price, user_name, image_url, car_loc)
+        pending_photo[user_id] = {
+            "user_id":   user_id,
+            "chassis":   car['chassis'],
+            "model":     car['model'],
+            "color":     car['color'],
+            "year":      car['year'],
+            "price":     price,
+            "loc":       car_loc,
+            "image_url": image_url,
+        }
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ မှန်တယ် Save",    callback_data=f"cs_{user_id}"),
+            InlineKeyboardButton("❌ မှားတယ် Cancel", callback_data=f"cc_{user_id}"),
+        ]])
         await update.message.reply_text(
-            f"✅ *Auto ထည့်ပြီး!*\n\n🚗 {car['model']} ({ys(car.get('year',0))})\n"
-            f"🔑 `{car['chassis']}`\n🎨 {car['color']}\n📍 {car_loc}\n💰 ฿{price:,}\n\n"
-            f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)", parse_mode='Markdown')
-        await post_to_channel(context, car['chassis'], car['model'], car['color'], car['year'], price, image_url, car_loc)
+            f"⚠️ *စစ်ဆေးပါ — မှန်ကန်ပါသလား?*\n\n"
+            f"🚗 *{car['model']}* ({ys(car.get('year',0))})\n"
+            f"🔑 `{car['chassis']}`\n"
+            f"🎨 {car['color']}\n"
+            f"📍 {car_loc}\n"
+            f"💰 ฿{price:,}\n\n"
+            f"✅ မှန်ရင် *Save* နှိပ်ပါ\n"
+            f"❌ မှားရင် *Cancel* နှိပ်ပြီး `/price [chassis] [ဈေး]` သုံးပါ",
+            parse_mode='Markdown', reply_markup=kb)
 
     elif car:
-        pending_photo[user_id] = {"chassis":car['chassis'],"model":car['model'],"color":car['color'],
-                                   "year":car['year'],"file_id":photo.file_id,"image_url":image_url,"loc":car_loc}
+        # Price မပါ → price ရိုက်ထည့်ဖို့ မေး
+        pending_photo[user_id] = {
+            "user_id":   user_id,
+            "chassis":   car['chassis'],
+            "model":     car['model'],
+            "color":     car['color'],
+            "year":      car['year'],
+            "price":     None,
+            "loc":       car_loc,
+            "image_url": image_url,
+        }
         await update.message.reply_text(
             f"🚗 ကားတွေ့ပြီ!\n\n*{car['model']}* ({ys(car.get('year',0))})\n"
-            f"`{car['chassis']}`\n🎨 {car['color']}\n📍 {car_loc}\n\n💰 ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`",
+            f"`{car['chassis']}`\n🎨 {car['color']}\n📍 {car_loc}\n\n"
+            f"💰 ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`",
             parse_mode='Markdown')
 
     elif chassis:
@@ -693,16 +743,40 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         display_year  = gemini_year or 0
 
         if price:
-            user_name = update.effective_user.first_name or "Unknown"
-            await save_price(chassis, guessed, display_color, display_year, price, user_name, image_url, LOC_MAESOT)
+            # Checklist မှာ မပါ + price ပါ → Confirm မေး
+            pending_photo[user_id] = {
+                "user_id":   user_id,
+                "chassis":   chassis,
+                "model":     guessed,
+                "color":     display_color,
+                "year":      display_year,
+                "price":     price,
+                "loc":       LOC_MAESOT,
+                "image_url": image_url,
+            }
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ မှန်တယ် Save",    callback_data=f"cs_{user_id}"),
+                InlineKeyboardButton("❌ မှားတယ် Cancel", callback_data=f"cc_{user_id}"),
+            ]])
             await update.message.reply_text(
-                f"✅ *Auto ထည့်ပြီး!*\n\n🚗 {guessed} ({ys(display_year)})\n"
-                f"🔑 `{chassis}`\n🎨 {display_color}\n💰 ฿{price:,}\n\n"
-                f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)", parse_mode='Markdown')
-            await post_to_channel(context, chassis, guessed, display_color, display_year, price, image_url)
+                f"⚠️ *စစ်ဆေးပါ — Checklist မှာ မပါဘူး*\n\n"
+                f"🚗 ခန့်မှန်း: *{guessed}* ({ys(display_year)})\n"
+                f"🔑 `{chassis}`\n🎨 {display_color}\n"
+                f"💰 ฿{price:,}\n\n"
+                f"✅ မှန်ရင် *Save* နှိပ်ပါ\n"
+                f"❌ မှားရင် *Cancel* နှိပ်ပြီး `/price [chassis] [ဈေး]` သုံးပါ",
+                parse_mode='Markdown', reply_markup=kb)
         else:
-            pending_photo[user_id] = {"chassis":chassis,"model":guessed,"color":display_color,
-                                       "year":display_year,"file_id":photo.file_id,"image_url":image_url,"loc":LOC_MAESOT}
+            pending_photo[user_id] = {
+                "user_id":   user_id,
+                "chassis":   chassis,
+                "model":     guessed,
+                "color":     display_color,
+                "year":      display_year,
+                "price":     None,
+                "loc":       LOC_MAESOT,
+                "image_url": image_url,
+            }
             msg = (f"⚠️ Checklist မှာ မပါဘူး\n\n🚗 ခန့်မှန်း: *{guessed}* ({ys(display_year)})\n"
                    f"🔑 `{chassis}`\n🎨 {display_color}\n\n💰 ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`"
                    if guessed and guessed != "UNKNOWN"
@@ -718,20 +792,29 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text    = update.message.text.strip()
 
     if user_id in pending_photo:
-        if re.match(r'^[\d,]+$', text.replace(' ','')):
+        data = pending_photo[user_id]
+        # Price မရှိသေးရင် price ထည့်ဖို့ စောင့်နေ
+        if data.get('price') is None and re.match(r'^[\d,]+$', text.replace(' ','')):
             try:
-                price     = int(text.replace(',','').replace(' ',''))
-                data      = pending_photo.pop(user_id)
-                user_name = update.effective_user.first_name or "Unknown"
-                loc       = data.get('loc', LOC_MAESOT)
-                await save_price(data['chassis'], data['model'], data['color'], data['year'],
-                                 price, user_name, data.get('image_url',''), loc)
+                price            = int(text.replace(',','').replace(' ',''))
+                data['price']    = price
+                pending_photo[user_id] = data
+
+                # Confirm မေး
+                kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✅ မှန်တယ် Save",    callback_data=f"cs_{user_id}"),
+                    InlineKeyboardButton("❌ မှားတယ် Cancel", callback_data=f"cc_{user_id}"),
+                ]])
                 await update.message.reply_text(
-                    f"✅ *ဈေးထည့်ပြီး!*\n\n🚗 {data['model']} ({ys(data.get('year',0))}) — `{data['chassis']}`\n"
-                    f"📍 {loc}\n💰 ฿{price:,}\n\n"
-                    f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)", parse_mode='Markdown')
-                await post_to_channel(context, data['chassis'], data['model'], data['color'],
-                                      data['year'], price, data.get('image_url',''), loc)
+                    f"⚠️ *စစ်ဆေးပါ — မှန်ကန်ပါသလား?*\n\n"
+                    f"🚗 *{data['model']}* ({ys(data.get('year',0))})\n"
+                    f"🔑 `{data['chassis']}`\n"
+                    f"🎨 {data['color']}\n"
+                    f"📍 {data['loc']}\n"
+                    f"💰 ฿{price:,}\n\n"
+                    f"✅ မှန်ရင် *Save* နှိပ်ပါ\n"
+                    f"❌ မှားရင် *Cancel* နှိပ်ပါ",
+                    parse_mode='Markdown', reply_markup=kb)
                 return
             except: pass
 
@@ -756,45 +839,70 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    # ── ✅ Confirm Save ──
+    if query.data.startswith("cs_"):
+        uid  = int(query.data.replace("cs_",""))
+        data = pending_photo.pop(uid, None)
+        if not data or data.get('price') is None:
+            await query.message.reply_text("❌ Data မရှိတော့ပါ — ပုံ ပြန်တင်ပါ")
+            return
+        user_name = query.from_user.first_name or "Unknown"
+        await save_price(data['chassis'], data['model'], data['color'], data['year'],
+                        data['price'], user_name, data.get('image_url',''), data.get('loc', LOC_MAESOT))
+        await query.message.reply_text(
+            f"✅ *Save ပြီး!*\n\n"
+            f"🚗 {data['model']} ({ys(data.get('year',0))})\n"
+            f"🔑 `{data['chassis']}`\n"
+            f"📍 {data.get('loc', LOC_MAESOT)}\n"
+            f"💰 ฿{data['price']:,}\n\n"
+            f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)",
+            parse_mode='Markdown')
+        await post_to_channel(context, data['chassis'], data['model'], data['color'],
+                             data['year'], data['price'], data.get('image_url',''), data.get('loc', LOC_MAESOT))
+
+    # ── ❌ Cancel ──
+    elif query.data.startswith("cc_"):
+        uid = int(query.data.replace("cc_",""))
+        pending_photo.pop(uid, None)
+        await query.message.reply_text(
+            "❌ *Cancel လုပ်ပြီး*\n\n"
+            "Chassis ကိုယ်တိုင် ထည့်ပါ:\n"
+            "`/price [chassis] [ဈေး]`\n"
+            "ဥပမာ: `/price GP1-1049821 58000`",
+            parse_mode='Markdown')
+
     # ── Add Price button ──
-    if query.data.startswith("addprice_"):
+    elif query.data.startswith("addprice_"):
         chassis = query.data.replace("addprice_","")
         car     = find_by_chassis(chassis)
         if car:
             pending_photo[query.from_user.id] = {
-                "chassis":car['chassis'],"model":car['model'],"color":car['color'],
-                "year":car['year'],"file_id":None,"loc":loc_display(car.get('loc','MaeSot'))}
+                "user_id": query.from_user.id,
+                "chassis": car['chassis'], "model": car['model'],
+                "color":   car['color'],   "year":  car['year'],
+                "price":   None, "loc": loc_display(car.get('loc','MaeSot')), "image_url": ""}
         await query.message.reply_text(
             f"💰 `{chassis}` ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`", parse_mode='Markdown')
 
-    # ── Quick Approve (from /renew notification) ──
+    # ── Quick Approve ──
     elif query.data.startswith("qa_"):
-        # format: qa_{user_id}_{months}
         parts     = query.data.split("_")
         target_id = int(parts[1])
         months    = int(parts[2])
         days      = months * 30
-
-        # Real name ရှာ
         try:
             chat            = await context.bot.get_chat(target_id)
             member_username = chat.username or chat.first_name or str(target_id)
         except:
             member_username = str(target_id)
-
-        # Sheet မှာ သိမ်း
         try:
             async with httpx.AsyncClient() as client:
                 await client.post(SHEET_WEBHOOK, json={
-                    "action":"saveMember",
-                    "userId":str(target_id),
-                    "username":member_username,
-                    "days":days
+                    "action":"saveMember","userId":str(target_id),
+                    "username":member_username,"days":days
                 }, timeout=10, follow_redirects=True)
         except Exception as e:
-            logger.error(f"Quick approve sheet: {e}")
-
-        # Invite link
+            logger.error(f"Quick approve: {e}")
         try:
             invite     = await context.bot.create_chat_invite_link(
                 chat_id=CHANNEL_ID, member_limit=1,
@@ -802,14 +910,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             invite_url = invite.invite_link
         except:
             invite_url = None
-
         expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
-
-        # ✅ Customer ကို notify
         try:
-            customer_kb = []
+            cust_kb = []
             if invite_url:
-                customer_kb.append([InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)])
+                cust_kb.append([InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)])
             await context.bot.send_message(
                 chat_id=target_id,
                 text=(f"🎉 *Membership ထပ်တိုးပြီးပါပြီ!*\n\n"
@@ -817,75 +922,55 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                       f"⏰ ကုန်ဆုံးရက်: `{expire_date}`\n\n"
                       f"သက်တမ်းတိုးဖို့: /renew\nကျေးဇူးတင်ပါတယ် 🙏"),
                 parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup(customer_kb) if customer_kb else None)
+                reply_markup=InlineKeyboardMarkup(cust_kb) if cust_kb else None)
         except Exception as e:
-            logger.error(f"Customer quick approve notify: {e}")
-
-        # ✅ Admin ကို confirm
+            logger.error(f"Customer notify: {e}")
         await query.message.reply_text(
-            f"✅ *Quick Approve ပြီး!*\n\n"
-            f"👤 @{member_username}\n"
-            f"📅 {months} လ\n"
-            f"⏰ ကုန်ဆုံး: `{expire_date}`",
+            f"✅ *Quick Approve ပြီး!*\n\n👤 @{member_username}\n📅 {months} လ\n⏰ ကုန်ဆုံး: `{expire_date}`",
             parse_mode='Markdown')
 
 # ── Membership Commands ────────────────────────────────
 async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
-        return
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if len(context.args) < 2:
-        await update.message.reply_text("❌ Format: `/approve @username 1` သို့မဟုတ် `/approve 123456789 3`", parse_mode='Markdown')
-        return
-
+        await update.message.reply_text("❌ Format: `/approve @username 1` သို့မဟုတ် `/approve 123456789 3`", parse_mode='Markdown'); return
     username_or_id = context.args[0].replace('@','')
     try:
         months = int(context.args[1])
     except:
-        await update.message.reply_text("❌ လ ဂဏန်းထည့်ပါ", parse_mode='Markdown')
-        return
-
+        await update.message.reply_text("❌ လ ဂဏန်းထည့်ပါ", parse_mode='Markdown'); return
     days = months * 30
-
     try:
         member_id       = int(username_or_id)
         member_username = username_or_id
     except ValueError:
         member_id       = None
         member_username = username_or_id
-
-    # Real Telegram name ရှာ
     if member_id:
         try:
             chat = await context.bot.get_chat(member_id)
             member_username = chat.username or chat.first_name or str(member_id)
         except Exception as e:
             logger.error(f"get_chat: {e}")
-
     try:
         async with httpx.AsyncClient() as client:
             await client.post(SHEET_WEBHOOK, json={
                 "action":"saveMember",
                 "userId":str(member_id) if member_id is not None else username_or_id,
-                "username":member_username,
-                "days":days
+                "username":member_username,"days":days
             }, timeout=10, follow_redirects=True)
     except Exception as e:
         logger.error(f"saveMember: {e}")
-
     try:
         invite     = await context.bot.create_chat_invite_link(
             chat_id=CHANNEL_ID, member_limit=1,
             expire_date=int((__import__('time').time()) + days * 86400))
         invite_url = invite.invite_link
     except Exception as e:
-        invite_url = None
-        logger.error(f"Invite: {e}")
-
+        invite_url = None; logger.error(f"Invite: {e}")
     expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
-
-    # ✅ Customer ကိုလဲ notify
     if member_id:
         try:
             cust_kb = []
@@ -893,29 +978,22 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 cust_kb.append([InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)])
             await context.bot.send_message(
                 chat_id=member_id,
-                text=(f"🎉 *Membership Approved!*\n\n"
-                      f"📅 သက်တမ်း: *{months} လ*\n"
-                      f"⏰ ကုန်ဆုံးရက်: `{expire_date}`\n\n"
-                      f"သက်တမ်းတိုးဖို့: /renew\nကျေးဇူးတင်ပါတယ် 🙏"),
+                text=(f"🎉 *Membership Approved!*\n\n📅 သက်တမ်း: *{months} လ*\n"
+                      f"⏰ ကုန်ဆုံးရက်: `{expire_date}`\n\nသက်တမ်းတိုးဖို့: /renew\nကျေးဇူးတင်ပါတယ် 🙏"),
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(cust_kb) if cust_kb else None)
         except Exception as e:
-            logger.error(f"Customer approve notify: {e}")
-
-    txt = (f"✅ <b>Membership Approved!</b>\n\n"
-           f"👤 @{member_username}\n"
-           f"🆔 <code>{member_id or 'N/A'}</code>\n"
-           f"📅 <b>{months} လ</b>\n"
+            logger.error(f"Customer notify: {e}")
+    txt = (f"✅ <b>Membership Approved!</b>\n\n👤 @{member_username}\n"
+           f"🆔 <code>{member_id or 'N/A'}</code>\n📅 <b>{months} လ</b>\n"
            f"⏰ ကုန်ဆုံး: <code>{expire_date}</code>\n")
-    if invite_url:
-        txt += f"\n🔗 {invite_url}"
+    if invite_url: txt += f"\n🔗 {invite_url}"
     await update.message.reply_text(txt, parse_mode='HTML')
 
 async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
-        return
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     try:
         async with httpx.AsyncClient() as client:
             resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers"}, timeout=10, follow_redirects=True)
@@ -938,11 +1016,9 @@ async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def kick_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
-        return
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if not context.args:
-        await update.message.reply_text("❌ Format: `/kick 123456789`", parse_mode='Markdown')
-        return
+        await update.message.reply_text("❌ Format: `/kick 123456789`", parse_mode='Markdown'); return
     try:
         target_id = int(context.args[0])
         await context.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=target_id)
@@ -958,24 +1034,16 @@ async def check_expired_members(context):
         async with httpx.AsyncClient() as client:
             resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers"}, timeout=10, follow_redirects=True)
             members = resp.json().get("members",[])
-
-        now      = datetime.now()
-        kicked   = []
-        expiring = []
-
+        now = datetime.now(); kicked = []; expiring = []
         for m in members:
             uid = str(m.get('userId',''))
             if not uid: continue
             try:
                 expire_date = datetime.strptime(m.get('expireDate','01/01/2000'), "%d/%m/%Y")
             except: continue
-
             days_left = (expire_date - now).days
-
-            # ✅ 3 ရက်အလို warning
             if 0 <= days_left <= 3 and uid not in warned_3days:
-                expiring.append(m)
-                warned_3days.add(uid)
+                expiring.append(m); warned_3days.add(uid)
                 if uid.isdigit():
                     try:
                         kb = []
@@ -991,8 +1059,6 @@ async def check_expired_members(context):
                             reply_markup=InlineKeyboardMarkup(kb) if kb else None)
                     except Exception as e:
                         logger.error(f"3day warn: {e}")
-
-            # ✅ Expired → kick
             if m.get('status') == 'EXPIRED' and uid.isdigit():
                 try:
                     await context.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=int(uid))
@@ -1000,22 +1066,15 @@ async def check_expired_members(context):
                     kicked.append(m)
                 except Exception as e:
                     logger.error(f"Auto kick {uid}: {e}")
-
-        # Admin notify — kicked
         if kicked:
             txt = "🚫 *Auto Kick (Membership ကုန်ဆုံး):*\n\n"
-            for m in kicked:
-                txt += f"• @{m['username']} — `{m.get('expireDate','?')}`\n"
+            for m in kicked: txt += f"• @{m['username']} — `{m.get('expireDate','?')}`\n"
             await notify_admins(context, txt)
-
-        # Admin notify — expiring soon
         if expiring:
             txt = "⚠️ *Membership ၃ ရက်အတွင်း ကုန်ဆုံးမည်:*\n\n"
-            for m in expiring:
-                txt += f"• @{m['username']} — `{m.get('expireDate','?')}`\n"
+            for m in expiring: txt += f"• @{m['username']} — `{m.get('expireDate','?')}`\n"
             txt += "\nသက်တမ်းတိုး: `/approve [userId] [လ]`"
             await notify_admins(context, txt)
-
     except Exception as e:
         logger.error(f"check_expired: {e}")
 
@@ -1025,7 +1084,6 @@ async def main():
     async with httpx.AsyncClient() as client:
         await client.post(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook",
                           params={"drop_pending_updates":True})
-
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start",   start))
     app.add_handler(CommandHandler("find",    find_car))
@@ -1042,7 +1100,6 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.job_queue.run_repeating(check_expired_members, interval=43200, first=60)
-
     await app.initialize()
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
