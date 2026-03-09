@@ -390,6 +390,15 @@ canvas{width:100%!important;max-height:200px}
 // ═══════════════════════════════════════
 const WEBHOOK = 'https://script.google.com/macros/s/AKfycbx0VnduD1ARzD22RerXiH68H1capsP79DnOPauS6qHkV8K7RMwcf0_EREx5XFmE3UwT/exec';
 const ADMIN_PW = 'KMTAuction#26';
+// ✅ Old session cache ဖျက် (password ပြောင်းရင် auto logout)
+(function() {
+  const stored = localStorage.getItem('isAdmin');
+  if(stored === '1') {
+    // Version check — password ပြောင်းသွားရင် ဟောင်း session ဖျက်
+    const ver = localStorage.getItem('pw_ver');
+    if(ver !== 'v2') { localStorage.removeItem('isAdmin'); localStorage.setItem('pw_ver','v2'); }
+  }
+})();
 
 const CARS = [
   // MaeSot
@@ -552,10 +561,45 @@ async function loadData() {
   try {
     const resp = await fetch(WEBHOOK);
     const json = await resp.json();
-    if (json.status === 'ok') priceData = json.data || [];
+    if (json.status === 'ok') {
+      priceData = (json.data || []).map(p => ({
+        ...p,
+        date: cleanDate(p.date)
+      }));
+    }
   } catch(e) {
     console.error('Load error:', e);
   }
+}
+
+// ✅ Date format ပြင် — ဘယ် format မဆို dd/MM/yyyy ဖြစ်အောင်
+function cleanDate(raw) {
+  if(!raw) return '';
+  const s = String(raw).trim();
+  // Already dd/MM/yyyy
+  if(/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+  // "Mon Mar 09 2026 ..." format — extract directly
+  const longMatch = s.match(/([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})/);
+  if(longMatch) {
+    const months = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+    const m = months[longMatch[1]];
+    if(m) {
+      const dd = String(parseInt(longMatch[2])).padStart(2,'0');
+      const mm = String(m).padStart(2,'0');
+      return `${dd}/${mm}/${longMatch[3]}`;
+    }
+  }
+  // yyyy-MM-dd
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  // Try parse any format
+  const d = new Date(s);
+  if(!isNaN(d.getTime())) {
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    return `${dd}/${mm}/${d.getFullYear()}`;
+  }
+  return s;
 }
 
 async function refreshData() {
@@ -580,8 +624,8 @@ function updateStats() {
   const priced = new Set(priceData.map(p => p.chassis));
   const models = new Set(CARS.map(c => c.model));
   document.getElementById('s1').textContent = CARS.length;
-  document.getElementById('s2').textContent = priced.size;
-  document.getElementById('s3').textContent = priceData.length;
+  document.getElementById('s2').textContent = isAdmin ? priced.size : '🔒';
+  document.getElementById('s3').textContent = isAdmin ? priceData.length : '🔒';
   document.getElementById('s4').textContent = models.size;
 }
 
@@ -663,7 +707,14 @@ function renderCarList() {
 
   const priceMap = {};
   priceData.forEach(p => {
-    if(!priceMap[p.chassis] || new Date(p.date) > new Date(priceMap[p.chassis].date))
+    // dd/MM/yyyy → Date parse မှန်အောင်
+    const toDate = s => {
+      if(!s) return new Date(0);
+      const parts = s.split('/');
+      if(parts.length === 3) return new Date(+parts[2], +parts[1]-1, +parts[0]);
+      return new Date(s);
+    };
+    if(!priceMap[p.chassis] || toDate(p.date) > toDate(priceMap[p.chassis].date))
       priceMap[p.chassis] = p;
   });
 
@@ -693,10 +744,10 @@ function renderCarList() {
     const locBadge = car.loc === 'Klang9'
       ? `<span class="badge badge-klang9">Klang9</span>`
       : `<span class="badge badge-maesot">MaeSot</span>`;
-    const priceTd = p
-      ? `<span class="price-text">฿${Number(p.price).toLocaleString()}</span>`
-      : `<span style="color:var(--muted);font-size:11px">—</span>`;
-    const imgHtml = p && p.image_url
+    const priceTd = isAdmin
+      ? (p ? `<span class="price-text">฿${Number(p.price).toLocaleString()}</span>` : `<span style="color:var(--muted);font-size:11px">—</span>`)
+      : `<span style="color:var(--muted);font-size:11px">🔒</span>`;
+    const imgHtml = isAdmin && p && p.image_url
       ? `<img src="${p.image_url}" alt="${car.chassis}"
            style="width:100%;border-radius:8px;margin-top:6px;max-height:140px;object-fit:cover;cursor:pointer"
            onclick="window.open('${p.image_url}','_blank')"
@@ -720,6 +771,16 @@ function renderCarList() {
 // CHART
 // ═══════════════════════════════════════
 function renderChart() {
+  // Admin မဝင်ရသေးရင် lock ပြ
+  if(!isAdmin) {
+    document.getElementById('ohlcInfo').innerHTML = `
+      <div style="text-align:center;padding:30px">
+        <div style="font-size:36px">🔒</div>
+        <div style="color:var(--gold);font-weight:700;margin:8px 0">Admin Login လိုအပ်သည်</div>
+        <button class="btn btn-login" onclick="toggleAuth()">🔑 Login</button>
+      </div>`;
+    return;
+  }
   const model = document.getElementById('chartModel').value;
   if(!model) {
     if(ohlcChartInst) { ohlcChartInst.destroy(); ohlcChartInst = null; }
@@ -863,7 +924,7 @@ function renderHistory() {
         </div>
         <div class="hist-right">
           <div class="hist-price">฿${Number(p.price).toLocaleString()}</div>
-          <div class="hist-date">${p.date||''} · ${p.added_by||''}</div>
+          <div class="hist-date">${fmtDate(p.date)} · ${p.added_by||''}</div>
         </div>
       </div>
       ${imgHtml}
@@ -871,6 +932,23 @@ function renderHistory() {
   }).join('');
 
   renderPager('histPager', page, total, p => { hPage = p; renderHistory(); });
+}
+
+// ── Date helpers ──────────────────────────────────────
+function parseDate(s) {
+  if(!s) return new Date(0);
+  const parts = s.split('/');
+  if(parts.length === 3) return new Date(+parts[2], +parts[1]-1, +parts[0]);
+  return new Date(s);
+}
+function fmtDate(s) {
+  if(!s) return '';
+  const parts = s.split('/');
+  if(parts.length === 3) {
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${parts[0]} ${MONTHS[+parts[1]-1] || parts[1]} ${parts[2]}`;
+  }
+  return s;
 }
 
 // ═══════════════════════════════════════
@@ -1012,6 +1090,15 @@ function renderMonthlySales() {
 // ANALYSIS
 // ═══════════════════════════════════════
 function renderAnalysis() {
+  if(!isAdmin) {
+    document.getElementById('analysisGrid').innerHTML = `
+      <div style="text-align:center;padding:30px;grid-column:1/-1">
+        <div style="font-size:36px">🔒</div>
+        <div style="color:var(--gold);font-weight:700;margin:8px 0">Admin Login လိုအပ်သည်</div>
+        <button class="btn btn-login" onclick="toggleAuth()">🔑 Login</button>
+      </div>`;
+    return;
+  }
   if(!priceData.length) return;
   const prices = priceData.map(p=>Number(p.price)).filter(Boolean);
   const avg    = Math.round(prices.reduce((a,b)=>a+b,0)/prices.length);
@@ -1133,8 +1220,7 @@ function toggleAuth() {
     isAdmin = false;
     localStorage.removeItem('isAdmin');
     updateAuthBtn();
-    renderCarList();
-    renderHistory();
+    renderAll();
   } else {
     document.getElementById('loginModal').classList.add('show');
     document.getElementById('loginErr').textContent='';
@@ -1148,8 +1234,7 @@ function doLogin() {
     localStorage.setItem('isAdmin','1');
     updateAuthBtn();
     document.getElementById('loginModal').classList.remove('show');
-    renderCarList();
-    renderHistory();
+    renderAll();
   } else {
     document.getElementById('loginErr').textContent = '❌ Password မှားတယ်';
   }
