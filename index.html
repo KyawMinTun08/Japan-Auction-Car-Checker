@@ -2,1152 +2,974 @@
 <html lang="my">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JAN JAPAN Auction Car Checker</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+Myanmar:wght@400;600;700&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Japan Auction Car Checker</title>
 <style>
-:root {
-  --bg: #060d1a;
-  --surface: #0d1f35;
-  --surface2: #112240;
-  --border: #1e3a5f;
-  --gold: #f0b429;
-  --gold2: #ffd166;
-  --blue: #2563eb;
-  --blue2: #3b82f6;
-  --green: #10b981;
-  --red: #ef4444;
-  --text: #ccd6f6;
-  --muted: #5d7a9e;
-  --white: #e6f1ff;
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#080e1a;--card:#111827;--card2:#1a2234;--border:#2a3244;
+  --gold:#f59e0b;--gold2:#fbbf24;--text:#e2e8f0;--muted:#94a3b8;
+  --green:#10b981;--red:#ef4444;--blue:#3b82f6;--purple:#8b5cf6;
+  --maesot:#f59e0b;--klang9:#3b82f6;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: 'Noto Sans Myanmar', 'Segoe UI', sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-  background-image: radial-gradient(ellipse at 20% 0%, #0a2a4a33 0%, transparent 60%),
-                    radial-gradient(ellipse at 80% 100%, #1a0a2e22 0%, transparent 60%);
-}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;overflow-x:hidden}
+a{color:var(--gold);text-decoration:none}
 
-/* OVERLAY */
-#pw-overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(6,13,26,0.97);
-  display: flex; align-items: center; justify-content: center;
-  backdrop-filter: blur(8px);
-}
-.pw-box {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--gold);
-  border-radius: 16px;
-  padding: 40px 32px;
-  text-align: center;
-  width: 320px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-}
-.pw-box h2 { color: var(--gold); font-size: 1.3rem; margin-bottom: 6px; font-family: 'Space Mono', monospace; }
-.pw-box p { color: var(--muted); font-size: .85rem; margin-bottom: 24px; line-height: 1.6; }
-.pw-box input {
-  width: 100%; padding: 12px 16px;
-  border-radius: 8px; border: 1px solid var(--border);
-  background: var(--bg); color: var(--white);
-  font-size: 1rem; text-align: center; letter-spacing: 3px;
-  margin-bottom: 12px; outline: none;
-  transition: border-color .2s;
-}
-.pw-box input:focus { border-color: var(--gold); }
-.pw-btn {
-  width: 100%; padding: 12px; border-radius: 8px; border: none;
-  background: linear-gradient(135deg, var(--gold), #e09000);
-  color: #060d1a; font-weight: 700; font-size: 1rem; cursor: pointer;
-  transition: opacity .2s;
-}
-.pw-btn:hover { opacity: .9; }
-.pw-err { color: var(--red); font-size: .82rem; margin-top: 8px; min-height: 18px; }
-.pw-back {
-  margin-top: 10px; background: var(--surface2);
-  width: 100%; padding: 10px; border-radius: 8px;
-  border: 1px solid var(--border); color: var(--muted);
-  cursor: pointer; font-size: .85rem; transition: color .2s;
-}
-.pw-back:hover { color: var(--text); }
+/* ── Header ── */
+.header{background:linear-gradient(135deg,#0f172a,#1e1b4b);border-bottom:1px solid var(--border);padding:12px 16px;position:sticky;top:0;z-index:100;backdrop-filter:blur(10px)}
+.header-inner{display:flex;align-items:center;justify-content:space-between;max-width:600px;margin:0 auto;gap:8px}
+.logo{display:flex;align-items:center;gap:8px;min-width:0}
+.logo-icon{font-size:24px;flex-shrink:0}
+.logo-text h1{font-size:13px;font-weight:700;color:var(--gold);letter-spacing:0.5px;white-space:nowrap}
+.logo-text p{font-size:10px;color:var(--muted)}
+.header-btns{display:flex;gap:6px;flex-shrink:0}
+.btn{padding:7px 12px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:600;transition:all 0.2s}
+.btn-refresh{background:rgba(30,41,59,0.8);color:var(--text);border:1px solid var(--border)}
+.btn-refresh:hover{background:var(--card2)}
+.btn-login{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000}
+.btn-login:hover{opacity:0.9}
+.btn-logout{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff}
 
-/* HEADER */
-.header {
-  background: linear-gradient(135deg, #071428, #0d2347);
-  padding: 16px 24px;
-  display: flex; align-items: center; gap: 16px;
-  border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; z-index: 100;
-}
-.header-logo { font-size: 1.5rem; }
-.header-title h1 {
-  font-family: 'Space Mono', monospace;
-  font-size: 0.85rem; color: var(--gold);
-  letter-spacing: 1px; font-weight: 700;
-  white-space: nowrap;
-}
-.header-title p { font-size: 0.7rem; color: var(--muted); margin-top: 2px; white-space: nowrap; }
-.header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-.refresh-badge {
-  background: var(--surface2); border: 1px solid var(--border);
-  color: var(--muted); padding: 6px 14px;
-  border-radius: 20px; font-size: .78rem; cursor: pointer;
-  transition: all .2s; white-space: nowrap;
-}
-.refresh-badge:hover { color: var(--gold); border-color: var(--gold); }
-.login-badge {
-  background: linear-gradient(135deg, var(--gold), #e09000);
-  color: #060d1a; padding: 6px 14px;
-  border-radius: 20px; font-size: .78rem; font-weight: 700;
-  cursor: pointer; white-space: nowrap;
-}
+/* ── Stats ── */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 16px;max-width:600px;margin:0 auto}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;text-align:center;position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--gold),var(--gold2))}
+.stat-val{font-size:28px;font-weight:800;color:var(--gold);line-height:1}
+.stat-lbl{font-size:11px;color:var(--muted);margin-top:4px}
 
-/* MAIN */
-.main { max-width: 1300px; margin: 0 auto; padding: 20px 16px; }
+/* ── Tabs ── */
+.tabs-wrap{padding:0 16px 10px;max-width:600px;margin:0 auto}
+.tabs{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px}
+.tab-btn{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 4px;font-size:11px;color:var(--muted);cursor:pointer;transition:all 0.2s;text-align:center;font-weight:500}
+.tab-btn.active{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;border-color:transparent;font-weight:700}
 
-/* STATS */
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-.stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px; padding: 16px 12px;
-  text-align: center; position: relative; overflow: hidden;
-  transition: transform .2s;
-}
-.stat-card::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, var(--gold), transparent);
-}
-.stat-card:hover { transform: translateY(-2px); }
-.stat-num { font-size: 1.8rem; font-weight: 700; color: var(--gold); font-family: 'Space Mono', monospace; }
-.stat-lbl { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+/* ── Content ── */
+.content{max-width:600px;margin:0 auto;padding:0 16px 80px}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
 
-/* TABS */
-.tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
-.tab {
-  padding: 9px 18px; border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface); color: var(--muted);
-  cursor: pointer; font-size: .83rem; font-weight: 600;
-  transition: all .2s; white-space: nowrap;
-}
-.tab:hover { color: var(--text); border-color: var(--muted); }
-.tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+/* ── Section Card ── */
+.section-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:14px}
+.section-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:var(--gold);margin-bottom:14px}
 
-/* CARD */
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px; padding: 20px;
-  margin-bottom: 20px;
-}
-.card-title {
-  font-size: .95rem; font-weight: 700; color: var(--gold);
-  margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
-  font-family: 'Space Mono', monospace;
-}
+/* ── Location Tabs ── */
+.loc-tabs{display:flex;gap:8px;margin-bottom:14px}
+.loc-tab{flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:12px;font-weight:600;transition:all 0.2s;text-align:center}
+.loc-tab.active-maesot{background:rgba(245,158,11,0.15);border-color:var(--maesot);color:var(--maesot)}
+.loc-tab.active-klang9{background:rgba(59,130,246,0.15);border-color:var(--klang9);color:var(--klang9)}
 
-/* FILTER ROW */
-.filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-.filter-row input, .filter-row select {
-  flex: 1; min-width: 130px; padding: 9px 12px;
-  border-radius: 8px; border: 1px solid var(--border);
-  background: var(--bg); color: var(--text); font-size: .85rem;
-  outline: none; transition: border-color .2s;
-}
-.filter-row input:focus, .filter-row select:focus { border-color: var(--blue2); }
-.filter-row input::placeholder { color: var(--muted); }
-.filter-row select option { background: var(--bg); }
+/* ── Filters ── */
+.filters{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.filter-row{display:flex;gap-8px;gap:8px}
+.filter-row .inp{flex:1}
+.inp{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:13px;width:100%;outline:none;transition:border-color 0.2s}
+.inp:focus{border-color:var(--gold)}
+.inp::placeholder{color:var(--muted)}
+select.inp{cursor:pointer}
 
-/* TABLE */
-.tbl-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
-th {
-  background: #071c36; color: var(--gold);
-  padding: 10px 8px; text-align: center;
-  font-weight: 700; white-space: nowrap;
-  font-family: 'Space Mono', monospace; font-size: .75rem;
-  position: sticky; top: 0;
-}
-td { padding: 9px 8px; text-align: center; border-bottom: 1px solid #0d1f3533; }
-tr:hover td { background: #0a192f; }
-tr:nth-child(even) td { background: #0b1c31; }
+/* ── Table ── */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:10px}
+table{width:100%;border-collapse:collapse;font-size:12px;min-width:320px}
+thead tr{background:var(--card2)}
+th{padding:10px 8px;text-align:left;color:var(--gold);font-weight:600;font-size:11px;white-space:nowrap;border-bottom:1px solid var(--border)}
+td{padding:10px 8px;border-bottom:1px solid rgba(42,50,68,0.5);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(245,158,11,0.04)}
+.chassis-text{font-family:monospace;font-size:11px;color:var(--muted)}
+.model-text{font-weight:600;font-size:12px}
+.price-text{color:var(--gold);font-weight:700;font-size:13px}
+.change-up{color:var(--green);font-size:11px}
+.change-dn{color:var(--red);font-size:11px}
+.badge{display:inline-block;padding:3px 8px;border-radius:20px;font-size:10px;font-weight:600;white-space:nowrap}
+.badge-maesot{background:rgba(245,158,11,0.15);color:var(--maesot);border:1px solid rgba(245,158,11,0.3)}
+.badge-klang9{background:rgba(59,130,246,0.15);color:var(--klang9);border:1px solid rgba(59,130,246,0.3)}
+.badge-priced{background:rgba(16,185,129,0.15);color:var(--green)}
+.badge-no{background:rgba(148,163,184,0.1);color:var(--muted)}
 
-/* THUMBNAIL */
-.thumb {
-  width: 42px; height: 34px; object-fit: cover;
-  border-radius: 4px; cursor: pointer;
-  border: 1px solid var(--border);
-  transition: transform .2s;
-}
-.thumb:hover { transform: scale(1.1); }
-.no-img { color: var(--muted); font-size: .7rem; }
+/* ── Price Button ── */
+.price-btn{background:rgba(16,185,129,0.15);color:var(--green);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap}
+.price-btn:hover{background:rgba(16,185,129,0.25)}
 
-/* PILLS */
-.pill { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: .72rem; font-weight: 700; }
-.pill-green { background: #0a2a1a; color: #4ade80; border: 1px solid #10b98144; }
-.pill-gray  { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
-.price-up   { color: #4ade80; font-weight: 700; }
-.price-down { color: var(--red); font-weight: 700; }
-.price-same { color: var(--muted); }
-.price-gold { color: var(--gold); font-weight: 700; font-family: 'Space Mono', monospace; }
+/* ── Pagination ── */
+.pagination{display:flex;justify-content:center;align-items:center;gap:6px;margin-top:14px;flex-wrap:wrap}
+.page-btn{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text);cursor:pointer;font-size:12px;font-weight:600}
+.page-btn.active{background:var(--gold);color:#000;border-color:var(--gold)}
+.page-btn:hover:not(.active){border-color:var(--gold);color:var(--gold)}
 
-/* MODAL */
-#modal-overlay {
-  position: fixed; inset: 0; z-index: 8000;
-  background: rgba(6,13,26,0.92);
-  display: none; align-items: center; justify-content: center;
-  backdrop-filter: blur(6px);
-  padding: 20px;
-}
-#modal-overlay.show { display: flex; }
-.modal-box {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  width: 100%; max-width: 500px;
-  max-height: 90vh; overflow-y: auto;
-  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
-  animation: slideUp .25s ease;
-}
-@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-.modal-img { width: 100%; height: 220px; object-fit: cover; border-radius: 16px 16px 0 0; }
-.modal-img-placeholder {
-  width: 100%; height: 160px; border-radius: 16px 16px 0 0;
-  background: var(--surface2);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 3rem;
-}
-.modal-body { padding: 20px; }
-.modal-title { font-family: 'Space Mono', monospace; color: var(--gold); font-size: 1rem; margin-bottom: 4px; }
-.modal-sub { color: var(--muted); font-size: .8rem; margin-bottom: 16px; }
-.modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-.modal-field label { font-size: .7rem; color: var(--muted); display: block; margin-bottom: 2px; }
-.modal-field span { font-size: .88rem; color: var(--white); font-weight: 600; }
-.modal-close {
-  width: 100%; padding: 10px; border-radius: 8px;
-  border: 1px solid var(--border); background: var(--surface2);
-  color: var(--muted); cursor: pointer; font-size: .85rem;
-  transition: color .2s;
-}
-.modal-close:hover { color: var(--text); }
-.modal-price-history { margin-bottom: 16px; }
-.modal-price-history h4 { font-size: .78rem; color: var(--muted); margin-bottom: 8px; font-family: 'Space Mono', monospace; }
-.price-hist-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 5px 0; border-bottom: 1px solid var(--border);
-  font-size: .8rem;
-}
-.price-hist-row:last-child { border-bottom: none; }
+/* ── Chart ── */
+.chart-container{background:var(--card2);border-radius:12px;padding:14px;margin-bottom:14px}
+.chart-label{font-size:12px;color:var(--muted);margin-bottom:10px;font-weight:600}
+canvas{width:100%!important;max-height:200px}
+.ohlc-info{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.ohlc-item{text-align:center}
+.ohlc-val{font-size:13px;font-weight:700;color:var(--gold)}
+.ohlc-key{font-size:10px;color:var(--muted)}
 
-/* CHARTS */
-.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.chart-box {
-  background: var(--bg); border-radius: 10px; padding: 16px;
-  border: 1px solid var(--border);
-}
-.chart-label { color: var(--muted); font-size: .75rem; margin-bottom: 10px; font-family: 'Space Mono', monospace; }
-canvas { max-height: 260px; }
+/* ── Year Tabs for Chart ── */
+.year-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:10px;scrollbar-width:none}
+.year-tabs::-webkit-scrollbar{display:none}
+.year-tab{flex-shrink:0;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:12px;white-space:nowrap;transition:all 0.2s}
+.year-tab.active{background:var(--gold);color:#000;border-color:var(--gold);font-weight:700}
 
-/* ANALYSIS */
-.analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-.analysis-box {
-  background: var(--bg); border-radius: 10px; padding: 16px;
-  border: 1px solid var(--border);
-}
-.analysis-box h3 { font-size: .78rem; color: var(--muted); margin-bottom: 12px; font-family: 'Space Mono', monospace; text-transform: uppercase; letter-spacing: 1px; }
-.rank-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 0; border-bottom: 1px solid #0d1f3544;
-  font-size: .8rem;
-}
-.rank-row:last-child { border-bottom: none; }
-.rank-num { font-family: 'Space Mono', monospace; color: var(--muted); font-size: .7rem; width: 18px; }
-.rank-bar-wrap { flex: 1; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
-.rank-bar { height: 100%; background: linear-gradient(90deg, var(--blue), var(--blue2)); border-radius: 3px; transition: width .8s ease; }
-.rank-count { font-family: 'Space Mono', monospace; color: var(--gold); font-size: .75rem; min-width: 30px; text-align: right; }
+/* ── History Table ── */
+.hist-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(42,50,68,0.5)}
+.hist-row:last-child{border-bottom:none}
+.hist-num{width:24px;height:24px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted);flex-shrink:0}
+.hist-info{flex:1;min-width:0}
+.hist-chassis{font-size:11px;color:var(--muted);font-family:monospace}
+.hist-model{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist-right{text-align:right;flex-shrink:0}
+.hist-price{font-size:14px;font-weight:700;color:var(--gold)}
+.hist-date{font-size:10px;color:var(--muted)}
 
-.heatmap-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-.heatmap-cell {
-  aspect-ratio: 1; border-radius: 4px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: .6rem; color: var(--muted); font-family: 'Space Mono', monospace;
-  cursor: default; transition: transform .1s;
-}
-.heatmap-cell:hover { transform: scale(1.15); }
-.day-labels { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
-.day-label { font-size: .62rem; color: var(--muted); text-align: center; font-family: 'Space Mono', monospace; }
+/* ── Analysis ── */
+.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.analysis-card{background:var(--card2);border-radius:12px;padding:12px;text-align:center;border:1px solid var(--border)}
+.analysis-val{font-size:18px;font-weight:800;color:var(--gold)}
+.analysis-lbl{font-size:10px;color:var(--muted);margin-top:2px}
 
-/* LOADING */
-.loading { text-align: center; padding: 40px; color: var(--muted); }
-.spin { display: inline-block; animation: spin 1s linear infinite; font-size: 1.5rem; }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+/* ── Modal ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;backdrop-filter:blur(4px);align-items:flex-end;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--card);border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:600px;max-height:80vh;overflow-y:auto}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px}
+.modal-title{font-size:16px;font-weight:700;color:var(--gold);margin-bottom:14px}
+.modal-close{float:right;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:0 4px}
+.price-input-row{display:flex;gap:8px;margin-top:10px}
+.price-submit{background:linear-gradient(135deg,var(--green),#059669);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer;flex-shrink:0}
 
-.last-update { font-size: .72rem; color: var(--muted); text-align: right; margin-top: 8px; }
-.empty-row td { color: var(--muted); padding: 24px; }
+/* ── Loading ── */
+.loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:30px;color:var(--muted)}
+.spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
-/* PAGINATION */
-.pagination { display: flex; justify-content: center; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
-.page-btn {
-  padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border);
-  background: var(--surface2); color: var(--muted); cursor: pointer;
-  font-size: .78rem; font-family: 'Space Mono', monospace;
-  transition: all .2s;
-}
-.page-btn:hover, .page-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+/* ── Empty ── */
+.empty{text-align:center;padding:30px;color:var(--muted)}
+.empty-icon{font-size:36px;margin-bottom:8px}
 
-@media (max-width: 700px) {
-  .stats { grid-template-columns: repeat(2, 1fr); }
-  .chart-grid, .analysis-grid { grid-template-columns: 1fr; }
-  .header-title h1 { font-size: .9rem; letter-spacing: 1px; }
-  .modal-grid { grid-template-columns: 1fr 1fr; }
+/* ── Login Modal ── */
+.login-form{display:flex;flex-direction:column;gap:12px}
+.login-form label{font-size:12px;color:var(--muted);margin-bottom:4px}
+.login-submit{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;width:100%}
+.error-msg{color:var(--red);font-size:12px;text-align:center}
+
+@media(min-width:480px){
+  .stats{grid-template-columns:repeat(4,1fr)}
+  table{font-size:13px}
+  th,td{padding:12px 10px}
 }
 </style>
 </head>
 <body>
 
-<!-- PASSWORD OVERLAY -->
-<div id="pw-overlay" style="display:none;">
-  <div class="pw-box">
-    <h2>🔐 AUCTION CHECKER</h2>
-    <p>ဈေးကြည့် / မှတ်တမ်း / Analysis<br>Password ထည့်ပါ</p>
-    <input type="password" id="pw-input" placeholder="••••••••" onkeydown="if(event.key==='Enter')checkPw()">
-    <button class="pw-btn" onclick="checkPw()">🔓 ဝင်ရောက်မည်</button>
-    <div class="pw-err" id="pw-err"></div>
-    <button class="pw-back" onclick="document.getElementById('pw-overlay').style.display='none'">← ပြန်သွား</button>
-  </div>
-</div>
-
-<!-- IMAGE MODAL -->
-<div id="modal-overlay" onclick="closeModal(event)">
-  <div class="modal-box" id="modal-box">
-    <div id="modal-img-wrap"></div>
-    <div class="modal-body">
-      <div class="modal-title" id="modal-chassis"></div>
-      <div class="modal-sub" id="modal-model"></div>
-      <div class="modal-grid" id="modal-fields"></div>
-      <div class="modal-price-history" id="modal-history-wrap"></div>
-      <button class="modal-close" onclick="document.getElementById('modal-overlay').classList.remove('show')">✕ ပိတ်မည်</button>
-    </div>
-  </div>
-</div>
-
-<!-- HEADER -->
+<!-- ── Header ── -->
 <div class="header">
-  <div class="header-logo">🚗</div>
-  <div class="header-title">
-    <h1>JAPAN AUCTION CAR CHECKER</h1>
-    <p>Maesot Freezone — ဈေးနှုန်း Tracker</p>
-  </div>
-  <div class="header-right">
-    <div class="refresh-badge" onclick="refreshData()">🔄 Refresh</div>
-    <div class="login-badge" id="login-badge" onclick="showLoginOrLogout()">🔐 Login</div>
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-icon">🚗</div>
+      <div class="logo-text">
+        <h1>JAPAN AUCTION CAR CHECKER</h1>
+        <p>Maesot &amp; Klang9 Freezone — ဈေးနှုန်း Tracker</p>
+      </div>
+    </div>
+    <div class="header-btns">
+      <button class="btn btn-refresh" onclick="refreshData()">🔄</button>
+      <button class="btn btn-login" id="authBtn" onclick="toggleAuth()">🔑 Login</button>
+    </div>
   </div>
 </div>
 
-<div class="main">
+<!-- ── Stats ── -->
+<div class="stats" id="statsSection">
+  <div class="stat-card"><div class="stat-val" id="s1">—</div><div class="stat-lbl">ကားစုပေါင်း</div></div>
+  <div class="stat-card"><div class="stat-val" id="s2">—</div><div class="stat-lbl">ဈေးရပြီ</div></div>
+  <div class="stat-card"><div class="stat-val" id="s3">—</div><div class="stat-lbl">History မှတ်တမ်း</div></div>
+  <div class="stat-card"><div class="stat-val" id="s4">—</div><div class="stat-lbl">Model အမျိုးအစား</div></div>
+</div>
 
-  <!-- STATS -->
-  <div class="stats">
-    <div class="stat-card">
-      <div class="stat-num" id="s-total">—</div>
-      <div class="stat-lbl">ကားစုစုပေါင်း</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-num" id="s-priced">—</div>
-      <div class="stat-lbl">ဈေးရပြီး</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-num" id="s-entries">—</div>
-      <div class="stat-lbl">History မှတ်တမ်း</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-num" id="s-models">—</div>
-      <div class="stat-lbl">Model အမျိုးအစား</div>
-    </div>
-  </div>
-
-  <!-- TABS -->
+<!-- ── Tabs ── -->
+<div class="tabs-wrap">
   <div class="tabs">
-    <div class="tab active" onclick="showTab('list')">🚗 Car List</div>
-    <div class="tab" onclick="showTab('chart')">📈 ဈေးကြည့်</div>
-    <div class="tab" onclick="showTab('history')">📋 မှတ်တမ်း</div>
-    <div class="tab" onclick="showTab('analysis')">📊 Analysis</div>
+    <div class="tab-btn active" onclick="switchTab('carlist')">🚗 Car List</div>
+    <div class="tab-btn" onclick="switchTab('chart')">📈 ဈေးကြည့်</div>
+    <div class="tab-btn" onclick="switchTab('history')">📋 မှတ်တမ်း</div>
+    <div class="tab-btn" onclick="switchTab('analysis')">📊 Analysis</div>
   </div>
+</div>
 
-  <!-- TAB: CAR LIST -->
-  <div id="tab-list">
-    <div class="card">
-      <div class="card-title">🚗 Car List
-        <span style="margin-left:auto;font-size:.72rem;color:var(--muted);font-family:sans-serif;font-weight:400;" id="list-count"></span>
+<div class="content">
+
+<!-- ══════════════════════════════════
+     TAB 1: CAR LIST
+══════════════════════════════════ -->
+<div class="tab-panel active" id="tab-carlist">
+  <div class="section-card">
+    <div class="section-title">🚗 Car List <span id="carCount" style="font-size:11px;color:var(--muted);font-weight:400"></span></div>
+
+    <!-- Location Tabs -->
+    <div class="loc-tabs">
+      <button class="loc-tab active-maesot" id="locAll" onclick="setLocFilter('all')">🌐 အားလုံး</button>
+      <button class="loc-tab" id="locMaesot" onclick="setLocFilter('MaeSot')">📍 MaeSot</button>
+      <button class="loc-tab" id="locKlang9" onclick="setLocFilter('Klang9')">📍 Klang9</button>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters">
+      <div class="filter-row">
+        <input class="inp" id="clSearch" placeholder="🔍 Chassis ရှာ..." oninput="renderCarList()">
+        <input class="inp" id="clModel" placeholder="Model (X-TRAIL...)" oninput="renderCarList()">
       </div>
       <div class="filter-row">
-        <input type="text" id="q-chassis" placeholder="Chassis နံပါတ်..." oninput="doSearch()">
-        <input type="text" id="q-model" placeholder="Model (X-TRAIL, VOXY...)" oninput="doSearch()">
-        <select id="q-model-sel" onchange="doSearch()">
+        <select class="inp" id="clModelDrop" onchange="renderCarList()">
           <option value="">Model အားလုံး</option>
         </select>
-      </div>
-      <div id="list-loading" class="loading" style="display:none;"><span class="spin">⏳</span><br>Data ဆွဲနေသည်...</div>
-      <div class="tbl-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ပုံ</th>
-              <th>Chassis</th>
-              <th>Model</th>
-              <th>Color</th>
-              <th>Year</th>
-              <th id="th-price" style="display:none;">Latest Price</th>
-              <th id="th-change" style="display:none;">Change</th>
-              <th id="th-status" style="display:none;">Status</th>
-            </tr>
-          </thead>
-          <tbody id="list-tbody"></tbody>
-        </table>
-      </div>
-      <div class="pagination" id="list-pages"></div>
-      <div class="last-update" id="last-update"></div>
-    </div>
-  </div>
-
-  <!-- TAB: CHART -->
-  <div id="tab-chart" style="display:none;">
-    <div class="card">
-      <div class="card-title">📈 ဈေးနှုန်း Candlestick Chart</div>
-      <div class="filter-row" style="margin-bottom:16px;">
-        <select id="chart-model" onchange="updateCharts()">
-          <option value="">— Model ရွေးပါ —</option>
+        <select class="inp" id="clYearDrop" onchange="renderCarList()">
+          <option value="">Year အားလုံး</option>
         </select>
       </div>
-      <div class="chart-grid">
-        <div class="chart-box">
-          <div class="chart-label">📊 Chassis အလိုက် OHLC (Open / High / Low / Close)</div>
-          <canvas id="candleChart"></canvas>
-        </div>
-        <div class="chart-box">
-          <div class="chart-label">📅 လစဉ် ပျမ်းမျှ ဈေး (THB)</div>
-          <canvas id="avgChart"></canvas>
-        </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Chassis</th>
+            <th>Model</th>
+            <th>Color</th>
+            <th>Year</th>
+            <th>Gate</th>
+            <th>ဈေး</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="carTbody"></tbody>
+      </table>
+    </div>
+    <div class="pagination" id="carPager"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     TAB 2: CHART
+══════════════════════════════════ -->
+<div class="tab-panel" id="tab-chart">
+  <div class="section-card">
+    <div class="section-title">📈 ဈေးနှုန်း Candlestick Chart</div>
+    <select class="inp" id="chartModel" onchange="renderChart()" style="margin-bottom:10px">
+      <option value="">Model ရွေးပါ</option>
+    </select>
+
+    <!-- Year filter for chart -->
+    <div style="margin-bottom:10px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">📅 Year အလိုက်ကြည့်:</div>
+      <div class="year-tabs" id="chartYearTabs">
+        <button class="year-tab active" onclick="setChartYear('all',this)">အားလုံး</button>
       </div>
     </div>
-  </div>
 
-  <!-- TAB: HISTORY -->
-  <div id="tab-history" style="display:none;">
-    <div class="card">
-      <div class="card-title">📋 ဈေးနှုန်း မှတ်တမ်း</div>
+    <div class="chart-container">
+      <div class="chart-label">📊 Chassis အလိုက် OHLC (Open/High/Low/Close)</div>
+      <canvas id="ohlcChart"></canvas>
+      <div class="ohlc-info" id="ohlcInfo"></div>
+    </div>
+    <div class="chart-container">
+      <div class="chart-label">📅 လစဉ် ပျမ်းမျှ ဈေး (THB)</div>
+      <canvas id="monthChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     TAB 3: HISTORY
+══════════════════════════════════ -->
+<div class="tab-panel" id="tab-history">
+  <div class="section-card">
+    <div class="section-title">📋 ဈေးနှုန်း မှတ်တမ်း</div>
+    <div class="filters">
+      <input class="inp" id="histSearch" placeholder="🔍 Model / Chassis ရှာ..." oninput="renderHistory()">
       <div class="filter-row">
-        <input type="text" id="h-filter" placeholder="Model / Chassis ဖြင့် စစ်..." oninput="renderHistory(1)">
-        <select id="h-model" onchange="renderHistory(1)">
+        <select class="inp" id="histModelDrop" onchange="renderHistory()">
           <option value="">Model အားလုံး</option>
         </select>
-        <input type="date" id="h-date-from" onchange="renderHistory(1)" title="မှ">
-        <input type="date" id="h-date-to" onchange="renderHistory(1)" title="ထိ">
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead>
-            <tr><th>#</th><th>ပုံ</th><th>Date</th><th>Chassis</th><th>Model</th><th>Color</th><th>Year</th><th>Price (THB)</th><th>Added By</th></tr>
-          </thead>
-          <tbody id="history-tbody"></tbody>
-        </table>
-      </div>
-      <div class="pagination" id="history-pages"></div>
-    </div>
-  </div>
-
-  <!-- TAB: ANALYSIS -->
-  <div id="tab-analysis" style="display:none;">
-    <div class="card">
-      <div class="card-title">📊 Data Analysis</div>
-
-      <!-- Summary boxes -->
-      <div class="analysis-grid" style="margin-bottom:16px;">
-        <div class="analysis-box">
-          <h3>🏆 Top 10 Model အများဆုံးရောင်း</h3>
-          <div id="top-models"></div>
-        </div>
-        <div class="analysis-box">
-          <h3>💰 Model ပျမ်းမျှဈေး (Price ရှိတာ)</h3>
-          <div id="avg-by-model"></div>
-        </div>
-      </div>
-
-      <div class="analysis-grid" style="margin-bottom:16px;">
-        <div class="analysis-box">
-          <h3>📅 နေ့အလိုက် ဘယ်ရက် အများဆုံး</h3>
-          <div class="day-labels" id="day-labels"></div>
-          <div class="heatmap-grid" id="day-heatmap"></div>
-        </div>
-        <div class="analysis-box">
-          <h3>📆 လအလိုက် ကားဝင်ရောက်မှု</h3>
-          <canvas id="monthlyChart" style="max-height:180px;"></canvas>
-        </div>
-      </div>
-
-      <div class="analysis-grid">
-        <div class="analysis-box">
-          <h3>🔝 အမြင့်ဆုံးဈေး ကားများ</h3>
-          <div id="top-price"></div>
-        </div>
-        <div class="analysis-box">
-          <h3>📉 Model Price Range</h3>
-          <div id="price-range"></div>
-        </div>
+        <select class="inp" id="histYear" onchange="renderHistory()">
+          <option value="">Year အားလုံး</option>
+        </select>
       </div>
     </div>
+    <div id="histList"></div>
+    <div class="pagination" id="histPager"></div>
   </div>
+</div>
 
-</div><!-- /main -->
+<!-- ══════════════════════════════════
+     TAB 4: ANALYSIS
+══════════════════════════════════ -->
+<div class="tab-panel" id="tab-analysis">
+  <div class="section-card">
+    <div class="section-title">📊 Analysis</div>
+    <div class="analysis-grid" id="analysisGrid"></div>
+    <div class="chart-container">
+      <div class="chart-label">🏆 Model အလိုက် ပျမ်းမျှ ဈေး (Top 10)</div>
+      <canvas id="modelChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <div class="chart-label">📍 Gate အလိုက် ကားအရေအတွက်</div>
+      <canvas id="gateChart"></canvas>
+    </div>
+  </div>
+</div>
 
+</div><!-- /content -->
+
+<!-- ── Price Modal ── -->
+<div class="modal-overlay" id="priceModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title" id="modalTitle">💰 ဈေးထည့်</div>
+    <div id="modalCar" style="font-size:13px;color:var(--muted);margin-bottom:10px"></div>
+    <div class="price-input-row">
+      <input class="inp" id="priceInput" type="number" placeholder="ဈေး ထည့်ပါ (THB)" style="flex:1">
+      <button class="price-submit" onclick="submitPrice()">✅ ထည့်</button>
+    </div>
+    <div id="priceMsg" style="margin-top:8px;font-size:12px"></div>
+  </div>
+</div>
+
+<!-- ── Login Modal ── -->
+<div class="modal-overlay" id="loginModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="document.getElementById('loginModal').classList.remove('show')">✕</button>
+    <div class="modal-title">🔑 Admin Login</div>
+    <div class="login-form">
+      <div>
+        <label>Password</label>
+        <input class="inp" id="pwInput" type="password" placeholder="Password ထည့်ပါ" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <button class="login-submit" onclick="doLogin()">Login</button>
+      <div class="error-msg" id="loginErr"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
-// ═══════════════════════════════════
-// CONFIG
-// ═══════════════════════════════════
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTFlipjv-TmmW1SG-3e3F3HXMk7eF1B4Y037L6d_-ns8OHg5Qm6cu3nQG1xEfvYkjbZWCbHpU9raGYN/pub?gid=0&single=true&output=csv';
-const PASSWORD = 'KMTAuction#26';
-const PAGE_SIZE = 50;
+// ═══════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════
+const WEBHOOK = 'https://script.google.com/macros/s/AKfycbx0VnduD1ARzD22RerXiH68H1capsP79DnOPauS6qHkV8K7RMwcf0_EREx5XFmE3UwT/exec';
+const ADMIN_PW = 'janjapan2026';
 
-let allData = [];
-let isLoggedIn = false;
-let pendingTab = null;
-let candleChartObj = null, avgChartObj = null, monthlyChartObj = null;
-let listPage = 1, histPage = 1;
+const CARS = [
+  // MaeSot
+  {chassis:"MNH15-0039667",model:"ALPHARD",color:"WHITE",year:2005,loc:"MaeSot"},
+  {chassis:"CD48R-30111",model:"BIG THUMB",color:"GREEN",year:2005,loc:"MaeSot"},
+  {chassis:"FE82EEV500266",model:"CANTER",color:"WHITE",year:2002,loc:"MaeSot"},
+  {chassis:"FE84DV-550674",model:"CANTER",color:"BLUE",year:2008,loc:"MaeSot"},
+  {chassis:"FB70BB-512392",model:"CANTER GUTS",color:"WHITE",year:2005,loc:"MaeSot"},
+  {chassis:"MK35A-10405",model:"CONDOR",color:"PEARL WHITE",year:2006,loc:"MaeSot"},
+  {chassis:"JNCLSC0A1GU006386",model:"CONDOR",color:"WHITE",year:2016,loc:"MaeSot"},
+  {chassis:"GRS210-6004548",model:"CROWN",color:"PEARL WHITE",year:2013,loc:"MaeSot"},
+  {chassis:"GRS200-0001831",model:"CROWN",color:"WHITE",year:2008,loc:"MaeSot"},
+  {chassis:"GRS200-0020080",model:"CROWN",color:"WHITE",year:2008,loc:"MaeSot"},
+  {chassis:"GRS202-0002603",model:"CROWN",color:"WHITE",year:2008,loc:"MaeSot"},
+  {chassis:"XZC610-0001005",model:"DUTRO",color:"WHITE",year:2011,loc:"MaeSot"},
+  {chassis:"GE6-1539486",model:"FIT",color:"PEARL WHITE",year:2011,loc:"MaeSot"},
+  {chassis:"GP5-3032237",model:"FIT HYBRID",color:"PEARL WHITE",year:2014,loc:"MaeSot"},
+  {chassis:"GP1-1131390",model:"FIT HYBRID",color:"WHITE",year:2012,loc:"MaeSot"},
+  {chassis:"GP1-1049821",model:"FIT HYBRID",color:"PEARL WHITE",year:2011,loc:"MaeSot"},
+  {chassis:"GP7-1000970",model:"FIT SHUTTLE HYBRID",color:"PEARL WHITE",year:2015,loc:"MaeSot"},
+  {chassis:"GP2-3106770",model:"FIT SHUTTLE HYBRID",color:"SILVER",year:2013,loc:"MaeSot"},
+  {chassis:"FK61FM765129",model:"FUSO FIGHTER",color:"WHITE",year:2003,loc:"MaeSot"},
+  {chassis:"KDH201-0140123",model:"HIACE VAN",color:"WHITE",year:2014,loc:"MaeSot"},
+  {chassis:"S211P-0217418",model:"HIJET TRUCK",color:"WHITE",year:2013,loc:"MaeSot"},
+  {chassis:"S210P-2037788",model:"HIJET TRUCK",color:"WHITE",year:2005,loc:"MaeSot"},
+  {chassis:"S510P-0173458",model:"HIJET TRUCK",color:"WHITE",year:2017,loc:"MaeSot"},
+  {chassis:"UZJ100-0151432",model:"LAND CRUISER",color:"SILVER",year:2004,loc:"MaeSot"},
+  {chassis:"USF40-5006069",model:"LEXUS LS",color:"WHITE",year:2006,loc:"MaeSot"},
+  {chassis:"WVWZZZ16ZDM638030",model:"NEW BEETLE",color:"BLACK",year:2013,loc:"MaeSot"},
+  {chassis:"ZRR75-0068964",model:"VOXY",color:"PEARL WHITE",year:2010,loc:"MaeSot"},
+  {chassis:"V98W-0300140",model:"PAJERO",color:"PEARL WHITE",year:2010,loc:"MaeSot"},
+  {chassis:"S211U-0000227",model:"PIXIS TRUCK",color:"WHITE",year:2011,loc:"MaeSot"},
+  {chassis:"FC7JKY-14910",model:"RANGER",color:"BLUE",year:2011,loc:"MaeSot"},
+  {chassis:"NCP165-0001505",model:"SUCCEED VAN",color:"PEARL WHITE",year:2014,loc:"MaeSot"},
+  {chassis:"NCP59-0012188",model:"SUCCEED WAGON",color:"SILVER",year:2005,loc:"MaeSot"},
+  {chassis:"FV50JJX-530670",model:"SUPER GREAT",color:"BLACK",year:2004,loc:"MaeSot"},
+  {chassis:"CG5ZA-30374",model:"UD",color:"PEARL WHITE",year:2014,loc:"MaeSot"},
+  {chassis:"CD5ZA-30191",model:"UD",color:"SILVER",year:2014,loc:"MaeSot"},
+  {chassis:"CG4ZA-01338",model:"UD",color:"LIGHT BLUE",year:2006,loc:"MaeSot"},
+  {chassis:"ZGE22-0005423",model:"WISH",color:"BLACK",year:2011,loc:"MaeSot"},
+  {chassis:"ZGE20-0010786",model:"WISH",color:"PEARL WHITE",year:2009,loc:"MaeSot"},
+  {chassis:"ZGE25-0015283",model:"WISH",color:"WHITE",year:2011,loc:"MaeSot"},
+  {chassis:"NT32-504837",model:"X-TRAIL",color:"BLACK",year:2014,loc:"MaeSot"},
+  {chassis:"NT32-531693",model:"X-TRAIL",color:"BLACK",year:2015,loc:"MaeSot"},
+  {chassis:"NT31-316873",model:"X-TRAIL",color:"PEARL WHITE",year:2013,loc:"MaeSot"},
+  {chassis:"NT32-508661",model:"X-TRAIL",color:"PEARL WHITE",year:2015,loc:"MaeSot"},
+  {chassis:"SKP2T-108324",model:"BONGO TRUCK",color:"WHITE",year:2013,loc:"MaeSot"},
+  {chassis:"FE82D-570692",model:"CANTER",color:"WHITE",year:2010,loc:"MaeSot"},
+  {chassis:"FE82D-530430",model:"CANTER",color:"PEARL WHITE",year:2007,loc:"MaeSot"},
+  {chassis:"FE72EE-500637",model:"CANTER",color:"WHITE",year:2003,loc:"MaeSot"},
+  {chassis:"GRS201-0006860",model:"CROWN",color:"SILVER",year:2011,loc:"MaeSot"},
+  {chassis:"GRS200-0061216",model:"CROWN",color:"PEARL WHITE",year:2011,loc:"MaeSot"},
+  {chassis:"GRS200-0063933",model:"CROWN",color:"BLACK",year:2011,loc:"MaeSot"},
+  {chassis:"GWS204-0025870",model:"CROWN HYBRID",color:"SILVER",year:2012,loc:"MaeSot"},
+  {chassis:"GK3-1029686",model:"FIT",color:"WHITE",year:2014,loc:"MaeSot"},
+  {chassis:"GP1-1011906",model:"FIT HYBRID",color:"BLUE",year:2010,loc:"MaeSot"},
+  {chassis:"GP5-3040254",model:"FIT HYBRID",color:"WHITE",year:2014,loc:"MaeSot"},
+  {chassis:"GP1-1096649",model:"FIT HYBRID",color:"BLACK",year:2011,loc:"MaeSot"},
+  {chassis:"GP1-1014176",model:"FIT HYBRID",color:"PEARL WHITE",year:2010,loc:"MaeSot"},
+  {chassis:"GB3-1312198",model:"FREED",color:"PEARL WHITE",year:2010,loc:"MaeSot"},
+  {chassis:"FQ62F-520185",model:"FUSO FIGHTER",color:"WHITE",year:2008,loc:"MaeSot"},
+  {chassis:"FEA50-521744",model:"FUSO TRUCK",color:"PEARL WHITE",year:2013,loc:"MaeSot"},
+  {chassis:"KDH201-0056284",model:"HIACE VAN",color:"WHITE",year:2010,loc:"MaeSot"},
+  {chassis:"S211P-0276262",model:"HIJET TRUCK",color:"SILVER",year:2014,loc:"MaeSot"},
+  {chassis:"S510P-0147424",model:"HIJET TRUCK",color:"WHITE",year:2017,loc:"MaeSot"},
+  {chassis:"S210P-2060815",model:"HIJET TRUCK",color:"WHITE",year:2006,loc:"MaeSot"},
+  {chassis:"S510P-0149349",model:"HIJET TRUCK",color:"SILVER",year:2017,loc:"MaeSot"},
+  {chassis:"S210P-2006882",model:"HIJET TRUCK",color:"SILVER",year:2005,loc:"MaeSot"},
+  {chassis:"ZE2-1130682",model:"INSIGHT",color:"WHITE",year:2009,loc:"MaeSot"},
+  {chassis:"YF15-033275",model:"JUKE",color:"WHITE",year:2011,loc:"MaeSot"},
+  {chassis:"HDJ101-0031030",model:"LAND CRUISER",color:"PEARL WHITE",year:2007,loc:"MaeSot"},
+  {chassis:"AZE0-062459",model:"LEAF",color:"PEARL WHITE",year:2013,loc:"MaeSot"},
+  {chassis:"GRX133-6003681",model:"MARK X",color:"SILVER",year:2013,loc:"MaeSot"},
+  {chassis:"WVWZZZ16ZDM685003",model:"NEW BEETLE",color:"BLACK",year:2013,loc:"MaeSot"},
+  {chassis:"NCP165-0001511",model:"SUCCEED VAN",color:"PEARL WHITE",year:2014,loc:"MaeSot"},
+  {chassis:"GK6XA-10555",model:"QUON",color:"WHITE",year:2013,loc:"MaeSot"},
+  {chassis:"FC6JLW-10241",model:"RANGER",color:"PEARL WHITE",year:2006,loc:"MaeSot"},
+  {chassis:"FY54JTY530030",model:"SUPER GREAT",color:"PEARL WHITE",year:2003,loc:"MaeSot"},
+  {chassis:"FS54JZ-570431",model:"SUPER GREAT",color:"BLACK",year:2010,loc:"MaeSot"},
+  {chassis:"FV50MJX520729",model:"SUPER GREAT",color:"BLACK",year:2001,loc:"MaeSot"},
+  {chassis:"CG5ZA-01150",model:"UD",color:"GREEN",year:2011,loc:"MaeSot"},
+  {chassis:"CG5ZE-30138",model:"UD",color:"WHITE",year:2015,loc:"MaeSot"},
+  {chassis:"MK38L-30952",model:"UD",color:"YELLOW",year:2014,loc:"MaeSot"},
+  {chassis:"MK36A-12656",model:"UD",color:"WHITE",year:2006,loc:"MaeSot"},
+  {chassis:"ZGE20-0041580",model:"WISH",color:"PEARL WHITE",year:2009,loc:"MaeSot"},
+  {chassis:"ZGE20-0004342",model:"WISH",color:"WHITE",year:2009,loc:"MaeSot"},
+  {chassis:"NT32-024640",model:"X-TRAIL",color:"BLACK",year:2014,loc:"MaeSot"},
+  {chassis:"NT32-037944",model:"X-TRAIL",color:"BLACK",year:2015,loc:"MaeSot"},
+  {chassis:"NT31-244285",model:"X-TRAIL",color:"PEARL WHITE",year:2012,loc:"MaeSot"},
+  {chassis:"DNT31-209100",model:"X-TRAIL",color:"WHITE",year:2011,loc:"MaeSot"},
+  // Klang9
+  {chassis:"VZNY12-070391",model:"ADVAN",color:"WHITE",year:2017,loc:"Klang9"},
+  {chassis:"GGH20-8002412",model:"ALPHARD",color:"PEARL WHITE",year:2008,loc:"Klang9"},
+  {chassis:"MNH10-0099576",model:"ALPHARD",color:"PEARL WHITE",year:2007,loc:"Klang9"},
+  {chassis:"SLP2L-102206",model:"BONGO TRUCK",color:"WHITE",year:2017,loc:"Klang9"},
+  {chassis:"FEA20-520134",model:"CANTER",color:"SILVER",year:2013,loc:"Klang9"},
+  {chassis:"FE73EB-501814",model:"CANTER",color:"LIGHT GREEN",year:2003,loc:"Klang9"},
+  {chassis:"FE70EB-506566",model:"CANTER",color:"WHITE",year:2004,loc:"Klang9"},
+  {chassis:"GRS204-0014299",model:"CROWN",color:"WHITE",year:2010,loc:"Klang9"},
+  {chassis:"RE4-1006211",model:"CRV",color:"WHITE",year:2006,loc:"Klang9"},
+  {chassis:"KE2AW-115142",model:"CX5",color:"WHITE",year:2013,loc:"Klang9"},
+  {chassis:"GP5-3037138",model:"FIT HYBRID",color:"PEARL WHITE",year:2014,loc:"Klang9"},
+  {chassis:"GP5-3216073",model:"FIT HYBRID",color:"PEARL WHITE",year:2015,loc:"Klang9"},
+  {chassis:"GB3-1112824",model:"FREED",color:"PEARL WHITE",year:2009,loc:"Klang9"},
+  {chassis:"FK71F-701985",model:"FUSO FIGHTER",color:"GREEN",year:2007,loc:"Klang9"},
+  {chassis:"S211P-0042777",model:"HIJET TRUCK",color:"SILVER",year:2009,loc:"Klang9"},
+  {chassis:"S211P-0138980",model:"HIJET TRUCK",color:"WHITE",year:2011,loc:"Klang9"},
+  {chassis:"KDN185-0001271",model:"HILUX SURF",color:"SILVER",year:2000,loc:"Klang9"},
+  {chassis:"ZE2-1128237",model:"INSIGHT",color:"SILVER",year:2009,loc:"Klang9"},
+  {chassis:"NF15-060818",model:"JUKE",color:"WHITE",year:2012,loc:"Klang9"},
+  {chassis:"ACU25-0032701",model:"KLUGER",color:"WHITE",year:2004,loc:"Klang9"},
+  {chassis:"USF40-5079528",model:"LEXUS LS",color:"PEARL WHITE",year:2008,loc:"Klang9"},
+  {chassis:"WVWZZZ16ZDM635922",model:"NEW BEETLE",color:"RED",year:2013,loc:"Klang9"},
+  {chassis:"GK6XA-10291",model:"QUON",color:"GREEN",year:2012,loc:"Klang9"},
+  {chassis:"CW4YL-30468",model:"QUON",color:"SILVER",year:2009,loc:"Klang9"},
+  {chassis:"NCP165-0056792",model:"SUCCEED VAN",color:"WHITE",year:2018,loc:"Klang9"},
+  {chassis:"NCP59-0024963",model:"SUCCEED WAGON",color:"DARK BLUE",year:2012,loc:"Klang9"},
+  {chassis:"CG5ZA-12819",model:"UD",color:"PEARL WHITE",year:2014,loc:"Klang9"},
+  {chassis:"CG5ZA-11731",model:"UD",color:"WHITE",year:2013,loc:"Klang9"},
+  {chassis:"CG4YA-00054",model:"UD",color:"WHITE",year:2006,loc:"Klang9"},
+  {chassis:"CD4ZA-31233",model:"UD",color:"GREEN",year:2009,loc:"Klang9"},
+  {chassis:"SK82TN-319474",model:"VANETTE TRUCK",color:"WHITE",year:2005,loc:"Klang9"},
+  {chassis:"ZRR75-0083512",model:"VOXY",color:"PEARL WHITE",year:2011,loc:"Klang9"},
+  {chassis:"ZGE25-0020690",model:"WISH",color:"PEARL WHITE",year:2012,loc:"Klang9"},
+  {chassis:"ZGE20-0154748",model:"WISH",color:"PEARL WHITE",year:2013,loc:"Klang9"},
+  {chassis:"ZGE20-0152288",model:"WISH",color:"BLACK",year:2012,loc:"Klang9"},
+  {chassis:"NT32-036496",model:"X-TRAIL",color:"BLACK",year:2014,loc:"Klang9"},
+  {chassis:"NT31-212796",model:"X-TRAIL",color:"PEARL WHITE",year:2011,loc:"Klang9"},
+  {chassis:"NT31-049247",model:"X-TRAIL",color:"BLACK",year:2009,loc:"Klang9"},
+  {chassis:"DNT31-205472",model:"X-TRAIL",color:"PEARL WHITE",year:2011,loc:"Klang9"},
+  {chassis:"NT32-038921",model:"X-TRAIL",color:"PEARL WHITE",year:2015,loc:"Klang9"},
+];
 
-// ═══════════════════════════════════
-// PASSWORD
-// ═══════════════════════════════════
-function checkPw() {
-  if (document.getElementById('pw-input').value === PASSWORD) {
-    isLoggedIn = true;
-    document.getElementById('pw-overlay').style.display = 'none';
-    document.getElementById('login-badge').textContent = '🔓 Logout';
-    doSearch();
-    buildHistoryDropdown();
-    if (pendingTab) { showTab(pendingTab); pendingTab = null; }
-  } else {
-    document.getElementById('pw-err').textContent = '❌ Password မှားနေသည်';
-    document.getElementById('pw-input').value = '';
-    setTimeout(() => document.getElementById('pw-err').textContent = '', 2000);
-  }
-}
-function showLoginOrLogout() {
-  if (isLoggedIn) {
-    isLoggedIn = false;
-    document.getElementById('login-badge').textContent = '🔐 Login';
-    doSearch();
-    showTab('list');
-  } else {
-    pendingTab = null;
-    document.getElementById('pw-overlay').style.display = 'flex';
-    setTimeout(() => document.getElementById('pw-input').focus(), 100);
-  }
-}
+// ═══════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════
+let priceData = [];
+let isAdmin   = false;
+let locFilter = 'all';
+let clPage    = 1;
+let hPage     = 1;
+let selChassis = '';
+let selModel   = '';
+let chartYearFilter = 'all';
+let ohlcChartInst, monthChartInst, modelChartInst, gateChartInst;
+const PAGE_SIZE = 20;
 
-// ═══════════════════════════════════
-// DATA — CSV
-// ═══════════════════════════════════
+// ═══════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════
+window.onload = async () => {
+  isAdmin = localStorage.getItem('isAdmin') === '1';
+  updateAuthBtn();
+  await loadData();
+  initDropdowns();
+  renderAll();
+};
+
 async function loadData() {
-  document.getElementById('list-loading').style.display = 'block';
   try {
-    const res = await fetch(CSV_URL + '&t=' + Date.now());
-    const text = await res.text();
-    const rows = parseCSV(text);
-    if (rows.length < 2) throw new Error('Empty data');
-
-    const header = rows[0].map(h => h.trim().toLowerCase());
-    allData = [];
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r[1] || !r[1].trim()) continue;
-      const get = (col) => {
-        const idx = header.indexOf(col);
-        return idx >= 0 ? (r[idx] || '').trim() : '';
-      };
-      let dateStr = get('date');
-      // Clean up Date(yyyy,m,d) format from Google Sheets
-      const dm = dateStr.match(/Date\((\d+),(\d+),(\d+)\)/);
-      if (dm) {
-        const y = dm[1], m = String(parseInt(dm[2])+1).padStart(2,'0'), d = String(dm[3]).padStart(2,'0');
-        dateStr = `${d}/${m}/${y}`;
-      }
-      allData.push({
-        date: dateStr,
-        chassis: get('chassis').toUpperCase(),
-        model: get('model').toUpperCase() || 'UNKNOWN',
-        color: get('color') || '-',
-        year: parseInt(get('year')) || 0,
-        price: parseFloat(get('price')) || 0,
-        location: get('location'),
-        addedBy: get('added by'),
-        image_url: get('image url') || get('image_url') || ''
-      });
-    }
-
-    allData.sort((a, b) => parseDate(a.date) - parseDate(b.date));
-    buildDropdowns();
-    updateStats();
-    doSearch();
-    buildHistoryDropdown();
-    document.getElementById('last-update').textContent = `နောက်ဆုံး update: ${new Date().toLocaleTimeString()}`;
+    const resp = await fetch(WEBHOOK);
+    const json = await resp.json();
+    if (json.status === 'ok') priceData = json.data || [];
   } catch(e) {
-    document.getElementById('list-tbody').innerHTML =
-      `<tr class="empty-row"><td colspan="8" style="color:#ef4444;">❌ Data ဆွဲမရပါ: ${e.message}</td></tr>`;
-    console.error(e);
-  } finally {
-    document.getElementById('list-loading').style.display = 'none';
+    console.error('Load error:', e);
   }
 }
 
-function parseCSV(text) {
-  const rows = [];
-  const lines = text.split('\n');
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const cols = [];
-    let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') { inQ = !inQ; }
-      else if (ch === ',' && !inQ) { cols.push(cur); cur = ''; }
-      else { cur += ch; }
-    }
-    cols.push(cur);
-    rows.push(cols);
-  }
-  return rows;
+async function refreshData() {
+  document.getElementById('s1').textContent = '...';
+  await loadData();
+  renderAll();
 }
 
-function parseDate(str) {
-  if (!str) return 0;
-  const p = str.split('/');
-  if (p.length === 3) return new Date(`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`).getTime();
-  return new Date(str).getTime() || 0;
+function renderAll() {
+  updateStats();
+  initDropdowns();
+  renderCarList();
+  renderChart();
+  renderHistory();
+  renderAnalysis();
 }
 
-function refreshData() { allData = []; loadData(); }
+// ═══════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════
+function updateStats() {
+  const priced = new Set(priceData.map(p => p.chassis));
+  const models = new Set(CARS.map(c => c.model));
+  document.getElementById('s1').textContent = CARS.length;
+  document.getElementById('s2').textContent = priced.size;
+  document.getElementById('s3').textContent = priceData.length;
+  document.getElementById('s4').textContent = models.size;
+}
 
-// ═══════════════════════════════════
+// ═══════════════════════════════════════
 // DROPDOWNS
-// ═══════════════════════════════════
-function buildDropdowns() {
-  const models = [...new Set(allData.map(r => r.model).filter(Boolean))].sort();
-  
-  ['q-model-sel','chart-model'].forEach(id => {
-    const el = document.getElementById(id);
-    const first = el.options[0].text;
-    el.innerHTML = `<option value="">${first}</option>`;
-    models.forEach(m => el.add(new Option(m, m)));
+// ═══════════════════════════════════════
+function initDropdowns() {
+  const models = [...new Set(CARS.map(c=>c.model))].sort();
+  const years  = [...new Set(CARS.map(c=>c.year).filter(Boolean))].sort((a,b)=>b-a);
+
+  // Year range for filters (1990-2026)
+  const yearRange = [];
+  for(let y = 2026; y >= 1990; y--) yearRange.push(y);
+
+  fillSelect('clModelDrop', models, 'Model အားလုံး');
+  fillSelect('clYearDrop',  years,  'Year အားလုံး');
+  fillSelect('chartModel',  models, 'Model ရွေးပါ');
+  fillSelect('histModelDrop', models, 'Model အားလုံး');
+  fillSelect('histYear',    yearRange, 'Year အားလုံး');
+
+  // Chart year tabs
+  buildChartYearTabs(years);
+}
+
+function fillSelect(id, options, placeholder) {
+  const sel = document.getElementById(id);
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">${placeholder}</option>`;
+  options.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o; opt.textContent = o;
+    if(String(o) === String(cur)) opt.selected = true;
+    sel.appendChild(opt);
   });
 }
 
-function buildHistoryDropdown() {
-  const models = [...new Set(allData.map(r => r.model))].sort();
-  const el = document.getElementById('h-model');
-  el.innerHTML = '<option value="">Model အားလုံး</option>';
-  models.forEach(m => el.add(new Option(m, m)));
+function buildChartYearTabs(years) {
+  const wrap = document.getElementById('chartYearTabs');
+  wrap.innerHTML = `<button class="year-tab active" onclick="setChartYear('all',this)">အားလုံး</button>`;
+  years.forEach(y => {
+    const btn = document.createElement('button');
+    btn.className = 'year-tab';
+    btn.textContent = y;
+    btn.onclick = function(){ setChartYear(String(y), this); };
+    wrap.appendChild(btn);
+  });
 }
 
-// ═══════════════════════════════════
-// STATS
-// ═══════════════════════════════════
-function updateStats() {
-  const unique = [...new Set(allData.map(r => r.chassis))];
-  const priced = [...new Set(allData.filter(r => r.price > 0).map(r => r.chassis))];
-  const models = [...new Set(allData.map(r => r.model))];
-  document.getElementById('s-total').textContent = unique.length;
-  document.getElementById('s-priced').textContent = priced.length;
-  document.getElementById('s-entries').textContent = allData.length;
-  document.getElementById('s-models').textContent = models.length;
+function setChartYear(y, btn) {
+  chartYearFilter = y;
+  document.querySelectorAll('.year-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderChart();
 }
 
-// ═══════════════════════════════════
-// TABS
-// ═══════════════════════════════════
-function showTab(name) {
-  if ((name === 'chart' || name === 'history' || name === 'analysis') && !isLoggedIn) {
-    pendingTab = name;
-    document.getElementById('pw-overlay').style.display = 'flex';
-    setTimeout(() => document.getElementById('pw-input').focus(), 100);
+// ═══════════════════════════════════════
+// LOCATION FILTER
+// ═══════════════════════════════════════
+function setLocFilter(loc) {
+  locFilter = loc;
+  document.querySelectorAll('.loc-tab').forEach(b => {
+    b.className = 'loc-tab';
+  });
+  const map = {all:'locAll', MaeSot:'locMaesot', Klang9:'locKlang9'};
+  const cls = loc === 'Klang9' ? 'active-klang9' : 'active-maesot';
+  document.getElementById(map[loc]).classList.add(cls);
+  clPage = 1;
+  renderCarList();
+}
+
+// ═══════════════════════════════════════
+// CAR LIST
+// ═══════════════════════════════════════
+function renderCarList() {
+  const search   = document.getElementById('clSearch').value.toUpperCase();
+  const modelTxt = document.getElementById('clModel').value.toUpperCase();
+  const modelDrop = document.getElementById('clModelDrop').value.toUpperCase();
+  const yearDrop  = document.getElementById('clYearDrop').value;
+
+  const priceMap = {};
+  priceData.forEach(p => {
+    if(!priceMap[p.chassis] || new Date(p.date) > new Date(priceMap[p.chassis].date))
+      priceMap[p.chassis] = p;
+  });
+
+  let filtered = CARS.filter(c => {
+    if(locFilter !== 'all' && c.loc !== locFilter) return false;
+    if(search && !c.chassis.includes(search) && !c.model.toUpperCase().includes(search)) return false;
+    if(modelTxt && !c.model.toUpperCase().includes(modelTxt)) return false;
+    if(modelDrop && c.model.toUpperCase() !== modelDrop) return false;
+    if(yearDrop && String(c.year) !== yearDrop) return false;
+    return true;
+  });
+
+  document.getElementById('carCount').textContent = `${filtered.length} chassis`;
+  const total = Math.ceil(filtered.length / PAGE_SIZE);
+  const page  = Math.min(clPage, total || 1);
+  const items = filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
+
+  const tbody = document.getElementById('carTbody');
+  if(!items.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><div class="empty-icon">🔍</div>ကားမတွေ့ပါ</div></td></tr>`;
+    document.getElementById('carPager').innerHTML = '';
     return;
   }
-  const tabs = ['list','chart','history','analysis'];
-  tabs.forEach(t => {
-    document.getElementById('tab-'+t).style.display = t === name ? '' : 'none';
-  });
-  document.querySelectorAll('.tab').forEach((el, i) => {
-    el.classList.toggle('active', tabs[i] === name);
-  });
-  if (name === 'chart') setTimeout(updateCharts, 100);
-  if (name === 'analysis') setTimeout(buildAnalysis, 100);
-  if (name === 'history') renderHistory(1);
-}
 
-// ═══════════════════════════════════
-// CAR LIST
-// ═══════════════════════════════════
-function doSearch() {
-  const qc = document.getElementById('q-chassis').value.toUpperCase().trim();
-  const qm = document.getElementById('q-model').value.toUpperCase().trim();
-  const qms = document.getElementById('q-model-sel').value;
-
-  document.getElementById('th-price').style.display = isLoggedIn ? '' : 'none';
-  document.getElementById('th-change').style.display = isLoggedIn ? '' : 'none';
-  document.getElementById('th-status').style.display = isLoggedIn ? '' : 'none';
-
-  const unique = [...new Set(allData.map(r => r.chassis))];
-  const filtered = unique.filter(ch => {
-    const rows = allData.filter(r => r.chassis === ch);
-    const info = rows[0];
-    return (!qc || ch.includes(qc)) &&
-           (!qm || info.model.includes(qm)) &&
-           (!qms || info.model === qms);
-  });
-
-  document.getElementById('list-count').textContent = `${filtered.length} chassis`;
-  listPage = 1;
-  renderListPage(filtered);
-}
-
-function renderListPage(filtered) {
-  const tb = document.getElementById('list-tbody');
-  const total = filtered.length;
-  const pages = Math.ceil(total / PAGE_SIZE);
-  const start = (listPage - 1) * PAGE_SIZE;
-  const slice = filtered.slice(start, start + PAGE_SIZE);
-
-  tb.innerHTML = '';
-  if (!slice.length) {
-    tb.innerHTML = `<tr class="empty-row"><td colspan="8">မတွေ့ပါ</td></tr>`;
-  }
-
-  slice.forEach(ch => {
-    const rows = allData.filter(r => r.chassis === ch).sort((a,b) => parseDate(a.date)-parseDate(b.date));
-    const priced = rows.filter(r => r.price > 0);
-    const latest = priced.length ? priced[priced.length-1] : null;
-    const prev   = priced.length > 1 ? priced[priced.length-2] : null;
-    const info   = rows[0];
-    const imgUrl = rows.map(r => r.image_url).filter(Boolean).pop() || '';
-
-    const imgCell = imgUrl
-      ? `<td><img src="${imgUrl}" class="thumb" onclick="openModal('${ch}')" onerror="this.parentNode.innerHTML='<span class=no-img>—</span>'"></td>`
-      : `<td><span class="no-img">—</span></td>`;
-
-    let diffHtml = '<span class="price-same">—</span>';
-    if (latest && prev) {
-      const d = latest.price - prev.price;
-      diffHtml = d > 0 ? `<span class="price-up">▲${fmt(d)}</span>`
-               : d < 0 ? `<span class="price-down">▼${fmt(Math.abs(d))}</span>`
-               : '<span class="price-same">—</span>';
-    }
-    const pill = latest
-      ? '<span class="pill pill-green">ဈေးရပြီ</span>'
-      : '<span class="pill pill-gray">ဈေးမရသေး</span>';
-
-    const priceC  = isLoggedIn ? `<td class="price-gold">${latest ? fmt(latest.price)+' ฿' : '—'}</td>` : '';
-    const changeC = isLoggedIn ? `<td>${diffHtml}</td>` : '';
-    const statusC = isLoggedIn ? `<td>${pill}</td>` : '';
-
-    tb.innerHTML += `<tr style="cursor:pointer;" onclick="openModal('${ch}')">
-      ${imgCell}
-      <td style="font-size:.73rem;color:var(--muted);font-family:'Space Mono',monospace;">${ch}</td>
-      <td style="font-weight:700;color:var(--white);">${info.model}</td>
-      <td>${info.color}</td>
-      <td>${info.year || '—'}</td>
-      ${priceC}${changeC}${statusC}
+  tbody.innerHTML = items.map(car => {
+    const p   = priceMap[car.chassis];
+    const locBadge = car.loc === 'Klang9'
+      ? `<span class="badge badge-klang9">Klang9</span>`
+      : `<span class="badge badge-maesot">MaeSot</span>`;
+    const priceTd = p
+      ? `<span class="price-text">฿${Number(p.price).toLocaleString()}</span>`
+      : `<span style="color:var(--muted);font-size:11px">—</span>`;
+    return `<tr>
+      <td class="chassis-text">${car.chassis}</td>
+      <td class="model-text">${car.model}</td>
+      <td style="font-size:11px;color:var(--muted)">${car.color}</td>
+      <td style="font-size:12px">${car.year||'—'}</td>
+      <td>${locBadge}</td>
+      <td>${priceTd}</td>
+      <td>${isAdmin ? `<button class="price-btn" onclick="openModal('${car.chassis}','${car.model}')">ဈေးထည့်</button>` : ''}</td>
     </tr>`;
-  });
-
-  // Pagination
-  const pg = document.getElementById('list-pages');
-  pg.innerHTML = '';
-  for (let i = 1; i <= pages; i++) {
-    pg.innerHTML += `<button class="page-btn${i===listPage?' active':''}" onclick="listPage=${i};doSearch_page()">${i}</button>`;
-  }
-
-  // Store for pagination
-  window._listFiltered = filtered;
-}
-
-function doSearch_page() {
-  renderListPage(window._listFiltered || []);
-}
-
-// ═══════════════════════════════════
-// MODAL
-// ═══════════════════════════════════
-function openModal(chassis) {
-  const rows = allData.filter(r => r.chassis === chassis).sort((a,b) => parseDate(a.date)-parseDate(b.date));
-  if (!rows.length) return;
-  const info = rows[0];
-  const imgUrl = rows.map(r => r.image_url).filter(Boolean).pop() || '';
-  const priced = rows.filter(r => r.price > 0);
-  const latest = priced.length ? priced[priced.length-1] : null;
-
-  // Image
-  const imgWrap = document.getElementById('modal-img-wrap');
-  imgWrap.innerHTML = imgUrl
-    ? `<img src="${imgUrl}" class="modal-img" onerror="this.parentNode.innerHTML='<div class=modal-img-placeholder>🚗</div>'">`
-    : `<div class="modal-img-placeholder">🚗</div>`;
-
-  document.getElementById('modal-chassis').textContent = chassis;
-  document.getElementById('modal-model').textContent = `${info.model} • ${info.color} • ${info.year || '—'}`;
-
-  // Fields
-  document.getElementById('modal-fields').innerHTML = `
-    <div class="modal-field"><label>Model</label><span>${info.model}</span></div>
-    <div class="modal-field"><label>Color</label><span>${info.color}</span></div>
-    <div class="modal-field"><label>Year</label><span>${info.year || '—'}</span></div>
-    <div class="modal-field"><label>Location</label><span>${info.location || '—'}</span></div>
-    <div class="modal-field"><label>Added By</label><span>${info.addedBy || '—'}</span></div>
-    ${isLoggedIn && latest ? `<div class="modal-field"><label>Latest Price</label><span style="color:var(--gold);">${fmt(latest.price)} ฿</span></div>` : ''}
-  `;
-
-  // Price history
-  const histWrap = document.getElementById('modal-history-wrap');
-  if (isLoggedIn && priced.length) {
-    let html = '<h4>💰 Price History</h4>';
-    priced.slice().reverse().slice(0,5).forEach(r => {
-      html += `<div class="price-hist-row">
-        <span style="color:var(--muted);font-size:.75rem;">${r.date}</span>
-        <span class="price-gold">${fmt(r.price)} ฿</span>
-      </div>`;
-    });
-    histWrap.innerHTML = html;
-    histWrap.style.display = '';
-  } else {
-    histWrap.style.display = 'none';
-  }
-
-  document.getElementById('modal-overlay').classList.add('show');
-}
-
-function closeModal(e) {
-  if (e.target === document.getElementById('modal-overlay')) {
-    document.getElementById('modal-overlay').classList.remove('show');
-  }
-}
-
-// ═══════════════════════════════════
-// HISTORY
-// ═══════════════════════════════════
-function renderHistory(page) {
-  if (page) histPage = page;
-  const q  = (document.getElementById('h-filter').value || '').toUpperCase();
-  const qm = document.getElementById('h-model').value;
-  const df = document.getElementById('h-date-from').value;
-  const dt = document.getElementById('h-date-to').value;
-
-  let filtered = [...allData].reverse().filter(h => {
-    const matchText = !q || h.chassis.includes(q) || h.model.includes(q);
-    const matchModel = !qm || h.model === qm;
-    let matchDate = true;
-    if (df || dt) {
-      const d = parseDate(h.date);
-      if (df) matchDate = matchDate && d >= new Date(df).getTime();
-      if (dt) matchDate = matchDate && d <= new Date(dt).getTime() + 86400000;
-    }
-    return matchText && matchModel && matchDate;
-  });
-
-  const total = filtered.length;
-  const pages = Math.ceil(total / PAGE_SIZE);
-  const start = (histPage - 1) * PAGE_SIZE;
-  const slice = filtered.slice(start, start + PAGE_SIZE);
-
-  const tb = document.getElementById('history-tbody');
-  tb.innerHTML = '';
-  if (!slice.length) {
-    tb.innerHTML = `<tr class="empty-row"><td colspan="9">မှတ်တမ်း မရှိသေး</td></tr>`;
-  }
-  slice.forEach((h, i) => {
-    const imgUrl = h.image_url;
-    const imgCell = imgUrl
-      ? `<td><img src="${imgUrl}" class="thumb" onclick="openModal('${h.chassis}')" onerror="this.parentNode.innerHTML='—'"></td>`
-      : `<td><span class="no-img">—</span></td>`;
-    tb.innerHTML += `<tr>
-      <td style="color:var(--muted);font-size:.75rem;">${start+i+1}</td>
-      ${imgCell}
-      <td style="font-size:.75rem;">${h.date}</td>
-      <td style="font-size:.73rem;color:var(--muted);font-family:'Space Mono',monospace;">${h.chassis}</td>
-      <td style="font-weight:700;">${h.model}</td>
-      <td>${h.color}</td>
-      <td>${h.year || '—'}</td>
-      <td class="price-gold">${h.price ? fmt(h.price)+' ฿' : '—'}</td>
-      <td style="font-size:.75rem;color:var(--muted);">${h.addedBy}</td>
-    </tr>`;
-  });
-
-  const pg = document.getElementById('history-pages');
-  pg.innerHTML = '';
-  for (let i = 1; i <= pages; i++) {
-    pg.innerHTML += `<button class="page-btn${i===histPage?' active':''}" onclick="histPage=${i};renderHistory()">${i}</button>`;
-  }
-}
-
-// ═══════════════════════════════════
-// CHARTS — OHLC / Candlestick style
-// ═══════════════════════════════════
-function updateCharts() {
-  const selModel = document.getElementById('chart-model').value;
-  if (!selModel) return;
-
-  const data = allData.filter(h => h.model === selModel && h.price > 0);
-  if (!data.length) return;
-
-  // Group by chassis → OHLC
-  const byChassis = {};
-  data.forEach(h => {
-    if (!byChassis[h.chassis]) byChassis[h.chassis] = [];
-    byChassis[h.chassis].push(h.price);
-  });
-
-  const labels = Object.keys(byChassis);
-  const opens  = labels.map(ch => byChassis[ch][0]);
-  const closes = labels.map(ch => byChassis[ch][byChassis[ch].length-1]);
-  const highs  = labels.map(ch => Math.max(...byChassis[ch]));
-  const lows   = labels.map(ch => Math.min(...byChassis[ch]));
-
-  const barColors = labels.map((ch, i) => closes[i] >= opens[i] ? '#10b98188' : '#ef444488');
-  const borderColors = labels.map((ch, i) => closes[i] >= opens[i] ? '#10b981' : '#ef4444');
-
-  if (candleChartObj) candleChartObj.destroy();
-  candleChartObj = new Chart(document.getElementById('candleChart'), {
-    type: 'bar',
-    data: {
-      labels: labels.map(l => l.length > 12 ? l.slice(-8) : l),
-      datasets: [
-        {
-          label: 'High-Low Range',
-          data: labels.map((ch, i) => highs[i] - lows[i]),
-          base: lows,
-          backgroundColor: barColors,
-          borderColor: borderColors,
-          borderWidth: 1,
-          borderRadius: 2,
-        },
-        {
-          label: 'Latest Price',
-          data: closes,
-          type: 'line',
-          borderColor: '#f0b429',
-          backgroundColor: 'transparent',
-          pointRadius: 4,
-          pointBackgroundColor: '#f0b429',
-          tension: 0.3,
-          borderWidth: 2,
-          yAxisID: 'y',
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { labels: { color: '#ccd6f6', font: { size: 10 } } },
-        tooltip: {
-          callbacks: {
-            beforeBody: (items) => {
-              const i = items[0].dataIndex;
-              return [
-                `Open:  ฿${fmt(opens[i])}`,
-                `High:  ฿${fmt(highs[i])}`,
-                `Low:   ฿${fmt(lows[i])}`,
-                `Close: ฿${fmt(closes[i])}`,
-              ];
-            }
-          }
-        }
-      },
-      scales: {
-        x: { ticks: { color: '#5d7a9e', font:{size:8}, maxRotation:45 }, grid: { color: '#0d1f35' } },
-        y: { ticks: { color: '#5d7a9e', callback: v => '฿'+parseInt(v).toLocaleString() }, grid: { color: '#0d1f35' } }
-      }
-    }
-  });
-
-  // Monthly avg chart
-  const monthMap = {};
-  data.forEach(h => {
-    const p = h.date.split('/');
-    if (p.length === 3) {
-      const key = `${p[1].padStart(2,'0')}/${p[2]}`;
-      if (!monthMap[key]) monthMap[key] = [];
-      monthMap[key].push(h.price);
-    }
-  });
-  const months = Object.keys(monthMap).sort((a,b) => {
-    const [am,ay] = a.split('/'); const [bm,by] = b.split('/');
-    return (ay-by) || (am-bm);
-  });
-  const avgData = months.map(m => Math.round(monthMap[m].reduce((a,b)=>a+b) / monthMap[m].length));
-  const monthLabels = months.map(m => {
-    const [mm,yy] = m.split('/');
-    return new Date(yy, mm-1).toLocaleString('en', {month:'short', year:'2-digit'});
-  });
-
-  if (avgChartObj) avgChartObj.destroy();
-  avgChartObj = new Chart(document.getElementById('avgChart'), {
-    type: 'bar',
-    data: {
-      labels: monthLabels,
-      datasets: [{
-        label: 'ပျမ်းမျှဈေး (฿)',
-        data: avgData,
-        backgroundColor: avgData.map((v,i) => i===0||!avgData[i-1]?'#3b82f6': v>avgData[i-1]?'#10b981':'#ef4444'),
-        borderRadius: 5,
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color:'#ccd6f6', font:{size:10} } } },
-      scales: {
-        x: { ticks: { color:'#5d7a9e' }, grid: { color:'#0d1f35' } },
-        y: { ticks: { color:'#5d7a9e', callback: v=>'฿'+parseInt(v).toLocaleString() }, grid: { color:'#0d1f35' } }
-      }
-    }
-  });
-}
-
-// ═══════════════════════════════════
-// ANALYSIS
-// ═══════════════════════════════════
-function buildAnalysis() {
-  // 1. Top models by count
-  const modelCount = {};
-  allData.forEach(r => { modelCount[r.model] = (modelCount[r.model]||0) + 1; });
-  const topModels = Object.entries(modelCount).sort((a,b)=>b[1]-a[1]).slice(0,10);
-  const maxCount = topModels[0]?.[1] || 1;
-  document.getElementById('top-models').innerHTML = topModels.map(([m,c],i) =>
-    `<div class="rank-row">
-      <span class="rank-num">${i+1}</span>
-      <span style="flex:0 0 100px;font-size:.78rem;text-align:left;color:var(--white);">${m.slice(0,12)}</span>
-      <div class="rank-bar-wrap"><div class="rank-bar" style="width:${Math.round(c/maxCount*100)}%"></div></div>
-      <span class="rank-count">${c}</span>
-    </div>`
-  ).join('');
-
-  // 2. Avg price by model
-  const modelPrices = {};
-  allData.filter(r=>r.price>0).forEach(r => {
-    if (!modelPrices[r.model]) modelPrices[r.model] = [];
-    modelPrices[r.model].push(r.price);
-  });
-  const avgByModel = Object.entries(modelPrices)
-    .map(([m,ps]) => [m, Math.round(ps.reduce((a,b)=>a+b)/ps.length)])
-    .sort((a,b)=>b[1]-a[1]).slice(0,10);
-  const maxAvg = avgByModel[0]?.[1] || 1;
-  document.getElementById('avg-by-model').innerHTML = avgByModel.map(([m,avg],i) =>
-    `<div class="rank-row">
-      <span class="rank-num">${i+1}</span>
-      <span style="flex:0 0 90px;font-size:.75rem;text-align:left;color:var(--white);">${m.slice(0,10)}</span>
-      <div class="rank-bar-wrap"><div class="rank-bar" style="width:${Math.round(avg/maxAvg*100)}%;background:linear-gradient(90deg,var(--gold),#e09000);"></div></div>
-      <span class="rank-count" style="font-size:.7rem;">฿${(avg/1000).toFixed(0)}k</span>
-    </div>`
-  ).join('');
-
-  // 3. Day of week heatmap
-  const dayCount = [0,0,0,0,0,0,0];
-  allData.forEach(r => {
-    const t = parseDate(r.date);
-    if (t) dayCount[new Date(t).getDay()]++;
-  });
-  const maxDay = Math.max(...dayCount) || 1;
-  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  document.getElementById('day-labels').innerHTML = dayNames.map(d => `<div class="day-label">${d}</div>`).join('');
-  document.getElementById('day-heatmap').innerHTML = dayCount.map((c,i) => {
-    const intensity = Math.round(c/maxDay*100);
-    const bg = `rgba(37,99,235,${0.1 + intensity/100*0.9})`;
-    return `<div class="heatmap-cell" style="background:${bg};" title="${dayNames[i]}: ${c} ကား">${c}</div>`;
   }).join('');
 
-  // 4. Monthly volume
-  const monthlyVol = {};
-  allData.forEach(r => {
-    const p = r.date.split('/');
-    if (p.length === 3) {
-      const key = `${p[1].padStart(2,'0')}/${p[2]}`;
-      monthlyVol[key] = (monthlyVol[key]||0) + 1;
-    }
-  });
-  const sortedMonths = Object.keys(monthlyVol).sort((a,b) => {
-    const [am,ay]=a.split('/'); const [bm,by]=b.split('/');
-    return (ay-by)||(am-bm);
-  }).slice(-12);
-  const mLabels = sortedMonths.map(m => {
-    const [mm,yy]=m.split('/');
-    return new Date(yy,mm-1).toLocaleString('en',{month:'short',year:'2-digit'});
-  });
-
-  if (monthlyChartObj) monthlyChartObj.destroy();
-  monthlyChartObj = new Chart(document.getElementById('monthlyChart'), {
-    type: 'line',
-    data: {
-      labels: mLabels,
-      datasets: [{
-        label: 'ကားရောင်းချမှု',
-        data: sortedMonths.map(m => monthlyVol[m]),
-        borderColor: '#3b82f6',
-        backgroundColor: '#3b82f622',
-        fill: true, tension: 0.4, pointRadius: 4,
-        pointBackgroundColor: '#3b82f6',
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color:'#ccd6f6', font:{size:10} } } },
-      scales: {
-        x: { ticks: { color:'#5d7a9e', font:{size:9} }, grid: { color:'#0d1f35' } },
-        y: { ticks: { color:'#5d7a9e' }, grid: { color:'#0d1f35' } }
-      }
-    }
-  });
-
-  // 5. Top price
-  const topPrice = [...allData].filter(r=>r.price>0).sort((a,b)=>b.price-a.price).slice(0,8);
-  document.getElementById('top-price').innerHTML = topPrice.map((r,i) =>
-    `<div class="rank-row">
-      <span class="rank-num">${i+1}</span>
-      <div style="flex:1;text-align:left;">
-        <div style="font-size:.75rem;color:var(--white);">${r.model}</div>
-        <div style="font-size:.68rem;color:var(--muted);font-family:'Space Mono',monospace;">${r.chassis}</div>
-      </div>
-      <span class="rank-count">฿${fmt(r.price)}</span>
-    </div>`
-  ).join('');
-
-  // 6. Price range by model
-  const priceRange = Object.entries(modelPrices)
-    .map(([m,ps]) => [m, Math.min(...ps), Math.max(...ps), ps.length])
-    .filter(([,,,c]) => c >= 2)
-    .sort((a,b) => b[2]-a[2]).slice(0,8);
-  document.getElementById('price-range').innerHTML = priceRange.map(([m,lo,hi,c]) =>
-    `<div class="rank-row">
-      <div style="flex:1;text-align:left;">
-        <div style="font-size:.75rem;color:var(--white);">${m.slice(0,14)}</div>
-        <div style="font-size:.68rem;color:var(--muted);">n=${c}</div>
-      </div>
-      <div style="text-align:right;">
-        <div style="font-size:.72rem;color:#10b981;">↑ ฿${fmt(hi)}</div>
-        <div style="font-size:.72rem;color:#ef4444;">↓ ฿${fmt(lo)}</div>
-      </div>
-    </div>`
-  ).join('');
+  renderPager('carPager', page, total, p => { clPage = p; renderCarList(); });
 }
 
-// ═══════════════════════════════════
-// UTIL
-// ═══════════════════════════════════
-function fmt(n) { return n ? parseInt(n).toLocaleString() : '—'; }
+// ═══════════════════════════════════════
+// CHART
+// ═══════════════════════════════════════
+function renderChart() {
+  const model = document.getElementById('chartModel').value;
+  if(!model) {
+    if(ohlcChartInst) { ohlcChartInst.destroy(); ohlcChartInst = null; }
+    if(monthChartInst){ monthChartInst.destroy(); monthChartInst = null; }
+    document.getElementById('ohlcInfo').innerHTML = '';
+    return;
+  }
 
-// Init
-loadData();
+  let data = priceData.filter(p => p.model && p.model.toUpperCase() === model.toUpperCase());
+  if(chartYearFilter !== 'all') {
+    data = data.filter(p => {
+      if(!p.date) return false;
+      const parts = p.date.split('/');
+      return parts.length === 3 && parts[2] === chartYearFilter;
+    });
+  }
+
+  // OHLC by chassis
+  const chassisMap = {};
+  data.forEach(p => {
+    if(!chassisMap[p.chassis]) chassisMap[p.chassis] = [];
+    chassisMap[p.chassis].push(Number(p.price));
+  });
+
+  const labels = Object.keys(chassisMap);
+  const highs  = labels.map(ch => Math.max(...chassisMap[ch]));
+  const lows   = labels.map(ch => Math.min(...chassisMap[ch]));
+  const lasts  = labels.map(ch => chassisMap[ch][chassisMap[ch].length-1]);
+
+  const ohlcCtx = document.getElementById('ohlcChart').getContext('2d');
+  if(ohlcChartInst) ohlcChartInst.destroy();
+  ohlcChartInst = new Chart(ohlcCtx, {
+    type:'bar',
+    data:{
+      labels: labels.map(l => l.length > 12 ? '...'+l.slice(-8) : l),
+      datasets:[
+        {label:'High-Low Range',data:highs.map((h,i)=>h-lows[i]),backgroundColor:'rgba(16,185,129,0.5)',borderColor:'#10b981',borderWidth:1},
+        {label:'Latest Price',data:lasts,type:'scatter',backgroundColor:'#f59e0b',pointRadius:5}
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{labels:{color:'#94a3b8',font:{size:10}}}},scales:{x:{ticks:{color:'#94a3b8',font:{size:9}},grid:{color:'#1a2234'}},y:{ticks:{color:'#94a3b8',callback:v=>'฿'+v.toLocaleString(),font:{size:9}},grid:{color:'#1a2234'}}}}
+  });
+
+  // OHLC summary
+  if(data.length) {
+    const prices = data.map(p=>Number(p.price));
+    document.getElementById('ohlcInfo').innerHTML = [
+      {k:'High',v:'฿'+Math.max(...prices).toLocaleString()},
+      {k:'Low', v:'฿'+Math.min(...prices).toLocaleString()},
+      {k:'Avg', v:'฿'+Math.round(prices.reduce((a,b)=>a+b,0)/prices.length).toLocaleString()},
+      {k:'Count',v:data.length+'ကြိမ်'},
+    ].map(i=>`<div class="ohlc-item"><div class="ohlc-val">${i.v}</div><div class="ohlc-key">${i.k}</div></div>`).join('');
+  }
+
+  // Monthly chart
+  const monthMap = {};
+  data.forEach(p => {
+    if(!p.date) return;
+    const parts = p.date.split('/');
+    if(parts.length<3) return;
+    const key = `${parts[2]}-${parts[1]}`;
+    if(!monthMap[key]) monthMap[key] = [];
+    monthMap[key].push(Number(p.price));
+  });
+  const mLabels = Object.keys(monthMap).sort();
+  const mAvgs   = mLabels.map(k => Math.round(monthMap[k].reduce((a,b)=>a+b,0)/monthMap[k].length));
+
+  const mCtx = document.getElementById('monthChart').getContext('2d');
+  if(monthChartInst) monthChartInst.destroy();
+  monthChartInst = new Chart(mCtx, {
+    type:'bar',
+    data:{labels:mLabels,datasets:[{label:'ပျမ်းမျှဈေး (฿)',data:mAvgs,backgroundColor:'rgba(59,130,246,0.6)',borderColor:'#3b82f6',borderWidth:1}]},
+    options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{labels:{color:'#94a3b8',font:{size:10}}}},scales:{x:{ticks:{color:'#94a3b8',font:{size:10}},grid:{color:'#1a2234'}},y:{ticks:{color:'#94a3b8',callback:v=>'฿'+v.toLocaleString(),font:{size:9}},grid:{color:'#1a2234'}}}}
+  });
+}
+
+// ═══════════════════════════════════════
+// HISTORY
+// ═══════════════════════════════════════
+function renderHistory() {
+  const search   = document.getElementById('histSearch').value.toUpperCase();
+  const modelDrop = document.getElementById('histModelDrop').value.toUpperCase();
+  const yearDrop  = document.getElementById('histYear').value;
+
+  let filtered = [...priceData].reverse().filter(p => {
+    if(search && !p.chassis.toUpperCase().includes(search) && !((p.model||'').toUpperCase()).includes(search)) return false;
+    if(modelDrop && (p.model||'').toUpperCase() !== modelDrop) return false;
+    if(yearDrop && p.date) {
+      const parts = p.date.split('/');
+      // Filter by car year (from CARS array)
+      const car = CARS.find(c => c.chassis === p.chassis);
+      if(car && String(car.year) !== yearDrop) return false;
+    }
+    return true;
+  });
+
+  const total = Math.ceil(filtered.length / PAGE_SIZE);
+  const page  = Math.min(hPage, total || 1);
+  const items = filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
+
+  const el = document.getElementById('histList');
+  if(!items.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">📋</div>မှတ်တမ်း မရှိသေးပါ</div>`;
+    document.getElementById('histPager').innerHTML = '';
+    return;
+  }
+
+  const car_map = {};
+  CARS.forEach(c => car_map[c.chassis] = c);
+
+  el.innerHTML = items.map((p,i) => {
+    const car  = car_map[p.chassis];
+    const loc  = (p.location||'').includes('Klang9') ? 'Klang9' : 'MaeSot';
+    const locBadge = loc === 'Klang9'
+      ? `<span class="badge badge-klang9" style="font-size:9px">Klang9</span>`
+      : `<span class="badge badge-maesot" style="font-size:9px">MaeSot</span>`;
+    return `<div class="hist-row">
+      <div class="hist-num">${(page-1)*PAGE_SIZE+i+1}</div>
+      <div class="hist-info">
+        <div class="hist-chassis">${p.chassis} ${locBadge}</div>
+        <div class="hist-model">${p.model||'UNKNOWN'} ${car?`<span style="color:var(--muted);font-size:11px">(${car.year||'—'})</span>`:''}</div>
+      </div>
+      <div class="hist-right">
+        <div class="hist-price">฿${Number(p.price).toLocaleString()}</div>
+        <div class="hist-date">${p.date||''} · ${p.added_by||''}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  renderPager('histPager', page, total, p => { hPage = p; renderHistory(); });
+}
+
+// ═══════════════════════════════════════
+// ANALYSIS
+// ═══════════════════════════════════════
+function renderAnalysis() {
+  if(!priceData.length) return;
+  const prices = priceData.map(p=>Number(p.price)).filter(Boolean);
+  const avg    = Math.round(prices.reduce((a,b)=>a+b,0)/prices.length);
+  const maesotCars = CARS.filter(c=>c.loc==='MaeSot').length;
+  const klang9Cars = CARS.filter(c=>c.loc==='Klang9').length;
+
+  document.getElementById('analysisGrid').innerHTML = [
+    {v:'฿'+Math.max(...prices).toLocaleString(), l:'အမြင့်ဆုံးဈေး'},
+    {v:'฿'+Math.min(...prices).toLocaleString(), l:'အနိမ့်ဆုံးဈေး'},
+    {v:'฿'+avg.toLocaleString(), l:'ပျမ်းမျှဈေး'},
+    {v:maesotCars+' / '+klang9Cars, l:'MaeSot / Klang9'},
+  ].map(i=>`<div class="analysis-card"><div class="analysis-val">${i.v}</div><div class="analysis-lbl">${i.l}</div></div>`).join('');
+
+  // Model avg chart
+  const modelMap = {};
+  priceData.forEach(p => {
+    const m = p.model || 'UNKNOWN';
+    if(!modelMap[m]) modelMap[m] = [];
+    modelMap[m].push(Number(p.price));
+  });
+  const topModels = Object.entries(modelMap)
+    .map(([m,ps]) => ({model:m, avg:Math.round(ps.reduce((a,b)=>a+b,0)/ps.length)}))
+    .sort((a,b)=>b.avg-a.avg).slice(0,10);
+
+  const mCtx = document.getElementById('modelChart').getContext('2d');
+  if(modelChartInst) modelChartInst.destroy();
+  modelChartInst = new Chart(mCtx, {
+    type:'bar',
+    data:{
+      labels:topModels.map(m=>m.model),
+      datasets:[{label:'ပျမ်းမျှဈေး (฿)',data:topModels.map(m=>m.avg),backgroundColor:'rgba(245,158,11,0.6)',borderColor:'#f59e0b',borderWidth:1}]
+    },
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{ticks:{color:'#94a3b8',callback:v=>'฿'+v.toLocaleString(),font:{size:9}},grid:{color:'#1a2234'}},y:{ticks:{color:'#e2e8f0',font:{size:10}},grid:{color:'#1a2234'}}}}
+  });
+  document.getElementById('modelChart').style.height = '250px';
+
+  // Gate chart
+  const gCtx = document.getElementById('gateChart').getContext('2d');
+  if(gateChartInst) gateChartInst.destroy();
+  gateChartInst = new Chart(gCtx, {
+    type:'doughnut',
+    data:{
+      labels:['MaeSot Freezone','Klang9 Freezone'],
+      datasets:[{data:[maesotCars,klang9Cars],backgroundColor:['rgba(245,158,11,0.7)','rgba(59,130,246,0.7)'],borderColor:['#f59e0b','#3b82f6'],borderWidth:2}]
+    },
+    options:{responsive:true,plugins:{legend:{labels:{color:'#e2e8f0',font:{size:11}}}}}
+  });
+}
+
+// ═══════════════════════════════════════
+// PAGINATION
+// ═══════════════════════════════════════
+function renderPager(id, cur, total, cb) {
+  const el = document.getElementById(id);
+  if(total <= 1) { el.innerHTML=''; return; }
+  let html = '';
+  if(cur>1) html += `<button class="page-btn" onclick="(${cb})(${cur-1})">‹</button>`;
+  for(let p=Math.max(1,cur-2); p<=Math.min(total,cur+2); p++)
+    html += `<button class="page-btn${p===cur?' active':''}" onclick="(${cb})(${p})">${p}</button>`;
+  if(cur<total) html += `<button class="page-btn" onclick="(${cb})(${cur+1})">›</button>`;
+  el.innerHTML = html;
+}
+
+// ═══════════════════════════════════════
+// TAB SWITCH
+// ═══════════════════════════════════════
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    const tabs = ['carlist','chart','history','analysis'];
+    b.classList.toggle('active', tabs[i]===name);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='chart') renderChart();
+  if(name==='analysis') renderAnalysis();
+}
+
+// ═══════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════
+function openModal(chassis, model) {
+  selChassis = chassis; selModel = model;
+  document.getElementById('modalTitle').textContent = '💰 ဈေးထည့် — '+model;
+  document.getElementById('modalCar').textContent = chassis;
+  document.getElementById('priceInput').value = '';
+  document.getElementById('priceMsg').textContent = '';
+  document.getElementById('priceModal').classList.add('show');
+}
+function closeModal() { document.getElementById('priceModal').classList.remove('show'); }
+
+async function submitPrice() {
+  const price = parseInt(document.getElementById('priceInput').value);
+  if(!price || price < 1000) {
+    document.getElementById('priceMsg').innerHTML = '<span style="color:var(--red)">❌ ဈေး မှားနေတယ်</span>';
+    return;
+  }
+  document.getElementById('priceMsg').innerHTML = '<span style="color:var(--muted)">📤 ပေးပို့နေတယ်...</span>';
+  try {
+    const now   = new Date();
+    const date  = `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()}`;
+    const car   = CARS.find(c=>c.chassis===selChassis);
+    const entry = {chassis:selChassis,model:selModel,color:car?.color||'-',year:car?.year||0,
+                   price,date,location:`${car?.loc||'MaeSot'} Freezone`,added_by:'Web',image_url:''};
+    await fetch(WEBHOOK,{method:'POST',body:JSON.stringify(entry)});
+    priceData.push(entry);
+    document.getElementById('priceMsg').innerHTML = '<span style="color:var(--green)">✅ ဈေးထည့်ပြီး!</span>';
+    setTimeout(()=>{ closeModal(); renderAll(); },1200);
+  } catch(e) {
+    document.getElementById('priceMsg').innerHTML = '<span style="color:var(--red)">❌ Error: '+e.message+'</span>';
+  }
+}
+
+// ═══════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════
+function toggleAuth() {
+  if(isAdmin) {
+    isAdmin = false;
+    localStorage.removeItem('isAdmin');
+    updateAuthBtn();
+    renderCarList();
+  } else {
+    document.getElementById('loginModal').classList.add('show');
+    document.getElementById('loginErr').textContent='';
+    setTimeout(()=>document.getElementById('pwInput').focus(),300);
+  }
+}
+function doLogin() {
+  const pw = document.getElementById('pwInput').value;
+  if(pw === ADMIN_PW) {
+    isAdmin = true;
+    localStorage.setItem('isAdmin','1');
+    updateAuthBtn();
+    document.getElementById('loginModal').classList.remove('show');
+    renderCarList();
+  } else {
+    document.getElementById('loginErr').textContent = '❌ Password မှားတယ်';
+  }
+}
+function updateAuthBtn() {
+  const btn = document.getElementById('authBtn');
+  if(isAdmin) { btn.textContent='🔓 Logout'; btn.className='btn btn-logout'; }
+  else        { btn.textContent='🔑 Login'; btn.className='btn btn-login'; }
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if(e.target===m) m.classList.remove('show'); });
+});
 </script>
 </body>
 </html>
