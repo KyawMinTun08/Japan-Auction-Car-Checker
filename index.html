@@ -121,6 +121,34 @@ select:focus{border-color:var(--primary);}
 </head>
 <body>
 
+<!-- LOGIN OVERLAY -->
+<div id="loginOverlay" style="position:fixed;inset:0;background:linear-gradient(135deg,#0F1923 0%,#1A2535 50%,#0057FF22 100%);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;">
+  <div style="background:#fff;border-radius:16px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 24px 64px rgba(0,0,0,0.4);">
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="font-size:40px;margin-bottom:10px">🚗</div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:#0F1923">JAN JAPAN</div>
+      <div style="font-size:13px;color:#6B7A99;margin-top:4px">Auction Car Checker</div>
+    </div>
+    <div id="loginErr" style="display:none;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:10px 14px;font-size:13px;color:#EF4444;margin-bottom:16px;text-align:center;"></div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:12px;font-weight:600;color:#6B7A99;text-transform:uppercase;letter-spacing:0.5px">Password</label>
+      <input id="loginPw" type="password" placeholder="KMT-XXXXXX"
+        style="width:100%;margin-top:6px;border:1.5px solid #E2E8F0;border-radius:8px;padding:11px 14px;font-size:15px;font-family:'Space Grotesk',sans-serif;font-weight:600;letter-spacing:2px;outline:none;color:#0F1923;box-sizing:border-box"
+        onkeydown="if(event.key==='Enter')doLogin()"
+        oninput="this.style.borderColor='#E2E8F0';document.getElementById('loginErr').style.display='none'">
+    </div>
+    <button onclick="doLogin()" id="loginBtn"
+      style="width:100%;background:#0057FF;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;transition:background 0.18s">
+      🔓 Login
+    </button>
+    <div style="margin-top:20px;text-align:center;font-size:12px;color:#6B7A99">
+      Password မမှတ်မိပါက Telegram Bot မှ
+      <br><a href="https://t.me/JapanAuctionCar_Bot" style="color:#0057FF;font-weight:600">/mypassword</a> command သုံးပါ
+    </div>
+    <div id="loginBrute" style="display:none;margin-top:12px;text-align:center;font-size:12px;color:#EF4444;font-weight:600"></div>
+  </div>
+</div>
+
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner"></div>
   <div style="font-size:14px;color:var(--text-muted);font-weight:500">Loading from Google Sheets...</div>
@@ -281,8 +309,209 @@ select:focus{border-color:var(--primary);}
 </div>
 
 <script>
-const SHEET_ID = '1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHDO6K3zG1mpY';
+const SHEET_ID   = '1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHDO6K3zG1mpY';
+const WEBHOOK    = 'https://script.google.com/macros/s/AKfycbx0VnduD1ARzD22RerXiH68H1capsP79DnOPauS6qHkV8K7RMwcf0_EREx5XFmE3UwT/exec';
+const SESSION_KEY = 'jan_session';
+const MAX_LOGIN_TRIES = 5;
+const LOCKOUT_MINUTES = 15;
+const SESSION_HOURS   = 24;
+
 let allCars = [], charts = {};
+let SESSION = null;  // {token, userId, username, package, expireDate, loginTime}
+
+// ── Brute Force Tracking ──────────────────────────────────
+function getLoginAttempts() {
+  try { return JSON.parse(sessionStorage.getItem('login_tries') || '{"count":0,"lockUntil":0}'); }
+  catch(e) { return {count:0, lockUntil:0}; }
+}
+function setLoginAttempts(obj) {
+  sessionStorage.setItem('login_tries', JSON.stringify(obj));
+}
+function isLocked() {
+  const t = getLoginAttempts();
+  if (t.lockUntil && Date.now() < t.lockUntil) return Math.ceil((t.lockUntil - Date.now()) / 60000);
+  return 0;
+}
+
+// ── Login ─────────────────────────────────────────────────
+async function doLogin() {
+  const pw  = document.getElementById('loginPw').value.trim();
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('loginErr');
+  const brute = document.getElementById('loginBrute');
+
+  // Lockout check
+  const mins = isLocked();
+  if (mins > 0) {
+    err.style.display = 'block';
+    err.textContent = `⏳ ${mins} မိနစ်ကြာမှ ပြန်ကြိုးစားပါ (Brute force lock)`;
+    return;
+  }
+
+  if (!pw) {
+    err.style.display = 'block';
+    err.textContent = 'Password ထည့်ပါ';
+    return;
+  }
+
+  btn.textContent = '⏳ Checking...';
+  btn.disabled = true;
+  err.style.display = 'none';
+
+  try {
+    const res = await fetch(WEBHOOK, {
+      method: 'POST',
+      body: JSON.stringify({action: 'verifyLogin', password: pw}),
+      headers: {'Content-Type': 'application/json'},
+      redirect: 'follow'
+    });
+    const data = await res.json();
+
+    if (data.status === 'ok') {
+      // Clear brute force
+      setLoginAttempts({count: 0, lockUntil: 0});
+
+      SESSION = {
+        token:      data.token,
+        userId:     data.userId,
+        username:   data.username,
+        package:    data.package,
+        expireDate: data.expireDate,
+        loginTime:  Date.now()
+      };
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(SESSION));
+      showApp();
+    } else {
+      // Record failed attempt
+      const t = getLoginAttempts();
+      t.count = (t.count || 0) + 1;
+      if (t.count >= MAX_LOGIN_TRIES) {
+        t.lockUntil = Date.now() + LOCKOUT_MINUTES * 60 * 1000;
+        t.count = 0;
+        err.textContent = `❌ ${MAX_LOGIN_TRIES} ကြိမ် မှားပြီ — ${LOCKOUT_MINUTES} မိနစ် Lock`;
+        brute.style.display = 'block';
+        brute.textContent = `⚠️ Admin ကို ဆက်သွယ်ပါ: @JapanAuctionCar_Bot`;
+      } else {
+        const msg = data.message === 'expired'
+          ? '⏰ Membership ကုန်ဆုံးပြီ — /renew လုပ်ပါ'
+          : `❌ Password မှားတယ် (${MAX_LOGIN_TRIES - t.count} ကြိမ် ကျန်)`;
+        err.textContent = msg;
+      }
+      err.style.display = 'block';
+      setLoginAttempts(t);
+      document.getElementById('loginPw').style.borderColor = '#EF4444';
+    }
+  } catch(e) {
+    err.style.display = 'block';
+    err.textContent = '❌ Connection error — ပြန်ကြိုးစားပါ';
+  }
+
+  btn.textContent = '🔓 Login';
+  btn.disabled = false;
+}
+
+// ── Session Check ─────────────────────────────────────────
+function checkSession() {
+  try {
+    const stored = sessionStorage.getItem(SESSION_KEY);
+    if (!stored) return false;
+    const s = JSON.parse(stored);
+    // 24hr timeout
+    if (Date.now() - s.loginTime > SESSION_HOURS * 3600 * 1000) {
+      sessionStorage.removeItem(SESSION_KEY);
+      return false;
+    }
+    SESSION = s;
+    return true;
+  } catch(e) { return false; }
+}
+
+// ── Show App (after login) ────────────────────────────────
+function showApp() {
+  document.getElementById('loginOverlay').style.display = 'none';
+
+  // CH_ONLY → block web tabs
+  if (SESSION && SESSION.package === 'CH') {
+    showChannelOnlyBlock();
+    return;
+  }
+
+  // Show full app
+  document.getElementById('loadingOverlay').style.display = 'flex';
+  document.getElementById('loadingOverlay').innerHTML =
+    '<div class="spinner"></div><div style="font-size:14px;color:var(--text-muted);font-weight:500">Loading from Google Sheets...</div>';
+
+  // Show username in sidebar
+  updateUserBar();
+  init();
+}
+
+// ── CH_ONLY Block ─────────────────────────────────────────
+function showChannelOnlyBlock() {
+  document.getElementById('loadingOverlay').style.display = 'none';
+  document.querySelector('.main').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;padding:24px">
+      <div style="text-align:center;max-width:420px">
+        <div style="font-size:60px;margin-bottom:16px">📱</div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:#0F1923;margin-bottom:8px">
+          Channel Only Package
+        </div>
+        <div style="font-size:14px;color:#6B7A99;margin-bottom:24px;line-height:1.6">
+          သင်၏ Package သည် <strong>Channel Only</strong> ဖြစ်သောကြောင့်
+          Web App ဝင်ခွင့် မရှိပါ
+        </div>
+        <div style="background:#EEF3FF;border-radius:12px;padding:20px;margin-bottom:24px">
+          <div style="font-size:13px;font-weight:700;color:#0057FF;margin-bottom:12px">📦 Upgrade to Channel + Web</div>
+          <div style="font-size:13px;color:#1A2535;line-height:1.8">
+            ✅ Web App အပြည့်အဝ ဝင်ရောက်နိုင်<br>
+            ✅ Chassis Lookup<br>
+            ✅ Price Analysis & Charts<br>
+            ✅ Export CSV
+          </div>
+        </div>
+        <a href="https://t.me/JapanAuctionCar_Bot" target="_blank"
+          style="display:inline-block;background:#0057FF;color:#fff;border-radius:10px;padding:13px 28px;font-size:14px;font-weight:700;text-decoration:none">
+          ⬆️ Upgrade လုပ်ရန် — Bot ဆက်သွယ်
+        </a>
+        <div style="margin-top:16px">
+          <button onclick="doLogout()" style="background:transparent;border:1.5px solid #E2E8F0;border-radius:8px;padding:8px 20px;font-size:13px;color:#6B7A99;cursor:pointer;font-family:inherit">
+            🚪 Logout
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Update User Bar ───────────────────────────────────────
+function updateUserBar() {
+  if (!SESSION) return;
+  const pkg = SESSION.package === 'WEB' ? '📱+🌐 CH+Web' : '📱 CH Only';
+  document.querySelector('.sidebar-footer').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="user-avatar">${(SESSION.username||'?').charAt(0).toUpperCase()}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@${SESSION.username||''}</div>
+        <div style="font-size:10px;color:var(--gray3)">${pkg} · ကုန်: ${SESSION.expireDate||''}</div>
+      </div>
+    </div>
+    <button onclick="doLogout()" style="margin-top:10px;width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px;font-size:11px;color:rgba(255,255,255,0.5);cursor:pointer;font-family:inherit">🚪 Logout</button>`;
+}
+
+// ── Logout ────────────────────────────────────────────────
+function doLogout() {
+  sessionStorage.removeItem(SESSION_KEY);
+  location.reload();
+}
+
+// ── Entry Point ───────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', function() {
+  if (checkSession()) {
+    showApp();
+  } else {
+    document.getElementById('loginOverlay').style.display = 'flex';
+    document.getElementById('loadingOverlay').style.display = 'none';
+  }
+});
 const COLORS = ['#0057FF','#00B37E','#F59E0B','#8B5CF6','#EF4444','#0EA5E9','#EC4899','#6B7280'];
 const BGs = ['linear-gradient(135deg,#EEF3FF,#E0E8FF)','linear-gradient(135deg,#E6FBF5,#C8F3E8)','linear-gradient(135deg,#FFF4E6,#FFE4C8)','linear-gradient(135deg,#F5F0FF,#E6D9FF)','linear-gradient(135deg,#FFF0F0,#FFD6D6)'];
 
@@ -633,7 +862,7 @@ function switchTab(name) {
 
 function destroyChart(k){if(charts[k]){try{charts[k].destroy()}catch(e){}delete charts[k];}}
 
-window.addEventListener('DOMContentLoaded', init);
+// init() is called from showApp() after login
 </script>
 </body>
 </html>
