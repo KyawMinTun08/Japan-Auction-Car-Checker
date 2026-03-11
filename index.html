@@ -127,7 +127,8 @@ select:focus{border-color:var(--primary);}
     <div style="text-align:center;margin-bottom:28px">
       <div style="font-size:40px;margin-bottom:10px">🚗</div>
       <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:#0F1923">Japan Auction Car Checker</div>
-      <div style="font-size:13px;color:#6B7A99;margin-top:4px">Auction Car Checker</div>
+      <div style="font-size:12px;color:#6B7A99;margin-top:2px">MaeSot & Klang9 Freezone</div>
+
     </div>
     <div id="loginErr" style="display:none;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:10px 14px;font-size:13px;color:#EF4444;margin-bottom:16px;text-align:center;"></div>
     <div style="margin-bottom:16px">
@@ -500,16 +501,31 @@ async function fetchSheet(tab) {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(tab)}&_=${Date.now()}`;
   const res = await fetch(url);
   const text = await res.text();
-  const json = JSON.parse(text.substring(text.indexOf('{'), text.lastIndexOf('}')+1));
+  // gviz wraps response: /*O_o*/\ngoogle.visualization.Query.setResponse({...});
+  // Need to extract inner JSON from setResponse({...})
+  const startMarker = 'setResponse(';
+  const startIdx = text.indexOf(startMarker);
+  let jsonStr;
+  if (startIdx !== -1) {
+    // Extract from first { after setResponse( to matching closing })
+    const jsonStart = text.indexOf('{', startIdx);
+    // Remove trailing ); to get clean JSON
+    const raw = text.substring(jsonStart).trim();
+    // Remove last ); 
+    jsonStr = raw.endsWith(');') ? raw.slice(0, -2) : raw.endsWith(')') ? raw.slice(0,-1) : raw;
+  } else {
+    // Fallback
+    jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}')+1);
+  }
+  const json = JSON.parse(jsonStr);
   if (!json.table || !json.table.rows) return [];
-  const cols = json.table.cols.map(c => c.label||c.id);
+  const cols = json.table.cols.map(c => c.label || c.id);
   return json.table.rows.map(row => {
     const o = {};
     row.c.forEach((cell, i) => {
       if (!cell || cell.v === null || cell.v === undefined) {
         o[cols[i]] = '';
       } else {
-        // Use formatted value (f) if available, otherwise raw value (v)
         o[cols[i]] = (cell.f !== undefined && cell.f !== null) ? cell.f : cell.v;
       }
     });
