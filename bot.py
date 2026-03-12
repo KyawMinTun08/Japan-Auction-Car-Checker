@@ -1298,6 +1298,29 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     price        = int(price_match.group(1)) if price_match else None
     gemini_model = ""; gemini_color = ""; gemini_year = 0; file_bytes = None
 
+    # Caption မှ model/color/year ထုတ်ယူ (format: "74000 VZN11-042846 AD VAN 2013 White")
+    if caption and chassis:
+        cap_work = caption.upper()
+        cap_work = re.sub(re.escape(chassis.upper()), '', cap_work)
+        if price_match:
+            cap_work = re.sub(r'(?<![A-Z0-9])' + re.escape(price_match.group(1)) + r'(?![A-Z0-9])', '', cap_work)
+        cap_work = cap_work.strip()
+        year_m = re.search(r'\b(19|20)\d{2}\b', cap_work)
+        if year_m:
+            gemini_year = int(year_m.group())
+            cap_work = cap_work.replace(year_m.group(), '').strip()
+        KNOWN_COLORS = ["PEARL WHITE","DARK BLUE","LIGHT BLUE","LIGHT GREEN",
+                        "WHITE","BLACK","SILVER","RED","BLUE","GREEN","YELLOW",
+                        "BROWN","ORANGE","GREY","GRAY","GOLD","PURPLE","MAROON"]
+        for col in KNOWN_COLORS:
+            if col in cap_work:
+                gemini_color = col
+                cap_work = cap_work.replace(col, '').strip()
+                break
+        cap_model = re.sub(r'[^A-Z0-9 ]', '', cap_work).strip()
+        if cap_model and len(cap_model) >= 2:
+            gemini_model = cap_model
+
     if not chassis:
         try:
             file       = await photo.get_file()
