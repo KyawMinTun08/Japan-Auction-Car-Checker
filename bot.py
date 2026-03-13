@@ -565,16 +565,33 @@ async def gemini_read_slip(file_bytes: bytes) -> dict:
         img_b64 = base64.b64encode(file_bytes).decode()
         url     = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
         payload = {"contents":[{"parts":[
-            {"text":"""Myanmar payment slip (KPay/Wave/KBZ/CB/AYA Bank).
-Extract these fields:
-AMOUNT: (numbers only, e.g. 1500)
-DATE: (dd/mm/yyyy format)
-TIME: (HH:MM format)
-TYPE: (KPay or Wave or KBZ or CB or AYA or Other)
-REFERENCE: (transaction ID or reference number)
-SENDER: (sender name if visible)
+            {"text":"""Identify this Myanmar mobile payment slip and extract fields.
 
-Return EXACTLY in this format. Write UNKNOWN if not found."""},
+HOW TO IDENTIFY:
+- Wave Money slip = YELLOW background, "KS" logo with lightning bolt
+    * Shows "Transaction ID" + "Date & Time" + "Total" (top amount)
+    * "Receive Money" view: has "Sender" field
+    * "Send Money" view: has "Receiver" field
+
+- KPay (KBZPay) slip = BLUE background, "KBZ BANK" red logo at top + "KBZPay" blue logo at bottom
+    * Shows "Transaction Time" + "Transaction No." + "Transfer To" + "Amount" (top large number)
+    * "Transfer To" = the person who RECEIVED the money (e.g. admin name)
+    * Sender name NOT shown on this slip type
+
+Extract these fields:
+TYPE: (Wave or KPay or Other)
+TRANSACTION_NO:
+  - Wave: number next to "Transaction ID" (e.g. 894983741)
+  - KPay: full number next to "Transaction No." (e.g. 01004089020139330692) — ALL digits
+AMOUNT: (positive number only, no commas, no Ks, no minus/plus — from top large amount, e.g. 1000000)
+DATE: (dd/mm/yyyy — from "Date & Time" for Wave, "Transaction Time" for KPay)
+TIME: (HH:MM 24hr — convert PM/AM, e.g. 02:55 PM = 14:55)
+TRANSFER_TO: (name next to "Transfer To" for KPay, or "Receiver" for Wave Send view — who received the money)
+SENDER: (name next to "Sender" for Wave Receive view only — UNKNOWN for KPay and Wave Send view)
+
+TRANSACTION_NO is most critical — read every digit carefully.
+
+Return EXACTLY in this format with no extra text. Write UNKNOWN if not found."""},
             {"inline_data":{"mime_type":"image/jpeg","data":img_b64}}
         ]}]}
         async with httpx.AsyncClient() as client:
@@ -1105,21 +1122,48 @@ async def updateid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ADMIN_IDS and user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
-    if len(context.args) < 2:
+    if len(context.args) < 3:
         await update.message.reply_text(
-            "❌ Format: `/updateid @username [newTelegramID]`\n"
-            "ဥပမာ: `/updateid @Steve_member 987654321`",
+            "❌ Format: `/updateid @username [oldID] [newID]`\n"
+            "ဥပမာ: `/updateid @Steve 123456789 987654321`\n\n"
+            "⚠️ Old ID မပါရင် update မလုပ်ဘူး — Security အတွက်",
             parse_mode='Markdown')
         return
     target_username = context.args[0].replace('@', '')
     try:
-        new_id = int(context.args[1])
+        old_id = int(context.args[1])
+        new_id = int(context.args[2])
     except:
-        await update.message.reply_text("❌ Telegram ID ဂဏန်းဖြစ်ရမည်")
+        await update.message.reply_text("❌ ID တွေ ဂဏန်းဖြစ်ရမည်")
         return
-    # Confirm step
+    if old_id == new_id:
+        await update.message.reply_text("❌ Old ID နဲ့ New ID တူနေတယ်")
+        return
+    # Sheet မှာ old ID စစ်
+    await update.message.reply_text("🔍 Old ID စစ်ဆေးနေတယ်... ⏳")
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action": "verifyOldId",
+                "username": target_username,
+                "oldId": str(old_id),
+            }, timeout=10, follow_redirects=True)
+        data = resp.json()
+        if data.get("status") != "ok":
+            await update.message.reply_text(
+                f"❌ *Old ID မမှန်ဘူး*\n\n"
+                f"@{target_username} ရဲ့ Sheet မှာ `{old_id}` မတွေ့ဘူး\n"
+                f"Old ID ကို ပြန်စစ်ပြီး ထပ်ကြိုးစားပါ",
+                parse_mode='Markdown')
+            return
+    except Exception as e:
+        logger.error(f"verifyOldId: {e}")
+        await update.message.reply_text("❌ Sheet စစ်မရ — ထပ်ကြိုးစားပါ")
+        return
+    # Old ID မှန်ပြီ — Confirm step
     pending_updateid[user_id] = {
         "target_username": target_username,
+        "old_id": old_id,
         "new_id": new_id,
     }
     kb = InlineKeyboardMarkup([[
@@ -1129,9 +1173,8 @@ async def updateid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"⚠️ *ID Update အတည်ပြုချက်*\n\n"
         f"👤 Member: @{target_username}\n"
-        f"✅ အသစ် ID: `{new_id}`\n\n"
-        f"ဟောင်း ID အလိုအလျောက် ဖျက်မည်\n"
-        f"Password အသစ် generate လုပ်မည်\n\n"
+        f"🔴 ဟောင်း ID: `{old_id}` ✅ စစ်မှန်ပြီ\n"
+        f"🟢 အသစ် ID: `{new_id}`\n\n"
         f"အတည်ပြုရန် 👇",
         parse_mode='Markdown',
         reply_markup=kb)
@@ -1303,12 +1346,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Slip read: {e}")
                 slip_info = {}
 
-            amount    = slip_info.get("AMOUNT", "UNKNOWN")
-            date_str  = slip_info.get("DATE", "UNKNOWN")
-            time_str  = slip_info.get("TIME", "UNKNOWN")
-            pay_type  = slip_info.get("TYPE", "UNKNOWN")
-            reference = slip_info.get("REFERENCE", "UNKNOWN")
-            sender    = slip_info.get("SENDER", "UNKNOWN")
+            amount      = slip_info.get("AMOUNT", "UNKNOWN")
+            date_str    = slip_info.get("DATE", "UNKNOWN")
+            time_str    = slip_info.get("TIME", "UNKNOWN")
+            pay_type    = slip_info.get("TYPE", "UNKNOWN")
+            reference   = slip_info.get("TRANSACTION_NO", slip_info.get("REFERENCE", "UNKNOWN"))
+            sender      = slip_info.get("SENDER", "UNKNOWN")
+            transfer_to = slip_info.get("TRANSFER_TO", "UNKNOWN")
+            ADMIN_REAL_NAME = os.environ.get("ADMIN_REAL_NAME", "Kyaw Min Tun")
+            receiver_ok = ""
+            if pay_type == "KPay" and transfer_to != "UNKNOWN":
+                if ADMIN_REAL_NAME.lower() in transfer_to.lower():
+                    receiver_ok = "✅"
+                else:
+                    receiver_ok = "⚠️ Admin နာမည် မဟုတ်ဘူး!"
 
             expected  = pay_data.get("amount", 0)
             amount_ok = ""
@@ -1334,6 +1385,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             name      = pay_data.get("name", "Unknown")
             username  = pay_data.get("username", str(user_id))
 
+            txn_label = "Transaction ID" if pay_type == "Wave" else "Transaction No"
             admin_text = (
                 f"💰 *Payment Slip အသစ်*\n\n"
                 f"👤 {name} ({username})\n"
@@ -1341,12 +1393,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📦 Package: {pkg_name} — {months} လ\n"
                 f"💵 Expected: {expected:,} ks\n\n"
                 f"📋 *Slip အချက်အလက်:*\n"
+                f"🏦 Type: {pay_type}\n"
+                f"🔢 {txn_label}: `{reference}`\n"
                 f"💵 Amount: {amount} ks {amount_ok}\n"
                 f"📅 Date: {date_str} {time_str}\n"
-                f"🏦 Type: {pay_type}\n"
-                f"🔢 Ref: {reference}\n"
-                f"👤 Sender: {sender}\n\n"
-                f"⚠️ ကိုယ့် {pay_type} app မှာ ငွေဝင်မဝင် စစ်ပြီးမှ Confirm လုပ်ပါ"
+                + (f"📨 Transfer To: {transfer_to} {receiver_ok}\n" if pay_type == "KPay" else f"👤 Sender: {sender}\n")
+                + f"\n⚠️ {pay_type} app မှာ `{reference}` စစ်ပြီးမှ Confirm လုပ်ပါ"
             )
             admin_kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"💬 {name} ကို Message ပို့", url=f"tg://user?id={user_id}")],
@@ -1891,6 +1943,30 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             months * 30,
             password,
             package)
+
+        # Log to Finance Sheet
+        slip_info = pay_data.get("slip_info", {})
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(SHEET_WEBHOOK, json={
+                    "action": "logPayment",
+                    "payment": {
+                        "date":          slip_info.get("DATE", datetime.now().strftime("%d/%m/%Y")),
+                        "time":          slip_info.get("TIME", datetime.now().strftime("%H:%M")),
+                        "userId":        str(member_id),
+                        "username":      username,
+                        "package":       PLAN_NAMES.get(package, package),
+                        "months":        months,
+                        "amount":        slip_info.get("AMOUNT", pay_data.get("amount","")),
+                        "payType":       slip_info.get("TYPE", ""),
+                        "transactionNo": slip_info.get("TRANSACTION_NO", slip_info.get("REFERENCE","")),
+                        "receiver":      slip_info.get("RECEIVER", ""),
+                        "sender":        slip_info.get("SENDER", ""),
+                        "status":        "APPROVED",
+                    }
+                }, timeout=10, follow_redirects=True)
+        except Exception as e:
+            logger.error(f"logPayment: {e}")
 
         # Create invite link (30min)
         invite_url = await create_invite_link(context, months * 30)
