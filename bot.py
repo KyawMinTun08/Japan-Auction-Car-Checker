@@ -1333,11 +1333,13 @@ async def gemini_ocr_auction_list(file_bytes: bytes) -> tuple:
             {"text": (
                 "This is a JAN JAPAN auction car list image.\n"
                 "1. First check the header/title of the image for location:\n"
-                "   - If you see 'KALANG9', 'KLANG9', 'KLANG 9' → location = 'Klang9'\n"
-                "   - If you see 'MEASOT', 'MAESOT', 'MAE SOT' → location = 'MaeSot'\n"
+                "   - If you see 'KLANG9', 'KLANG 9', 'KALANG9', '9.2 FREEZONE' → location = 'Klang9'\n"
+                "   - If you see 'MAESOT', 'MAE SOT', 'MEASOT' → location = 'MaeSot'\n"
+                "   - Look carefully at the TOP of the image for these keywords\n"
                 "2. Extract ALL car rows from the table.\n\n"
                 "Return ONLY this JSON (no markdown, no extra text):\n"
-                "{\"location\":\"MaeSot\",\"cars\":[{\"chassis\":\"NT32-024640\",\"model\":\"X-TRAIL\",\"color\":\"BLACK\",\"year\":2014}]}"
+                "{\"location\":\"Klang9 or MaeSot\",\"cars\":[{\"chassis\":\"NT32-024640\",\"model\":\"X-TRAIL\",\"color\":\"BLACK\",\"year\":2014}]}\n"
+                "IMPORTANT: location must be exactly 'Klang9' or 'MaeSot' — read the image header carefully!"
             )},
             {"inline_data":{"mime_type":"image/jpeg","data":img_b64}}
         ]}]}
