@@ -269,6 +269,7 @@ pending_photo  = {}
 pending_payment = {}   # user_id -> {package, months, amount, username, name}
 pending_updateid = {}  # user_id -> {target_username, old_id, new_id}
 pending_edit     = {}  # user_id -> {chassis, field}  (field: price/color/model)
+pending_broadcast= {}  # user_id -> {pkg_filter, waiting_photo}
 warned_3days   = set()
 promo_used     = {}   # code -> set of user_ids who already used it
 rate_limit     = {}    # user_id -> [datetime, ...]
@@ -1185,28 +1186,36 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ADMIN_IDS and user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
-    if not context.args:
-        await update.message.reply_text(
-            "📢 *Broadcast သုံးနည်း:*\n\n"
-            "အားလုံးကို ပို့:\n"
-            "`/broadcast မက်ဆေ့ပါ`\n\n"
-            "WEB member သာ ပို့:\n"
-            "`/broadcast web မက်ဆေ့ပါ`\n\n"
-            "CH member သာ ပို့:\n"
-            "`/broadcast ch မက်ဆေ့ပါ`",
-            parse_mode='Markdown')
-        return
 
     # Package filter စစ်
     pkg_filter = None
-    msg_parts  = context.args
-    if context.args[0].upper() in ("WEB", "CH"):
-        pkg_filter = context.args[0].upper()
-        msg_parts  = context.args[1:]
+    msg_parts  = context.args if context.args else []
+    if msg_parts and msg_parts[0].upper() in ("WEB", "CH"):
+        pkg_filter = msg_parts[0].upper()
+        msg_parts  = msg_parts[1:]
 
     message = " ".join(msg_parts)
+
+    # Photo broadcast mode — no text args = wait for photo
     if not message:
-        await update.message.reply_text("❌ မက်ဆေ့ ရိုက်ပါ")
+        pending_broadcast[user_id] = {
+            "pkg_filter": pkg_filter,
+            "waiting_photo": True
+        }
+        pkg_label = f" ({pkg_filter} only)" if pkg_filter else " (အားလုံး)"
+        await update.message.reply_text(
+            f"📢 *Broadcast{pkg_label}*\n\n"
+            f"ပုံနဲ့ Caption တွဲပြီး ပို့ပါ\n"
+            f"(Caption = Message ဖြစ်မည်)\n\n"
+            f"Text သာ ပို့ချင်ရင်:\n"
+            f"`/broadcast မက်ဆေ့ပါ`\n\n"
+            f"❌ Cancel: /broadcast cancel",
+            parse_mode='Markdown')
+        return
+
+    if message.lower() == "cancel":
+        pending_broadcast.pop(user_id, None)
+        await update.message.reply_text("❌ Broadcast ပယ်ဖျက်ပြီ")
         return
 
     await update.message.reply_text("⏳ Member list ဆွဲနေတယ်...")
@@ -1421,6 +1430,68 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not check_rate_limit(user_id, max_req=5, window=60):
         await update.message.reply_text("⚠️ တစ်မိနစ်အတွင်း ပုံများသွားတယ် — ခဏစောင့်ပါ")
+        return
+
+    # ── Broadcast Photo Mode ──────────────────────────────────
+    if user_id in pending_broadcast and pending_broadcast[user_id].get("waiting_photo"):
+        bc      = pending_broadcast.pop(user_id)
+        pkg_filter = bc.get("pkg_filter")
+        caption_text = update.message.caption or ""
+
+        await update.message.reply_text("⏳ Member list ဆွဲနေတယ်...")
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    SHEET_WEBHOOK,
+                    params={"action": "getMembers"},
+                    timeout=15, follow_redirects=True)
+            data = resp.json()
+            members = data.get("members", [])
+        except Exception as e:
+            logger.error(f"broadcast getMembers: {e}")
+            await update.message.reply_text("❌ Member list ဆွဲမရ")
+            return
+
+        targets = []
+        for m in members:
+            status = str(m.get("status","")).upper()
+            pkg    = str(m.get("package","")).upper()
+            uid    = m.get("userId") or m.get("userID") or m.get("UserID")
+            if status != "ACTIVE": continue
+            if pkg_filter and pkg != pkg_filter: continue
+            if uid: targets.append(str(uid))
+
+        if not targets:
+            await update.message.reply_text("❌ Member မတွေ့ဘူး")
+            return
+
+        pkg_label = f" ({pkg_filter} only)" if pkg_filter else ""
+        await update.message.reply_text(f"📢 {len(targets)} ယောက်ကို ပုံ+စာ ပို့မည်{pkg_label}...")
+
+        file = await photo.get_file()
+        file_bytes = bytes(await file.download_as_bytearray())
+        from io import BytesIO
+
+        success = 0; failed = 0
+        for uid in targets:
+            try:
+                bio = BytesIO(file_bytes)
+                bio.name = "broadcast.jpg"
+                cap = f"📢 *Japan Auction Car*\n\n{caption_text}" if caption_text else "📢 *Japan Auction Car*"
+                await context.bot.send_photo(
+                    chat_id=int(uid),
+                    photo=bio,
+                    caption=cap,
+                    parse_mode="Markdown")
+                success += 1
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.error(f"broadcast photo {uid}: {e}")
+                failed += 1
+
+        await update.message.reply_text(
+            f"✅ *Broadcast ပုံ ပြီးပြီ*\n\n✅ အောင်မြင်: {success} ယောက်\n❌ မရောက်: {failed} ယောက်",
+            parse_mode="Markdown")
         return
 
     # ── Payment Slip Mode ── (if user is in pending_payment state)
