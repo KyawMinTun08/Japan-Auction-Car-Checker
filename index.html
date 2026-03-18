@@ -185,6 +185,23 @@ select:focus{border-color:var(--primary);}
       <br><a href="https://t.me/JapanAuctionCar_Bot" style="color:#0057FF;font-weight:600">/mypassword</a> command သုံးပါ
     </div>
     <div id="loginBrute" style="display:none;margin-top:12px;text-align:center;font-size:12px;color:#EF4444;font-weight:600"></div>
+
+    <!-- AD BANNER -->
+    <div style="margin-top:24px;border-top:1px solid #E2E8F0;padding-top:16px;">
+      <div style="font-size:10px;color:#B0BAC9;text-align:center;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Sponsored</div>
+      <a href="https://t.me/JapanAuctionCar_Bot" target="_blank"
+        style="display:block;background:linear-gradient(135deg,#0F1923,#1A2535);border-radius:10px;padding:14px 16px;text-decoration:none;border:1px solid #0057FF33;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="font-size:28px">🚗</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:2px">Japan Auction Car Checker</div>
+            <div style="font-size:11px;color:#8899BB;">MaeSot & Klang9 Freezone</div>
+            <div style="font-size:11px;color:#0057FF;font-weight:600;margin-top:4px;">Member ဝင်ရောက်ပါ →</div>
+          </div>
+        </div>
+      </a>
+    </div>
+
   </div>
 </div>
 
@@ -330,6 +347,65 @@ select:focus{border-color:var(--primary);}
 
     <!-- TRENDS -->
     <div class="tab-content" id="tab-trends">
+
+      <!-- PRICE HISTORY SEARCH -->
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-header">
+          <div class="card-title">📈 Price History — Model & Year</div>
+        </div>
+        <div class="card-body">
+          <!-- Brand + Model + Year selectors -->
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;align-items:flex-end">
+            <div style="flex:1;min-width:120px">
+              <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">Brand</label>
+              <select id="phBrand" onchange="phUpdateModels()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--text);outline:none">
+                <option value="">-- Brand ရွေးပါ --</option>
+                <option value="Honda">Honda</option>
+                <option value="Toyota">Toyota</option>
+                <option value="Nissan">Nissan</option>
+                <option value="Mazda">Mazda</option>
+                <option value="Subaru">Subaru</option>
+                <option value="Mitsubishi">Mitsubishi</option>
+              </select>
+            </div>
+            <div style="flex:1;min-width:140px">
+              <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">Model</label>
+              <select id="phModel" onchange="phUpdateYears()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--text);outline:none">
+                <option value="">-- Brand ကို အရင်ရွေးပါ --</option>
+              </select>
+            </div>
+            <div style="flex:1;min-width:100px">
+              <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">Year</label>
+              <select id="phYear" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--text);outline:none">
+                <option value="">All Years</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button id="phBtnMonth" onclick="phSetView('month')" style="padding:8px 14px;border-radius:8px;border:1.5px solid #0057FF;background:#0057FF;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">📅 Month</button>
+              <button id="phBtnYear" onclick="phSetView('year')" style="padding:8px 14px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">📆 Year</button>
+              <button onclick="renderPriceHistory()" style="padding:8px 14px;border-radius:8px;border:none;background:#10B981;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">🔍 ရှာ</button>
+            </div>
+          </div>
+
+          <!-- Insight Box -->
+          <div id="phInsight" style="display:none;background:linear-gradient(135deg,#0F1923,#1A2535);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+          </div>
+
+          <!-- Chart -->
+          <div id="phChartWrap" style="display:none">
+            <div style="height:280px"><canvas id="priceHistoryChart"></canvas></div>
+          </div>
+
+          <!-- No data -->
+          <div id="phEmpty" style="text-align:center;padding:40px;color:var(--text-muted)">
+            <div style="font-size:36px;margin-bottom:8px">📊</div>
+            <div style="font-size:13px">Brand နဲ့ Model ရွေးပြီး ရှာပါ</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- EXISTING CONTENT -->
       <div id="makeChips" style="margin-bottom:20px"></div>
       <div class="grid-eq">
         <div class="card"><div class="card-header"><div class="card-title">Monthly Volume</div></div><div class="card-body"><div class="chart-container"><canvas id="monthlyChart"></canvas></div></div></div>
@@ -1070,6 +1146,330 @@ document.querySelectorAll('.nav-item').forEach(el => {
     if(window.innerWidth <= 900) toggleSidebar();
   });
 });
+
+// ══════════════════════════════════════════════════
+//  PRICE HISTORY — Model + Year Analysis
+// ══════════════════════════════════════════════════
+
+const PH_MODELS = {
+  Honda: [
+    { label: 'FIT HYBRID GP1', modelKey: 'FIT HYBRID', chassis: 'GP1' },
+    { label: 'FIT HYBRID GP2', modelKey: 'FIT HYBRID', chassis: 'GP2' },
+    { label: 'FIT HYBRID GP3', modelKey: 'FIT HYBRID', chassis: 'GP3' },
+    { label: 'FIT HYBRID GP4', modelKey: 'FIT HYBRID', chassis: 'GP4' },
+    { label: 'FIT HYBRID GP5', modelKey: 'FIT HYBRID', chassis: 'GP5' },
+    { label: 'FIT HYBRID GP6', modelKey: 'FIT HYBRID', chassis: 'GP6' },
+    { label: 'FIT HYBRID GP7', modelKey: 'FIT HYBRID', chassis: 'GP7' },
+    { label: 'Freed',          modelKey: ['FREED','HONDA FREED'] },
+    { label: 'Insight',        modelKey: ['INSIGHT','HONDA INSIGHT'] },
+    { label: 'Honda CR-V',     modelKey: ['CR-V','HONDA CR-V'] },
+    { label: 'Honda Fit',      modelKey: ['HONDA FIT','HONDA FIT HYBRID'] },
+  ],
+  Toyota: [
+    { label: 'Alphard',       modelKey: ['ALPHARD'] },
+    { label: 'Hijet / Hijet Truck', modelKey: ['HIJET TRUCK','HIJET','DAIHATSU HIJET','DAIHATSU HIJET TRUCK'] },
+    { label: 'Probox / Probox Van', modelKey: ['PROBOX','PROBOX VAN','TOYOTA PROBOX'] },
+    { label: 'Wish',          modelKey: ['WISH','TOYOTA WISH'] },
+    { label: 'Voxy',          modelKey: ['VOXY','TOYOTA VOXY'] },
+    { label: 'Noah',          modelKey: ['NOAH','TOYOTA NOAH'] },
+    { label: 'Hiace / Hiace Van', modelKey: ['HIACE','HIACE VAN','TOYOTA HIACE'] },
+    { label: 'Parado',        modelKey: ['PARADO'] },
+    { label: 'Land Cruiser',  modelKey: ['LAND CRUISER','LAND CRUISER PRADO'] },
+    { label: 'Crown',         modelKey: ['CROWN','TOYOTA CROWN','CROWN PEARL'] },
+    { label: 'Toyota IQ',     modelKey: ['IQ','TOYOTA IQ'] },
+    { label: 'Toyota Dyna',   modelKey: ['TOYOTA DYNA'] },
+  ],
+  Nissan: [
+    { label: 'X-Trail',        modelKey: ['X-TRAIL','XTRAIL','NISSAN X-TRAIL','NISSIAN XTRAIL','NISSAN AD VAN'] },
+    { label: 'Vanette Truck',  modelKey: ['VANETTE TRUCK','VANETTE','VANETTE VAN','NISSAN VANETTE TRUCK'] },
+    { label: 'Nissan Leaf',    modelKey: ['NISSAN LEAF'] },
+    { label: 'Nissan Ad Van',  modelKey: ['NISSAN AD VAN','AD VAN'] },
+  ],
+  Mazda: [
+    { label: 'Bongo Truck',    modelKey: ['BONGO TRUCK','MAZDA BONGO TRUCK','BONGO'] },
+    { label: 'Mazda CX-5',     modelKey: ['MAZDA CX-5','CX-5'] },
+    { label: 'Mazda CX-3',     modelKey: ['CX-3','CR-Z'] },
+  ],
+  Subaru: [
+    { label: 'Sambar Truck',   modelKey: ['SAMBAR TRUCK','SUBARU SAMBAR TRUCK','SAMBAR'] },
+  ],
+  Mitsubishi: [
+    { label: 'Pajero',         modelKey: ['PAJERO','MITSUBISHI PAJERO'] },
+    { label: 'Delica',         modelKey: ['MITSUBISHI DELICA VAN','DELICA'] },
+    { label: 'Outlander',      modelKey: ['OUTLANDER'] },
+    { label: 'RVR',            modelKey: ['RVR','MITSUBISHI RVR'] },
+    { label: 'Minicab',        modelKey: ['MITSUBISHI MINICAB TRUCK'] },
+  ],
+};
+
+let phView = 'month';
+let phChart = null;
+
+function phSetView(v) {
+  phView = v;
+  document.getElementById('phBtnMonth').style.background = v === 'month' ? '#0057FF' : 'var(--surface)';
+  document.getElementById('phBtnMonth').style.color      = v === 'month' ? '#fff' : 'var(--text)';
+  document.getElementById('phBtnMonth').style.borderColor = v === 'month' ? '#0057FF' : 'var(--border)';
+  document.getElementById('phBtnYear').style.background  = v === 'year' ? '#0057FF' : 'var(--surface)';
+  document.getElementById('phBtnYear').style.color       = v === 'year' ? '#fff' : 'var(--text)';
+  document.getElementById('phBtnYear').style.borderColor  = v === 'year' ? '#0057FF' : 'var(--border)';
+}
+
+function phUpdateModels() {
+  const brand = document.getElementById('phBrand').value;
+  const sel = document.getElementById('phModel');
+  sel.innerHTML = '<option value="">-- Model ရွေးပါ --</option>';
+  if (!brand || !PH_MODELS[brand]) return;
+  PH_MODELS[brand].forEach((m, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = m.label;
+    sel.appendChild(opt);
+  });
+  document.getElementById('phYear').innerHTML = '<option value="">All Years</option>';
+}
+
+function phUpdateYears() {
+  const brand = document.getElementById('phBrand').value;
+  const idx   = document.getElementById('phModel').value;
+  const sel   = document.getElementById('phYear');
+  sel.innerHTML = '<option value="">All Years</option>';
+  if (!brand || idx === '') return;
+  const mdef = PH_MODELS[brand][idx];
+  const filtered = phFilterCars(mdef);
+  const years = [...new Set(filtered.map(c => c.year).filter(y => y > 0))].sort();
+  years.forEach(y => {
+    const opt = document.createElement('option');
+    opt.value = y; opt.textContent = y;
+    sel.appendChild(opt);
+  });
+}
+
+function phFilterCars(mdef) {
+  if (!mdef) return [];
+  return allCars.filter(c => {
+    if (!c.price || c.price <= 0) return false;
+    const modelUp = (c.model || '').toUpperCase();
+    // chassis prefix match
+    if (mdef.chassis) {
+      const chassisUp = (c.chassis || '').toUpperCase();
+      if (!chassisUp.startsWith(mdef.chassis.toUpperCase())) return false;
+    }
+    // model match
+    const keys = Array.isArray(mdef.modelKey) ? mdef.modelKey : [mdef.modelKey];
+    return keys.some(k => modelUp.includes(k.toUpperCase()));
+  });
+}
+
+function phParseDate(dateStr) {
+  const p = String(dateStr).split('/');
+  if (p.length >= 3) return { d: p[0], m: p[1], y: p[2] };
+  if (p.length === 2) return { d: '01', m: p[0], y: p[1] };
+  return null;
+}
+
+function renderPriceHistory() {
+  const brand = document.getElementById('phBrand').value;
+  const idx   = document.getElementById('phModel').value;
+  const year  = document.getElementById('phYear').value;
+
+  if (!brand || idx === '') {
+    alert('Brand နဲ့ Model ရွေးပါ');
+    return;
+  }
+
+  const mdef    = PH_MODELS[brand][idx];
+  let filtered  = phFilterCars(mdef);
+  if (year) filtered = filtered.filter(c => String(c.year) === String(year));
+
+  document.getElementById('phEmpty').style.display    = 'none';
+  document.getElementById('phChartWrap').style.display = 'block';
+  document.getElementById('phInsight').style.display  = 'block';
+
+  if (filtered.length === 0) {
+    document.getElementById('phInsight').innerHTML =
+      '<div style="color:#F59E0B;font-size:13px">⚠️ ရှာဖွေမှု အတွက် Data မရှိသေးပါ</div>';
+    document.getElementById('phChartWrap').style.display = 'none';
+    return;
+  }
+
+  if (phView === 'month') {
+    renderPhMonth(filtered, mdef.label, year);
+  } else {
+    renderPhYear(filtered, mdef.label);
+  }
+}
+
+function renderPhMonth(data, label, year) {
+  // Group by YYYY/MM
+  const groups = {};
+  data.forEach(c => {
+    const d = phParseDate(c.date);
+    if (!d) return;
+    const key = d.y + '/' + String(d.m).padStart(2,'0');
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(c.price);
+  });
+
+  const sorted   = Object.keys(groups).sort();
+  const labels   = sorted;
+  const avgs     = sorted.map(k => {
+    const arr = groups[k];
+    return Math.round(arr.reduce((a,b)=>a+b,0)/arr.length);
+  });
+  const counts   = sorted.map(k => groups[k].length);
+
+  // Trend
+  const last  = avgs[avgs.length-1] || 0;
+  const prev  = avgs[avgs.length-2] || last;
+  const diff  = last - prev;
+  const trend = diff > 0 ? '↑ UP' : diff < 0 ? '↓ DOWN' : '→ STABLE';
+  const tcolor= diff > 0 ? '#10B981' : diff < 0 ? '#EF4444' : '#F59E0B';
+  const lastMonth = sorted[sorted.length-1] || '';
+  const lastCount = counts[counts.length-1] || 0;
+  const monthNames = {
+    '01':'January','02':'February','03':'March','04':'April',
+    '05':'May','06':'June','07':'July','08':'August',
+    '09':'September','10':'October','11':'November','12':'December'
+  };
+  const mName = monthNames[(lastMonth.split('/')[1])] || lastMonth;
+
+  const yearStr = year ? ` ${year}` : '';
+  document.getElementById('phInsight').innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+      <div>
+        <div style="font-size:11px;color:#6B7A99;text-transform:uppercase;letter-spacing:0.5px">${label}${yearStr} — Monthly Average</div>
+        <div style="font-size:22px;font-weight:700;color:#fff;margin-top:2px">฿${last.toLocaleString()}</div>
+      </div>
+      <div style="background:${tcolor}22;border:1px solid ${tcolor};border-radius:8px;padding:8px 14px">
+        <div style="font-size:16px;font-weight:700;color:${tcolor}">${trend}</div>
+        <div style="font-size:11px;color:${tcolor};margin-top:2px">${diff !== 0 ? (diff > 0 ? '+' : '') + '฿' + Math.abs(diff).toLocaleString() + ' vs prev month' : 'ဈေးတည်ငြိမ်'}</div>
+      </div>
+      <div style="color:#8899BB;font-size:12px">
+        📅 <b style="color:#fff">${mName}</b> — ${lastCount} listings recorded<br>
+        ${diff > 0 ? `<span style="color:#10B981">${mName} prices rising</span>` : diff < 0 ? `<span style="color:#EF4444">${mName} prices falling</span>` : `<span style="color:#F59E0B">Prices stable</span>`}
+      </div>
+    </div>`;
+
+  if (phChart) { try { phChart.destroy(); } catch(e){} }
+  phChart = new Chart(document.getElementById('priceHistoryChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Avg Price (฿)',
+          data: avgs,
+          borderColor: '#0057FF',
+          backgroundColor: 'rgba(0,87,255,0.1)',
+          fill: true, tension: 0.4, pointRadius: 5,
+          pointBackgroundColor: '#0057FF', yAxisID: 'y',
+        },
+        {
+          label: 'Listings',
+          data: counts,
+          borderColor: '#10B981',
+          backgroundColor: 'rgba(16,185,129,0.1)',
+          fill: false, tension: 0.4, pointRadius: 4,
+          borderDash: [4,4], yAxisID: 'y2',
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { font: { family: 'DM Sans' }, boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.datasetIndex === 0
+              ? ` Avg: ฿${ctx.parsed.y.toLocaleString()}`
+              : ` Listings: ${ctx.parsed.y}`
+          }
+        }
+      },
+      scales: {
+        y:  { position: 'left',  grid: { color: '#E8ECF4' }, ticks: { font: { family: 'DM Sans' }, callback: v => '฿' + v.toLocaleString() } },
+        y2: { position: 'right', grid: { display: false },   ticks: { font: { family: 'DM Sans' } } },
+        x:  { grid: { display: false }, ticks: { font: { family: 'DM Sans' }, maxRotation: 45 } }
+      }
+    }
+  });
+}
+
+function renderPhYear(data, label) {
+  // Group by year → monthly avg → yearly avg
+  const yGroups = {};
+  data.forEach(c => {
+    const d = phParseDate(c.date);
+    if (!d || !d.y) return;
+    if (!yGroups[d.y]) yGroups[d.y] = [];
+    yGroups[d.y].push(c.price);
+  });
+
+  const sorted = Object.keys(yGroups).sort();
+  const avgs   = sorted.map(y => {
+    const arr = yGroups[y];
+    return Math.round(arr.reduce((a,b)=>a+b,0)/arr.length);
+  });
+  const counts = sorted.map(y => yGroups[y].length);
+
+  const last  = avgs[avgs.length-1] || 0;
+  const prev  = avgs[avgs.length-2] || last;
+  const diff  = last - prev;
+  const trend = diff > 0 ? '↑ UP' : diff < 0 ? '↓ DOWN' : '→ STABLE';
+  const tcolor= diff > 0 ? '#10B981' : diff < 0 ? '#EF4444' : '#F59E0B';
+  const lastYear = sorted[sorted.length-1] || '';
+
+  document.getElementById('phInsight').innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+      <div>
+        <div style="font-size:11px;color:#6B7A99;text-transform:uppercase;letter-spacing:0.5px">${label} — Yearly Average</div>
+        <div style="font-size:22px;font-weight:700;color:#fff;margin-top:2px">฿${last.toLocaleString()}</div>
+      </div>
+      <div style="background:${tcolor}22;border:1px solid ${tcolor};border-radius:8px;padding:8px 14px">
+        <div style="font-size:16px;font-weight:700;color:${tcolor}">${trend}</div>
+        <div style="font-size:11px;color:${tcolor};margin-top:2px">${diff !== 0 ? (diff > 0 ? '+' : '') + '฿' + Math.abs(diff).toLocaleString() + ' vs prev year' : 'ဈေးတည်ငြိမ်'}</div>
+      </div>
+      <div style="color:#8899BB;font-size:12px">
+        📆 <b style="color:#fff">${lastYear}</b> — ${counts[counts.length-1]} listings recorded<br>
+        ${diff > 0 ? `<span style="color:#10B981">${lastYear} yearly prices rising</span>` : diff < 0 ? `<span style="color:#EF4444">${lastYear} yearly prices falling</span>` : `<span style="color:#F59E0B">Yearly prices stable</span>`}
+      </div>
+    </div>`;
+
+  if (phChart) { try { phChart.destroy(); } catch(e){} }
+  phChart = new Chart(document.getElementById('priceHistoryChart'), {
+    type: 'bar',
+    data: {
+      labels: sorted,
+      datasets: [
+        {
+          label: 'Avg Price (฿)',
+          data: avgs,
+          backgroundColor: sorted.map((y,i) => i === sorted.length-1 ? '#0057FF' : 'rgba(0,87,255,0.4)'),
+          borderRadius: 6, yAxisID: 'y',
+        },
+        {
+          label: 'Listings',
+          type: 'line',
+          data: counts,
+          borderColor: '#10B981',
+          backgroundColor: 'transparent',
+          tension: 0.4, pointRadius: 5,
+          borderDash: [4,4], yAxisID: 'y2',
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { family: 'DM Sans' }, boxWidth: 12 } } },
+      scales: {
+        y:  { position: 'left',  grid: { color: '#E8ECF4' }, ticks: { font: { family: 'DM Sans' }, callback: v => '฿' + v.toLocaleString() } },
+        y2: { position: 'right', grid: { display: false },   ticks: { font: { family: 'DM Sans' } } },
+        x:  { grid: { display: false }, ticks: { font: { family: 'DM Sans' } } }
+      }
+    }
+  });
+}
 
 </script>
 </body>
