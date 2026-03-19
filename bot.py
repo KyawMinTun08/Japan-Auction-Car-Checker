@@ -354,7 +354,10 @@ async def get_member_package(user_id: int) -> str | None:
                 expire_date = datetime(2000,1,1)
             if status == 'ACTIVE' and expire_date >= now:
                 pkg = (pkg_cell.get('v','CH') if pkg_cell else 'CH') or 'CH'
-                return str(pkg).upper()
+                pkg = str(pkg).upper()
+                # CH-PROMO ကို CH အဖြစ် treat လုပ် (access level တူတယ်)
+                if pkg == 'CH-PROMO': return 'CH'
+                return pkg
             return None  # Found but expired/inactive
         return None  # Not found
     except Exception as e:
@@ -2297,13 +2300,27 @@ async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("👥 Member မရှိသေးဘူး"); return
     active  = [m for m in members if m.get('status') == 'ACTIVE']
     expired = [m for m in members if m.get('status') == 'EXPIRED']
-    txt = f"👥 *Members*\n✅ Active: {len(active)} | ❌ Expired: {len(expired)}\n\n*✅ Active:*\n"
+    kicked  = [m for m in members if m.get('status') == 'KICKED']
+
+    def pkg_label(pkg):
+        if pkg == 'WEB':      return '💎 WEB'
+        if pkg == 'CH-PROMO': return '🎁 PROMO'
+        return '📱 CH'
+
+    txt = f"👥 *Members*\n✅ Active: {len(active)} | ❌ Expired: {len(expired)} | 🚫 Kicked: {len(kicked)}\n\n"
+    txt += "⚠️ _Member ဖယ်ရှားရန် `/kick ID` သာ သုံးပါ — Sheet တိုက်ရိုက် မဖျက်ရ_\n\n"
+    txt += "*✅ Active:*\n"
     for m in active:
-        pkg_tag = f"[{m.get('package','CH')}]" if m.get('package') else ""
-        txt += f"• @{m['username']} {pkg_tag} — ကုန်: `{m.get('expireDate','?')}`\n"
+        label = pkg_label(m.get('package','CH'))
+        txt += f"• @{m['username']} {label} — ကုန်: `{m.get('expireDate','?')}`\n"
     if expired:
         txt += "\n*❌ Expired:*\n"
         for m in expired[:5]:
+            label = pkg_label(m.get('package','CH'))
+            txt += f"• @{m['username']} {label} — `{m.get('expireDate','?')}`\n"
+    if kicked:
+        txt += "\n*🚫 Kicked:*\n"
+        for m in kicked[:3]:
             txt += f"• @{m['username']} — `{m.get('expireDate','?')}`\n"
     await update.message.reply_text(txt, parse_mode='Markdown')
 
@@ -2315,11 +2332,43 @@ async def kick_member_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Format: `/kick 123456789`", parse_mode='Markdown'); return
     try:
         target_id = int(context.args[0])
-        success   = await kick_with_retry(context, target_id)
-        if success:
-            await update.message.reply_text(f"✅ `{target_id}` channel ကထုတ်ပြီ", parse_mode='Markdown')
+
+        # ① Sheet ထဲမှာ KICKED status update (delete မဟုတ်)
+        sheet_ok = False
+        if SHEET_WEBHOOK:
+            try:
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    resp = await client.post(SHEET_WEBHOOK, json={
+                        "action": "updateStatus",
+                        "userId": str(target_id),
+                        "status": "KICKED"
+                    }, timeout=10)
+                sheet_ok = resp.json().get("status") == "ok"
+            except Exception as e:
+                logger.error(f"kick sheet: {e}")
+
+        # ② Channel ကနေ ထုတ်
+        ch_ok = await kick_with_retry(context, target_id)
+
+        if ch_ok and sheet_ok:
+            await update.message.reply_text(
+                f"✅ *Kick အောင်မြင်ပြီ*\n\n"
+                f"🆔 `{target_id}`\n"
+                f"📋 Sheet ထဲကပါ ဖျက်ပြီ ✅\n"
+                f"📢 Channel ကပါ ထုတ်ပြီ ✅",
+                parse_mode='Markdown')
+        elif ch_ok and not sheet_ok:
+            await update.message.reply_text(
+                f"⚠️ Channel ကထုတ်ပြီ ✅\n"
+                f"❌ Sheet ထဲကပါ ဖျက်မရ — ကိုယ်တိုင် ဖျက်ပါ",
+                parse_mode='Markdown')
+        elif sheet_ok and not ch_ok:
+            await update.message.reply_text(
+                f"⚠️ Sheet ထဲကဖျက်ပြီ ✅\n"
+                f"❌ Channel ကထုတ်မရ — Member ကိုယ်တိုင် ထွက်ပြီးသားဖြစ်နိုင်",
+                parse_mode='Markdown')
         else:
-            await update.message.reply_text(f"❌ Kick မအောင်မြင်ပါ — 3 ကြိမ် ကြိုးစားပြီး")
+            await update.message.reply_text(f"❌ Kick မအောင်မြင်ပါ — စစ်ဆေးပါ")
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
@@ -2389,7 +2438,7 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining  = max_uses - used
 
     password   = generate_password()
-    await save_member_to_sheet(str(user_id), username, days, password, "CH")
+    await save_member_to_sheet(str(user_id), username, days, password, "CH-PROMO")
     invite_url = await create_invite_link(context, days)
     await send_approval_dm(context, user_id, days // 30, password, invite_url, package="CH")
 
@@ -2455,6 +2504,17 @@ async def check_expired_members(context):
                 success = await kick_with_retry(context, int(uid))
                 if success:
                     kicked.append(m)
+                    # Sheet မှာ KICKED status update
+                    if SHEET_WEBHOOK:
+                        try:
+                            async with httpx.AsyncClient() as client:
+                                await client.post(SHEET_WEBHOOK, json={
+                                    "action": "updateStatus",
+                                    "userId": uid,
+                                    "status": "KICKED"
+                                }, timeout=10, follow_redirects=True)
+                        except Exception as e:
+                            logger.error(f"updateStatus kicked: {e}")
                 else:
                     kick_failed.append(m)
 
