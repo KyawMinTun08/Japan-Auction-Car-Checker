@@ -47,8 +47,9 @@ PAYMENT_INFO = os.environ.get('PAYMENT_INFO', 'KPay / Wave: ဆက်သွယ�
 # Example: TIKTOK30:30:40,FRIEND10:10:20
 PROMO_CODES_RAW = os.environ.get('PROMO_CODES', '')
 
-LOC_MAESOT = "MaeSot Freezone"
-LOC_KLANG9 = "Klang9 Freezone"
+LOC_MAESOT   = "MaeSot Freezone"
+LOC_KLANG9   = "Klang9 Freezone"
+LOC_BORDER44 = "Best Border-44 Gate"
 
 PLAN_PRICES = {
     "CH":  {1: PLAN_CH_1M,  2: PLAN_CH_2M,  3: PLAN_CH_3M,  5: PLAN_CH_5M},
@@ -313,7 +314,9 @@ def generate_password() -> str:
 
 # ── Helpers ───────────────────────────────────────────
 def loc_display(loc_key: str) -> str:
-    return LOC_KLANG9 if loc_key == "Klang9" else LOC_MAESOT
+    if loc_key == "Klang9": return LOC_KLANG9
+if loc_key in ("Border44","Best Border","44Gate","44gate"): return LOC_BORDER44
+return LOC_MAESOT
 
 async def get_member_package(user_id: int) -> str | None:
     """
@@ -748,7 +751,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"🚗 *Japan Auction Car Checker*\n"
-        f"📍 {LOC_MAESOT} & {LOC_KLANG9}\n\n"
+        f"📍 {LOC_MAESOT} & {LOC_KLANG9} & {LOC_BORDER44}\n\n"
         + cmd_text,
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(kb))
@@ -1343,15 +1346,19 @@ async def gemini_ocr_auction_list(file_bytes: bytes) -> tuple:
         url     = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
         payload = {"contents":[{"parts":[
             {"text": (
-                "This is a JAN JAPAN auction car list image.\n"
-                "1. First check the header/title of the image for location:\n"
-                "   - If you see 'KLANG9', 'KLANG 9', 'KALANG9', '9.2 FREEZONE' → location = 'Klang9'\n"
-                "   - If you see 'MAESOT', 'MAE SOT', 'MEASOT' → location = 'MaeSot'\n"
-                "   - Look carefully at the TOP of the image for these keywords\n"
-                "2. Extract ALL car rows from the table.\n\n"
-                "Return ONLY this JSON (no markdown, no extra text):\n"
-                "{\"location\":\"Klang9 or MaeSot\",\"cars\":[{\"chassis\":\"NT32-024640\",\"model\":\"X-TRAIL\",\"color\":\"BLACK\",\"year\":2014}]}\n"
-                "IMPORTANT: location must be exactly 'Klang9' or 'MaeSot' — read the image header carefully!"
+                "This is a JAN JAPAN auction car list image from Thailand.\n\n"
+                "STEP 1 — Read the TITLE/HEADER at the very top of the image:\n"
+                "   Look for these EXACT words in the blue/colored header band:\n"
+                "   → 'KLANG9' or 'KLANG 9' or '9.2 FREEZONE' = location is Klang9\n"
+                "   → 'MAESOT' or 'MAE SOT' = location is MaeSot\n\n"
+                "STEP 2 — Extract every car row from the table.\n\n"
+                "Return ONLY valid JSON, no markdown, no explanation:\n"
+                "{\"location\":\"Klang9\",\"cars\":[{\"chassis\":\"NT32-024640\",\"model\":\"X-TRAIL\",\"color\":\"BLACK\",\"year\":2014}]}\n\n"
+                "Rules:\n"
+                "- location value MUST be exactly 'Klang9' OR 'MaeSot' (no other values)\n"
+                "- If header says KLANG9 → location = 'Klang9'\n"
+                "- If header says MAESOT → location = 'MaeSot'\n"
+                "- year must be a number (e.g. 2014 not '2014')"
             )},
             {"inline_data":{"mime_type":"image/jpeg","data":img_b64}}
         ]}]}
@@ -1580,7 +1587,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Auction List Mode ──
     if "list" in caption:
         # Caption ကနေ location hint ယူ (fallback)
-        caption_klang9 = "klang9" in caption or "klang" in caption
+        cap_lower = caption.lower()
+        caption_klang9 = any(k in cap_lower for k in ["klang9","klang 9","klang","9.2"])
+        caption_maesot = any(k in cap_lower for k in ["maesot","mae sot","measot"])
         await update.message.reply_text(f"📋 Auction List ဖတ်နေတယ်... ⏳")
         try:
             file       = await photo.get_file()
@@ -1589,15 +1598,21 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Auction list: {e}"); new_cars = []; detected_loc = None
 
-        # Location ဆုံးဖြတ်ခြင်း — Gemini detection ကို ဦးစားပေး၊ caption fallback
-        if detected_loc in ("Klang9", "MaeSot"):
+        # Location ဆုံးဖြတ်ခြင်း — Gemini ဦးစားပေး → caption fallback
+        if detected_loc in ("Klang9", "MaeSot", "Border44"):
             import_loc = detected_loc
         elif caption_klang9:
             import_loc = "Klang9"
+        elif caption_maesot:
+            import_loc = "MaeSot"
+        elif any(k in cap_lower for k in ["border44","border 44","44gate","44 gate","best border"]):
+            import_loc = "Border44"
         else:
             import_loc = "MaeSot"
 
-        loc_name = LOC_KLANG9 if import_loc == "Klang9" else LOC_MAESOT
+        if import_loc == "Klang9": loc_name = LOC_KLANG9
+        elif import_loc == "Border44": loc_name = LOC_BORDER44
+        else: loc_name = LOC_MAESOT
         await update.message.reply_text(f"📍 Location: *{loc_name}*", parse_mode='Markdown')
 
         if not new_cars:
