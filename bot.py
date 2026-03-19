@@ -317,8 +317,8 @@ def generate_password() -> str:
 # ── Helpers ───────────────────────────────────────────
 def loc_display(loc_key: str) -> str:
     if loc_key == "Klang9": return LOC_KLANG9
-if loc_key in ("Border44","Best Border","44Gate","44gate"): return LOC_BORDER44
-return LOC_MAESOT
+    if loc_key in ("Border44","Best Border","44Gate","44gate"): return LOC_BORDER44
+    return LOC_MAESOT
 
 async def get_member_package(user_id: int) -> str | None:
     """
