@@ -2891,10 +2891,32 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     req_id = context.args[0].strip().upper()
 
-    # Update broker status BUSY
+    # ① Requests Sheet မှ CustomerID ဆွဲ
+    customer_id = None
+    customer_username = ""
+    req_data = {}
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action": "getRequest",
+                "reqId":  req_id,
+            }, timeout=10)
+        rdata = resp.json()
+        if rdata.get("status") == "ok":
+            customer_id       = rdata.get("customerId")
+            customer_username = rdata.get("username","")
+            req_data          = rdata
+        else:
+            await update.message.reply_text(f"❌ Request `{req_id}` မတွေ့ဘူး", parse_mode='Markdown')
+            return
+    except Exception as e:
+        logger.error(f"accept getRequest: {e}")
+        await update.message.reply_text("❌ Sheet error — ထပ်ကြိုးစားပါ"); return
+
+    # ② Broker status BUSY
     await update_broker(user_id, status="BUSY")
 
-    # Update request in sheet
+    # ③ Request status MATCHED
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             await client.post(SHEET_WEBHOOK, json={
@@ -2906,29 +2928,47 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"accept updateRequest: {e}")
 
-    # Create proxy session
-    session_id = req_id
-    proxy_sessions[session_id] = {
-        "customerId": None,  # will be filled when customer messages
-        "brokerId":   user_id,
-        "brokerObj":  broker,
-        "reqId":      req_id,
-        "status":     "ACTIVE",
-        "startTime":  datetime.now().isoformat(),
+    # ④ Proxy Session ဖွင့် (customerId ပါပြီ)
+    proxy_sessions[req_id] = {
+        "customerId":       customer_id,
+        "customerUsername": customer_username,
+        "brokerId":         user_id,
+        "brokerObj":        broker,
+        "reqId":            req_id,
+        "status":           "ACTIVE",
+        "startTime":        datetime.now().isoformat(),
     }
 
+    # ⑤ Broker ကို confirm
     await update.message.reply_text(
         f"✅ *Request Accept ပြီ!*\n\n"
         f"🆔 `{req_id}`\n"
-        f"💬 Proxy Chat ဖွင့်ပြီ\n\n"
-        f"Customer ကို message ပေးပို့ပြီး ကားရှာပေးပါ\n"
+        f"👤 Customer: @{customer_username}\n"
+        f"🚗 {req_data.get('carType','')}\n"
+        f"💰 {req_data.get('budget','')}\n\n"
+        f"💬 Customer ကို message ပေးပို့နိုင်ပြီ\n"
         f"ပြီးရင်: `/endchat {req_id}`",
         parse_mode='Markdown')
+
+    # ⑥ Customer ကို notify
+    if customer_id:
+        try:
+            await context.bot.send_message(
+                chat_id=int(customer_id),
+                text=(f"🎉 *Broker ရှာပေးနေပြီ!*\n\n"
+                      f"🆔 Request: `{req_id}`\n"
+                      f"👷 Broker #{broker['brokerId']} က သင့် Request လက်ခံပြီ\n\n"
+                      f"ကားရှာပေးနေတယ် ⏳\n"
+                      f"Status စစ်ရန်: `/mystatus`"),
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"accept customer notify: {e}")
 
     await notify_admins(context,
         f"🤝 *Broker Accept ပြီ*\n\n"
         f"🆔 Request: `{req_id}`\n"
-        f"👷 Broker: #{broker['brokerId']} @{broker['username']}")
+        f"👷 Broker: #{broker['brokerId']} @{broker['username']}\n"
+        f"👤 Customer: @{customer_username}")
 
 # ── /endchat — End Proxy Session ──────────────────────
 async def endchat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
