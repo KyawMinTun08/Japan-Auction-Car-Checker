@@ -1821,6 +1821,7 @@ def proxy_filter(text: str):
     return False, ""
 
 # ── handle_text ──────────────────────────────────────
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text    = update.message.text.strip()
 
