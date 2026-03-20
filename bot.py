@@ -1798,9 +1798,106 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ Chassis ဖတ်မရပါ\nကိုယ်တိုင် ထည့်ပါ:\n`/price [chassis] [ဈေး]`", parse_mode='Markdown')
 
 # ── Text Handler ──────────────────────────────────────
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ── Proxy Chat Filter ─────────────────────────────────
+def proxy_filter(text: str):
+    """
+    Returns (blocked: bool, reason: str)
+    Blocks phone numbers, @usernames, links
+    """
+    # Phone numbers (Myanmar + Thailand + International)
+    if re.search(r'(\+?[\d\s\-]{9,15})', text):
+        # More specific — at least 9 consecutive digits
+        if re.search(r'\d[\d\s\-]{8,}\d', text):
+            return True, "ဖုန်းနံပါတ် ပေးပို့ခြင်း တားမြစ်ထားသည်"
+
+    # @username
+    if re.search(r'@[a-zA-Z0-9_]{4,}', text):
+        return True, "Telegram Username ပေးပို့ခြင်း တားမြစ်ထားသည်"
+
+    # Links
+    if re.search(r'(https?://|www\.|t\.me/|wa\.me/|line\.me/)', text, re.IGNORECASE):
+        return True, "Link ပေးပို့ခြင်း တားမြစ်ထားသည်"
+
+    return False, ""
+
+# ── handle_text ──────────────────────────────────────
     user_id = update.effective_user.id
     text    = update.message.text.strip()
+
+    # ── Proxy Chat Relay ──────────────────────────────
+    str_uid = str(user_id)
+
+    # Customer side — find session where customerId matches
+    cust_session = next(
+        ((sid, s) for sid, s in proxy_sessions.items()
+         if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
+        None
+    )
+    # Broker side — find session where brokerId matches
+    broker_session = next(
+        ((sid, s) for sid, s in proxy_sessions.items()
+         if str(s.get("brokerId","")) == str_uid and s.get("status") == "ACTIVE"),
+        None
+    )
+
+    if cust_session:
+        sid, session = cust_session
+        broker_tg_id = session.get("brokerId")
+        broker_obj   = session.get("brokerObj", {})
+        broker_id    = broker_obj.get("brokerId", "B???")
+
+        # Block phone/link/username
+        blocked, reason = proxy_filter(text)
+        if blocked:
+            await update.message.reply_text(
+                f"⚠️ *Message Block ဖြစ်သွားတယ်*\n\n"
+                f"❌ {reason}\n"
+                f"Bot ထဲမှာပဲ ဆက်သွယ်ရမည်",
+                parse_mode='Markdown')
+            return
+
+        # Forward to Broker
+        if broker_tg_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(broker_tg_id),
+                    text=f"💬 *Customer #{session.get('reqId','')}:*\n\n{text}",
+                    parse_mode='Markdown')
+                await update.message.reply_text("✅ ပို့ပြီ")
+            except Exception as e:
+                logger.error(f"proxy relay C→B: {e}")
+                await update.message.reply_text("❌ Broker ကို မပို့နိုင်ဘူး")
+        return
+
+    if broker_session:
+        sid, session = broker_session
+        customer_id = session.get("customerId")
+
+        # Block phone/link/username
+        blocked, reason = proxy_filter(text)
+        if blocked:
+            await update.message.reply_text(
+                f"⚠️ *Message Block ဖြစ်သွားတယ်*\n\n"
+                f"❌ {reason}\n"
+                f"Bot ထဲမှာပဲ ဆက်သွယ်ရမည်",
+                parse_mode='Markdown')
+            return
+
+        # Forward to Customer
+        if customer_id:
+            try:
+                broker_obj = session.get("brokerObj", {})
+                broker_id  = broker_obj.get("brokerId", "B???")
+                await context.bot.send_message(
+                    chat_id=int(customer_id),
+                    text=f"💬 *Broker #{broker_id}:*\n\n{text}",
+                    parse_mode='Markdown')
+                await update.message.reply_text("✅ ပို့ပြီ")
+            except Exception as e:
+                logger.error(f"proxy relay B→C: {e}")
+                await update.message.reply_text("❌ Customer ကို မပို့နိုင်ဘူး")
+        return
+    # ─────────────────────────────────────────────────
 
     # ── Car Request Q&A ──
     if user_id in pending_request:
