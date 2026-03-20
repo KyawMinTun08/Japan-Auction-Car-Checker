@@ -3173,25 +3173,38 @@ async def main():
     # ── Command Menu Scope Setup ──────────────────────
     # Member တွေ မြင်မည့် commands
     member_commands = [
-        BotCommand("start",      "🚗 Bot စတင်ရန်"),
-        BotCommand("find",       "🔍 Chassis ဖြင့်ရှာရန်"),
-        BotCommand("model",      "🔎 Model အမည်ဖြင့်ရှာရန်"),
-        BotCommand("history",    "📈 ဈေးနှုန်း မှတ်တမ်းကြည့်ရန်"),
-        BotCommand("list",       "📊 ကားစာရင်း အားလုံးကြည့်ရန်"),
-        BotCommand("web",        "🌐 Web App link ကြည့်ရန်"),
-        BotCommand("renew",      "🔄 Membership သက်တမ်းတိုး"),
-        BotCommand("mypassword", "🔑 Password ပြန်ယူရန်"),
-        BotCommand("redeem",     "🎁 Promo Code သုံးရန်"),
+        BotCommand("start",         "🚗 Bot စတင်ရန်"),
+        BotCommand("carrequest",    "🚙 ကားလိုအပ်ပါက ဒီနေရာနှိပ်ပါ"),
+        BotCommand("mystatus",      "📋 Request Status စစ်ရန်"),
+        BotCommand("find",          "🔍 Chassis ဖြင့်ရှာရန်"),
+        BotCommand("model",         "🔎 Model အမည်ဖြင့်ရှာရန်"),
+        BotCommand("history",       "📈 ဈေးနှုန်း မှတ်တမ်းကြည့်ရန်"),
+        BotCommand("list",          "📊 ကားစာရင်း အားလုံးကြည့်ရန်"),
+        BotCommand("web",           "🌐 Web App link ကြည့်ရန်"),
+        BotCommand("renew",         "🔄 Membership သက်တမ်းတိုး"),
+        BotCommand("mypassword",    "🔑 Password ပြန်ယူရန်"),
+        BotCommand("redeem",        "🎁 Promo Code သုံးရန်"),
     ]
-    # Admin တွေ မြင်မည့် commands (member + admin)
+    # Broker တွေ မြင်မည့် commands
+    broker_commands = member_commands + [
+        BotCommand("brokerstart",   "👷 Broker စတင်ရန်"),
+        BotCommand("available",     "🟢 Available ဖြစ်ကြောင်း"),
+        BotCommand("busy",          "🔴 Busy ဖြစ်ကြောင်း"),
+        BotCommand("accept",        "✅ Request လက်ခံရန်"),
+        BotCommand("endchat",       "🔚 Session ပိတ်ရန်"),
+    ]
+    # Admin တွေ မြင်မည့် commands
     admin_commands = member_commands + [
-        BotCommand("price",     "💰 ကားဈေးထည့်ရန် (Admin)"),
-        BotCommand("approve",   "✅ Member approve လုပ်ရန် (Admin)"),
-        BotCommand("members",   "👥 Member စာရင်းကြည့်ရန် (Admin)"),
-        BotCommand("kick",      "🚫 Member ထုတ်ရန် (Admin)"),
-        BotCommand("resetpass", "🔑 Password reset (Admin)"),
-        BotCommand("updateid",  "🆔 Member ID update (Admin)"),
-        BotCommand("backup",    "💾 CSV Backup (Admin)"),
+        BotCommand("price",         "💰 ကားဈေးထည့်ရန် (Admin)"),
+        BotCommand("approve",       "✅ Member approve လုပ်ရန် (Admin)"),
+        BotCommand("members",       "👥 Member စာရင်းကြည့်ရန် (Admin)"),
+        BotCommand("kick",          "🚫 Member ထုတ်ရန် (Admin)"),
+        BotCommand("resetpass",     "🔑 Password reset (Admin)"),
+        BotCommand("updateid",      "🆔 Member ID update (Admin)"),
+        BotCommand("backup",        "💾 CSV Backup (Admin)"),
+        BotCommand("broadcast",     "📢 Broadcast ပို့ရန် (Admin)"),
+        BotCommand("addbroker",     "👷 Broker ထည့်ရန် (Admin)"),
+        BotCommand("brokers",       "📋 Broker list (Admin)"),
     ]
     try:
         # Default scope — member commands
@@ -3208,6 +3221,18 @@ async def main():
                 )
             except Exception as e:
                 logger.warning(f"Admin scope set failed for {admin_id}: {e}")
+        # Broker scope
+        brokers = await get_brokers()
+        for b in brokers:
+            try:
+                tg_id = int(b.get("telegramId", 0))
+                if tg_id:
+                    await app.bot.set_my_commands(
+                        broker_commands,
+                        scope=BotCommandScopeChat(chat_id=tg_id)
+                    )
+            except Exception as e:
+                logger.warning(f"Broker scope set failed: {e}")
         logger.info("Command scopes set successfully")
     except Exception as e:
         logger.error(f"set_my_commands error: {e}")
