@@ -2919,7 +2919,7 @@ async def submit_request(context, user_id: int, username: str):
               f"Status စစ်ရန်: `/mystatus`"),
         parse_mode='Markdown')
 
-    # Notify FREE brokers
+    # Notify FREE brokers — Phone/ID မပြ
     brokers = await get_brokers()
     free_brokers = [b for b in brokers if b.get("status") == "FREE"]
     for b in free_brokers:
@@ -2928,21 +2928,27 @@ async def submit_request(context, user_id: int, username: str):
                 chat_id=int(b["telegramId"]),
                 text=(f"🔔 *Request အသစ်!*\n\n"
                       f"🆔 `{req_id}`\n"
-                      f"🚗 {d.get('car_name','')}\n"
-                      f"💰 {d.get('budget','')}\n"
+                      f"🚘 *{d.get('car_name','')}*\n"
+                      f"📅 နှစ်: {d.get('year','')}\n"
+                      f"🔧 Grade: {d.get('grade','')}\n"
+                      f"💰 Budget: {d.get('budget','')}\n"
                       f"⭐ Condition: {d.get('condition','')}\n"
                       f"⏳ Timeline: {d.get('timeline','')}\n\n"
-                      f"လက်ခံရန် `/accept {req_id}` နှိပ်ပါ"),
+                      f"လက်ခံရန်: `/accept {req_id}`"),
                 parse_mode='Markdown')
         except Exception as e:
             logger.error(f"notify broker {b['brokerId']}: {e}")
 
+    # Admin notify — TelegramID ပါ
     await notify_admins(context,
         f"📥 *Request အသစ် တင်ပြီ*\n\n"
         f"🆔 `{req_id}`\n"
-        f"👤 @{username}\n"
-        f"🚗 {d.get('car_name','')}\n"
-        f"💰 {d.get('budget','')}")
+        f"👤 @{username} (ID: `{user_id}`)\n"
+        f"🚘 {d.get('car_name','')}\n"
+        f"📅 {d.get('year','')}\n"
+        f"💰 {d.get('budget','')}\n"
+        f"⭐ {d.get('condition','')}\n"
+        f"⏳ {d.get('timeline','')}")
 
 # ── /mystatus — Customer Request Status ───────────────
 async def mystatus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
