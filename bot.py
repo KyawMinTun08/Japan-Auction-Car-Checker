@@ -1659,7 +1659,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 txt += f"• `{u['chassis']}` ({u['model']}) — မရ: *{', '.join(u['missing'])}*\n"
             if len(unknown) > 5:
                 txt += f"... {len(unknown)-5} စီး ထပ်ရှိ\n"
-        txt += f"\n📋 Database: {len(CARS)} စီး"
+        txt += f"\n📋 Database: {await get_sheet_car_count()} စီး"
         await update.message.reply_text(txt, parse_mode='Markdown')
         return
 
@@ -2560,6 +2560,17 @@ def gen_broker_id() -> str:
     """Generate random Broker ID like B4X7"""
     chars = string.ascii_uppercase + string.digits
     return 'B' + ''.join(random.choices(chars, k=4))
+
+async def get_sheet_car_count() -> int:
+    """Sheet ထဲက real car count ဆွဲ"""
+    if not SHEET_WEBHOOK: return len(CARS)
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK,
+                json={"action": "getCarsCount"}, timeout=8)
+        return resp.json().get("count", len(CARS))
+    except Exception:
+        return len(CARS)  # fallback to memory
 
 async def get_brokers() -> list:
     """Fetch broker list from Sheet"""
