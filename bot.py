@@ -2761,28 +2761,13 @@ REQ_LABELS = {
 }
 
 async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user    = update.effective_user
-    user_id = user.id
-
-    # Check active member
-    pkg = await get_member_package(user_id)
-    if not pkg:
-        await update.message.reply_text("❌ Member သာ သုံးနိုင်တယ်"); return
-
-    # Check existing open request
-    if user_id in pending_request:
-        await update.message.reply_text(
-            "⚠️ Request တစ်ခု ဆက်ဆောင်ရွက်နေဆဲ ရှိတယ်\n"
-            "Cancel ရန်: `/cancelrequest`",
-            parse_mode='Markdown'); return
-
-    pending_request[user_id] = {"step": 0, "data": {}, "username": user.username or user.first_name}
+    # 🔒 Coming Soon — Broker Platform Launch မဖြစ်ခင် ခဏပိတ်ထား
     await update.message.reply_text(
-        "🚗 *ကားတောင်းဆိုမှု စတင်ပါ*\n\n"
-        "① ကားအမည် ရိုက်ထည့်ပါ\n"
-        "   _ဥပမာ: Honda Fit, X-Trail, Alphard_\n\n"
-        "❌ Cancel: `/cancelrequest`",
+        "🔔 *ကားရှာဖွေမှု ဝန်ဆောင်မှု*\n\n"
+        "⏳ မကြာမီ ဖွင့်လှစ်မည်!\n\n"
+        "ဆက်သွယ်ရန်: " + (f"@{os.environ.get('ADMIN_USERNAME','')}" if os.environ.get('ADMIN_USERNAME') else "Admin"),
         parse_mode='Markdown')
+    return
 
 async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -2963,7 +2948,13 @@ async def submit_request(context, user_id: int, username: str):
 
 # ── /mystatus — Customer Request Status ───────────────
 async def mystatus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+    # 🔒 Coming Soon — Broker Platform Launch မဖြစ်ခင် ခဏပိတ်ထား
+    await update.message.reply_text(
+        "🔔 *Request Status*\n\n"
+        "⏳ မကြာမီ ဖွင့်လှစ်မည်!\n\n"
+        "ဆက်သွယ်ရန်: " + (f"@{os.environ.get('ADMIN_USERNAME','')}" if os.environ.get('ADMIN_USERNAME') else "Admin"),
+        parse_mode='Markdown')
+    return
 
     # Check proxy session
     session = next((s for s in proxy_sessions.values()
