@@ -1339,7 +1339,7 @@ def tesseract_ocr_chassis(file_bytes: bytes) -> str:
         return ""
 
 async def gemini_ocr_auction_list(file_bytes: bytes) -> tuple:
-    """Returns (cars_list, detected_location) where location is 'Klang9' or 'MaeSot'"""
+    """Returns (cars_list, detected_location) where location is 'Klang9', 'MaeSot' or 'Border44'"""
     if not GEMINI_API_KEY:
         return [], None
     try:
@@ -1352,13 +1352,15 @@ async def gemini_ocr_auction_list(file_bytes: bytes) -> tuple:
                 "STEP 1 — Read the TITLE/HEADER at the very top of the image:\n"
                 "   Look for these EXACT words in the blue/colored header band:\n"
                 "   → 'KLANG9' or 'KLANG 9' or '9.2 FREEZONE' = location is Klang9\n"
-                "   → 'MAESOT' or 'MAE SOT' = location is MaeSot\n\n"
+                "   → 'MAESOT' or 'MAE SOT' = location is MaeSot\n"
+                "   → 'BEST BORDER' or '44 GATE' or 'BORDER-44' or 'BORDER 44' = location is Border44\n\n"
                 "STEP 2 — Extract every car row from the table.\n\n"
                 "Return ONLY valid JSON, no markdown, no explanation:\n"
                 "{\"location\":\"Klang9\",\"cars\":[{\"chassis\":\"NT32-024640\",\"model\":\"X-TRAIL\",\"color\":\"BLACK\",\"year\":2014}]}\n\n"
                 "Rules:\n"
-                "- location value MUST be exactly 'Klang9' OR 'MaeSot' (no other values)\n"
+                "- location MUST be exactly 'Klang9' OR 'MaeSot' OR 'Border44'\n"
                 "- If header says KLANG9 → location = 'Klang9'\n"
+                "- If header says BEST BORDER or 44 GATE → location = 'Border44'\n"
                 "- If header says MAESOT → location = 'MaeSot'\n"
                 "- year must be a number (e.g. 2014 not '2014')"
             )},
@@ -1601,14 +1603,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Auction list: {e}"); new_cars = []; detected_loc = None
 
         # Location ဆုံးဖြတ်ခြင်း — Gemini ဦးစားပေး → caption fallback
+        cap_border44 = any(k in cap_lower for k in ["border44","border 44","44gate","44 gate","best border","border-44"])
+
         if detected_loc in ("Klang9", "MaeSot", "Border44"):
             import_loc = detected_loc
         elif caption_klang9:
             import_loc = "Klang9"
+        elif cap_border44:
+            import_loc = "Border44"
         elif caption_maesot:
             import_loc = "MaeSot"
-        elif any(k in cap_lower for k in ["border44","border 44","44gate","44 gate","best border"]):
-            import_loc = "Border44"
         else:
             import_loc = "MaeSot"
 
