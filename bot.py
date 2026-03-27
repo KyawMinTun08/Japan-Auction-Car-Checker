@@ -1715,18 +1715,45 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chassis and file_bytes:
         image_url = await upload_to_cloudinary(file_bytes, chassis)
 
-    # Location — CARS list ကစစ် / မရှိရင် caption ကစစ် / default MaeSot
+    # Location — CARS list ကစစ် / မရှိရင် Sheet ကစစ် / နောက်ဆုံး caption
     if car:
         car_loc = loc_display(car.get('loc', 'MaeSot'))
     else:
-        # Caption မှ location detect
-        cap_l = (caption or "").lower()
-        if any(k in cap_l for k in ["klang9","klang 9","klang","9.2"]):
-            car_loc = LOC_KLANG9
-        elif any(k in cap_l for k in ["border44","border 44","44gate","44 gate","best border","border-44"]):
-            car_loc = LOC_BORDER44
+        # Sheet ကနေ chassis စစ်ပြီး location ဆွဲ
+        sheet_loc = None
+        if chassis and SHEET_WEBHOOK:
+            try:
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    resp = await client.get(
+                        f"https://docs.google.com/spreadsheets/d/{os.environ.get('SHEET_ID','')}/gviz/tq?tqx=out:json&sheet=Sheet1",
+                        timeout=8)
+                raw = resp.text
+                import json as _json
+                data = _json.loads(raw[raw.index('{'):raw.rindex('}')+1])
+                rows = data.get('table',{}).get('rows',[])
+                for row in rows:
+                    c = row.get('c',[])
+                    if len(c) > 1:
+                        ch_val = (c[1].get('v','') or '') if c[1] else ''
+                        if str(ch_val).upper().strip() == chassis.upper().strip():
+                            loc_val = (c[6].get('v','') or '') if len(c) > 6 and c[6] else ''
+                            if loc_val:
+                                sheet_loc = str(loc_val)
+                            break
+            except Exception as e:
+                logger.error(f"sheet loc lookup: {e}")
+
+        if sheet_loc:
+            car_loc = loc_display(sheet_loc)
         else:
-            car_loc = LOC_MAESOT
+            # Caption fallback
+            cap_l = (caption or "").lower()
+            if any(k in cap_l for k in ["klang9","klang 9","klang","9.2"]):
+                car_loc = LOC_KLANG9
+            elif any(k in cap_l for k in ["border44","border 44","44gate","44 gate","best border","border-44"]):
+                car_loc = LOC_BORDER44
+            else:
+                car_loc = LOC_MAESOT
     final_model = gemini_model if gemini_model and gemini_model not in ("","UNKNOWN") else (car['model'] if car else guess_model_from_chassis(chassis or ""))
     final_color = gemini_color if gemini_color and gemini_color != "-" else (car['color'] if car else "-")
     final_year  = gemini_year  if gemini_year  else (car.get('year', 0) if car else 0)
