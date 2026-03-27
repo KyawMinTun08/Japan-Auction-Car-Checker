@@ -1715,7 +1715,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chassis and file_bytes:
         image_url = await upload_to_cloudinary(file_bytes, chassis)
 
-    car_loc     = loc_display(car.get('loc','MaeSot')) if car else LOC_MAESOT
+    # Location — CARS list ကစစ် / မရှိရင် caption ကစစ် / default MaeSot
+    if car:
+        car_loc = loc_display(car.get('loc', 'MaeSot'))
+    else:
+        # Caption မှ location detect
+        cap_l = (caption or "").lower()
+        if any(k in cap_l for k in ["klang9","klang 9","klang","9.2"]):
+            car_loc = LOC_KLANG9
+        elif any(k in cap_l for k in ["border44","border 44","44gate","44 gate","best border","border-44"]):
+            car_loc = LOC_BORDER44
+        else:
+            car_loc = LOC_MAESOT
     final_model = gemini_model if gemini_model and gemini_model not in ("","UNKNOWN") else (car['model'] if car else guess_model_from_chassis(chassis or ""))
     final_color = gemini_color if gemini_color and gemini_color != "-" else (car['color'] if car else "-")
     final_year  = gemini_year  if gemini_year  else (car.get('year', 0) if car else 0)
