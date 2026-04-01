@@ -271,7 +271,8 @@ pending_edit     = {}  # user_id -> {chassis, field}
 pending_broadcast= {}  # user_id -> {pkg_filter, waiting_photo}
 pending_request  = {}  # user_id -> {step, data}
 proxy_sessions   = {}  # session_id -> {customerId, brokerId, reqId, status}
-pending_rating   = {}  # customer_id -> {reqId, brokerId, brokerTgId}  ← NEW
+pending_rating   = {}  # customer_id -> {reqId, brokerId, brokerTgId}
+pending_deposit  = {}  # customer_id -> {reqId, brokerTgId, step, slip_info}
 warned_3days   = set()
 promo_used     = {}
 rate_limit     = {}
@@ -1436,6 +1437,63 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown")
         return
 
+    # ── Deposit Slip Mode ──
+    if str(user_id) in pending_deposit:
+        dep_data = pending_deposit[str(user_id)]
+        if dep_data.get("step") == "waiting_slip":
+            await update.message.reply_text("🔍 Deposit Slip ဖတ်နေတယ်... ⏳")
+            try:
+                file       = await photo.get_file()
+                file_bytes = bytes(await file.download_as_bytearray())
+                slip_info  = await gemini_read_slip(file_bytes)
+            except Exception as e:
+                logger.error(f"deposit slip read: {e}")
+                slip_info = {}
+
+            amount   = slip_info.get("AMOUNT", "UNKNOWN")
+            pay_type = slip_info.get("TYPE", "UNKNOWN")
+            txn_no   = slip_info.get("TRANSACTION_NO", "UNKNOWN")
+            date_str = slip_info.get("DATE", "UNKNOWN")
+
+            amount_ok = ""
+            if amount != "UNKNOWN":
+                try:
+                    amt_num = int(re.sub(r'[^\d]', '', amount))
+                    if amt_num >= 20000:
+                        amount_ok = "✅"
+                    else:
+                        amount_ok = "⚠️ မပြည့်မီ (฿20,000 လိုသည်)"
+                except:
+                    amount_ok = "⚠️ စစ်မရ"
+
+            pending_deposit[str(user_id)]["slip_info"] = slip_info
+
+            req_id       = dep_data.get("reqId", "")
+            broker_tg_id = dep_data.get("brokerTgId", "")
+            name         = update.effective_user.first_name or str(user_id)
+
+            admin_text = (
+                f"💰 *Deposit Slip အသစ်*\n\n"
+                f"👤 {name} (`{user_id}`)\n"
+                f"🆔 Request: `{req_id}`\n\n"
+                f"🏦 Type: {pay_type}\n"
+                f"🔢 Txn No: `{txn_no}`\n"
+                f"💵 Amount: {amount} ฿ {amount_ok}\n"
+                f"📅 Date: {date_str}\n\n"
+                f"⚠️ စစ်ဆေးပြီးမှ Confirm လုပ်ပါ"
+            )
+            admin_kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"💬 {name} ကို Message", url=f"tg://user?id={user_id}")],
+                [InlineKeyboardButton("✅ Confirm", callback_data=f"dep_ok_{user_id}"),
+                 InlineKeyboardButton("❌ Reject",  callback_data=f"dep_no_{user_id}")],
+            ])
+            await notify_admins(context, admin_text, reply_markup=admin_kb)
+            await update.message.reply_text(
+                "✅ *Deposit Slip လက်ခံပြီ!*\n\n"
+                "Admin စစ်ဆေးနေသည် — ခဏစောင့်ပါ 🙏",
+                parse_mode='Markdown')
+            return
+
     # ── Payment Slip Mode ──
     if user_id in pending_payment:
         pay_data = pending_payment[user_id]
@@ -2329,6 +2387,106 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_request.pop(user_id, None)
         await query.edit_message_text("❌ Request ပယ်ဖျက်ပြီ\nပြန်တင်ရန်: /carrequest")
 
+    # ── Deposit Start (Customer နှိပ်တာ) ──
+    elif data.startswith("dep_start_"):
+        parts        = data.split("_", 3)
+        req_id       = parts[2]
+        broker_tg_id = parts[3]
+        customer_id  = str(query.from_user.id)
+
+        PAYMENT_INFO_DEP = os.environ.get('PAYMENT_INFO', 'KPay / Wave: Admin ကို ဆက်သွယ်ပါ')
+
+        pending_deposit[customer_id] = {
+            "reqId":      req_id,
+            "brokerTgId": broker_tg_id,
+            "step":       "waiting_slip",
+        }
+        await query.edit_message_text(
+            f"💰 *Deposit ฿20,000*\n\n"
+            f"🆔 Request: `{req_id}`\n\n"
+            f"💳 *Payment Info:*\n{PAYMENT_INFO_DEP}\n\n"
+            f"⬇️ Slip ကို ဒီ bot ထဲမှာ တိုက်ရိုက် ပို့ပါ",
+            parse_mode='Markdown')
+
+    # ── Deposit Confirm (Admin) ──
+    elif data.startswith("dep_ok_"):
+        if query.from_user.id not in ADMIN_IDS:
+            await query.answer("❌ Admin only", show_alert=True); return
+        customer_id  = data.replace("dep_ok_", "")
+        dep_data     = pending_deposit.pop(customer_id, {})
+        req_id       = dep_data.get("reqId", "")
+        broker_tg_id = dep_data.get("brokerTgId", "")
+        slip_info    = dep_data.get("slip_info", {})
+
+        mmk_rate   = int(os.environ.get("MMK_RATE", "3800"))
+        thb_amount = 20000
+        mmk_amount = thb_amount * mmk_rate
+        now_str    = datetime.now().strftime("%d/%m/%Y")
+
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                await client.post(SHEET_WEBHOOK, json={
+                    "action":     "saveDeposit",
+                    "reqId":      req_id,
+                    "customerId": customer_id,
+                    "brokerTgId": broker_tg_id,
+                    "thbAmount":  thb_amount,
+                    "mmkAmount":  mmk_amount,
+                    "mmkRate":    mmk_rate,
+                    "date":       now_str,
+                    "txnNo":      slip_info.get("TRANSACTION_NO", ""),
+                    "payType":    slip_info.get("TYPE", ""),
+                    "status":     "HOLD",
+                }, timeout=10)
+        except Exception as e:
+            logger.error(f"saveDeposit: {e}")
+
+        try:
+            await context.bot.send_message(
+                chat_id=int(customer_id),
+                text=(f"✅ *Deposit လက်ခံပြီ!*\n\n"
+                      f"🆔 `{req_id}`\n"
+                      f"💰 ฿{thb_amount:,} ({mmk_amount:,} ks)\n"
+                      f"📅 {now_str}\n\n"
+                      f"Broker က ကားရှာပေးနေပြီ ⏳"),
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"dep_ok customer: {e}")
+
+        if broker_tg_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(broker_tg_id),
+                    text=(f"✅ *Customer Deposit ရပြီ*\n\n"
+                          f"🆔 `{req_id}`\n"
+                          f"💰 ฿{thb_amount:,} — HOLD ✅\n\n"
+                          f"ကားရှာပေးနိုင်ပြီ"),
+                    parse_mode='Markdown')
+            except Exception as e:
+                logger.error(f"dep_ok broker: {e}")
+
+        await query.message.reply_text(
+            f"✅ *Deposit Confirmed!*\n\n"
+            f"🆔 `{req_id}`\n"
+            f"👤 Customer: `{customer_id}`\n"
+            f"💰 ฿{thb_amount:,} = {mmk_amount:,} ks\n"
+            f"📅 Rate: {mmk_rate} ks/฿",
+            parse_mode='Markdown')
+
+    # ── Deposit Reject (Admin) ──
+    elif data.startswith("dep_no_"):
+        if query.from_user.id not in ADMIN_IDS:
+            await query.answer("❌ Admin only", show_alert=True); return
+        customer_id = data.replace("dep_no_", "")
+        pending_deposit.pop(customer_id, None)
+        try:
+            await context.bot.send_message(
+                chat_id=int(customer_id),
+                text="❌ *Deposit Slip မအတည်မပြုနိုင်*\n\nSlip မှားနိုင်သည် — ပြန်ပို့ပါ",
+                parse_mode='Markdown')
+        except: pass
+        await query.message.reply_text("❌ Deposit ပယ်ချပြီ")
+
     # ── Rating ── ← NEW
     elif data.startswith("rate_"):
         parts      = data.split("_")
@@ -3112,6 +3270,268 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 သုံးပြီး: {used}/{max_uses}\n"
         f"🔢 ကျန်: {remaining}")
 
+# ── /depositrequest (Broker only) ────────────────────
+async def depositrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    brokers = await get_brokers()
+    broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
+    if not broker:
+        await update.message.reply_text("❌ Broker မဟုတ်ဘူး")
+        return
+
+    session = next(
+        ((sid, s) for sid, s in proxy_sessions.items()
+         if str(s.get("brokerId","")) == user_id and s.get("status") == "ACTIVE"),
+        None
+    )
+    if not session:
+        await update.message.reply_text(
+            "❌ Active session မရှိဘူး\nCustomer နဲ့ chat ဖွင့်ပြီးမှ တောင်းပါ")
+        return
+
+    sid, sess   = session
+    customer_id = sess.get("customerId")
+    req_id      = sess.get("reqId", sid)
+
+    if not customer_id:
+        await update.message.reply_text("❌ Customer ID မတွေ့ပါ")
+        return
+
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "💰 ကားဝယ်ယူရန် (Deposit ฿20,000)",
+            callback_data=f"dep_start_{req_id}_{user_id}")
+    ]])
+    try:
+        await context.bot.send_message(
+            chat_id=int(customer_id),
+            text=(f"🚗 *ကားဝယ်ယူရန် Deposit*\n\n"
+                  f"🆔 Request: `{req_id}`\n\n"
+                  f"Broker က Deposit ฿20,000 တောင်းနေပြီ\n"
+                  f"ဆက်လုပ်ရန် အောက်ပါ button နှိပ်ပါ 👇"),
+            parse_mode='Markdown',
+            reply_markup=kb)
+        await update.message.reply_text("✅ Customer ဆီ Deposit request ပို့ပြီ")
+    except Exception as e:
+        logger.error(f"depositrequest: {e}")
+        await update.message.reply_text("❌ Customer ကို မပို့နိုင်ဘူး")
+
+
+# ── /auctionwon (Admin only) ──────────────────────────
+async def auctionwon_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Format: `/auctionwon R123456 [ကားဖိုး]`\n"
+            "ဥပမာ: `/auctionwon R001234 150000`",
+            parse_mode='Markdown')
+        return
+
+    req_id = context.args[0].strip().upper()
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action": "getDeposit",
+                "reqId":  req_id,
+            }, timeout=10)
+        dep = resp.json()
+    except Exception as e:
+        logger.error(f"auctionwon getDeposit: {e}")
+        await update.message.reply_text("❌ Sheet error")
+        return
+
+    if dep.get("status") != "ok":
+        await update.message.reply_text(f"❌ `{req_id}` Deposit မတွေ့ပါ", parse_mode='Markdown')
+        return
+
+    customer_id  = dep.get("customerId")
+    broker_tg_id = dep.get("brokerTgId")
+    thb_amount   = dep.get("thbAmount", 20000)
+    car_price    = int(context.args[1]) if len(context.args) > 1 else 0
+    remaining    = car_price - thb_amount if car_price else 0
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            await client.post(SHEET_WEBHOOK, json={
+                "action":        "updateDeposit",
+                "reqId":         req_id,
+                "auctionResult": "WON",
+                "carPrice":      car_price,
+            }, timeout=10)
+    except Exception as e:
+        logger.error(f"auctionwon updateDeposit: {e}")
+
+    if customer_id:
+        try:
+            msg = (f"🏆 *ကားရပြီ!*\n\n"
+                   f"🆔 Request: `{req_id}`\n\n"
+                   f"💰 Deposit: ฿{thb_amount:,} (ကားဖိုးထဲ ထည့်တွက်ပြီ)\n")
+            if car_price:
+                msg += (f"🚗 ကားဖိုး: ฿{car_price:,}\n"
+                        f"💵 ကျန်ပေးရမည်: ฿{remaining:,} + Commission\n\n")
+            msg += "Admin မှ ကျန်ငွေ + Commission တောင်းပါမည် 📞"
+            await context.bot.send_message(
+                chat_id=int(customer_id), text=msg, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"auctionwon customer: {e}")
+
+    if broker_tg_id:
+        try:
+            await context.bot.send_message(
+                chat_id=int(broker_tg_id),
+                text=(f"🏆 *Auction Won!*\n\n"
+                      f"🆔 `{req_id}`\n"
+                      f"Customer ကို ကျန်ငွေ တောင်းဆိုပြီ ✅"),
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"auctionwon broker: {e}")
+
+    await update.message.reply_text(
+        f"✅ *Auction Won မှတ်တမ်းတင်ပြီ*\n\n"
+        f"🆔 `{req_id}`\n"
+        f"💰 Deposit ฿{thb_amount:,} ကားဖိုးထဲ ထည့်တွက်ပြီ\n"
+        + (f"💵 ကျန်ငွေ: ฿{remaining:,} + Commission" if car_price else ""),
+        parse_mode='Markdown')
+
+
+# ── /auctionlost (Admin only) ─────────────────────────
+async def auctionlost_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Format: `/auctionlost R123456`",
+            parse_mode='Markdown')
+        return
+
+    req_id = context.args[0].strip().upper()
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action": "getDeposit",
+                "reqId":  req_id,
+            }, timeout=10)
+        dep = resp.json()
+    except Exception as e:
+        logger.error(f"auctionlost getDeposit: {e}")
+        await update.message.reply_text("❌ Sheet error")
+        return
+
+    if dep.get("status") != "ok":
+        await update.message.reply_text(f"❌ `{req_id}` Deposit မတွေ့ပါ", parse_mode='Markdown')
+        return
+
+    customer_id  = dep.get("customerId")
+    broker_tg_id = dep.get("brokerTgId")
+    mmk_amount   = dep.get("mmkAmount", 0)
+    thb_amount   = dep.get("thbAmount", 20000)
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            await client.post(SHEET_WEBHOOK, json={
+                "action":        "updateDeposit",
+                "reqId":         req_id,
+                "auctionResult": "LOST",
+            }, timeout=10)
+    except Exception as e:
+        logger.error(f"auctionlost updateDeposit: {e}")
+
+    if customer_id:
+        try:
+            await context.bot.send_message(
+                chat_id=int(customer_id),
+                text=(f"😔 *ကားမရဘူး*\n\n"
+                      f"🆔 Request: `{req_id}`\n\n"
+                      f"💰 Deposit ฿{thb_amount:,}\n"
+                      f"💵 ပြန်ပေးမည်: *{mmk_amount:,} ks*\n\n"
+                      f"(ပေးသည့်နေ့ rate အတိုင်း MMK ပြန်ပေးမည်)\n\n"
+                      f"Admin မှ ၂-၃ ရက်အတွင်း ပြန်လွှဲပေးပါမည် 🙏"),
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"auctionlost customer: {e}")
+
+    await notify_admins(context,
+        f"💸 *Refund လုပ်ပေးရမည်!*\n\n"
+        f"🆔 `{req_id}`\n"
+        f"👤 Customer ID: `{customer_id}`\n"
+        f"💵 ပြန်ပေးရမည်: *{mmk_amount:,} ks*\n\n"
+        f"ပြန်လွှဲပြီးရင် `/refunddone {req_id}` နှိပ်ပါ",)
+
+    if broker_tg_id:
+        try:
+            await context.bot.send_message(
+                chat_id=int(broker_tg_id),
+                text=(f"😔 *Auction Lost*\n\n"
+                      f"🆔 `{req_id}`\n"
+                      f"Customer ကို Deposit ပြန်ပေးမည် — Admin handle လုပ်မည်"),
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"auctionlost broker: {e}")
+
+    await update.message.reply_text(
+        f"✅ *Auction Lost မှတ်တမ်းတင်ပြီ*\n\n"
+        f"🆔 `{req_id}`\n"
+        f"💵 Refund: *{mmk_amount:,} ks*\n\n"
+        f"⚠️ Customer ကို ပြန်လွှဲပေးဖို့ မမေ့ပါနဲ့!",
+        parse_mode='Markdown')
+
+
+# ── /refunddone (Admin only) ──────────────────────────
+async def refunddone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if not context.args:
+        await update.message.reply_text("❌ Format: `/refunddone R123456`", parse_mode='Markdown')
+        return
+
+    req_id = context.args[0].strip().upper()
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            await client.post(SHEET_WEBHOOK, json={
+                "action":        "updateDeposit",
+                "reqId":         req_id,
+                "auctionResult": "REFUNDED",
+            }, timeout=10)
+            dep_resp = await client.post(SHEET_WEBHOOK, json={
+                "action": "getDeposit",
+                "reqId":  req_id,
+            }, timeout=10)
+        dep = dep_resp.json()
+    except Exception as e:
+        logger.error(f"refunddone: {e}")
+        await update.message.reply_text("❌ Sheet error")
+        return
+
+    customer_id = dep.get("customerId")
+    mmk_amount  = dep.get("mmkAmount", 0)
+
+    if customer_id:
+        try:
+            await context.bot.send_message(
+                chat_id=int(customer_id),
+                text=(f"✅ *Deposit ပြန်ပေးပြီ!*\n\n"
+                      f"🆔 `{req_id}`\n"
+                      f"💵 *{mmk_amount:,} ks* လွှဲပေးပြီ\n\n"
+                      f"ဆက်လုပ်ချင်ရင် /carrequest နှိပ်ပါ 🙏"),
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"refunddone notify: {e}")
+
+    await update.message.reply_text(
+        f"✅ Refund ပြီးကြောင်း မှတ်တမ်းတင်ပြီ\n🆔 `{req_id}`",
+        parse_mode='Markdown')
+
+
 # ── Auto Expire Check ─────────────────────────────────
 async def check_expired_members(context):
     global warned_3days
@@ -3223,6 +3643,10 @@ async def main():
     app.add_handler(CommandHandler("mystatus",      mystatus_cmd))
     app.add_handler(CommandHandler("accept",        accept_cmd))
     app.add_handler(CommandHandler("endchat",       endchat_cmd))
+    app.add_handler(CommandHandler("depositrequest", depositrequest_cmd))
+    app.add_handler(CommandHandler("auctionwon",     auctionwon_cmd))
+    app.add_handler(CommandHandler("auctionlost",    auctionlost_cmd))
+    app.add_handler(CommandHandler("refunddone",     refunddone_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
@@ -3249,6 +3673,7 @@ async def main():
         BotCommand("busy",          "🔴 Busy ဖြစ်ကြောင်း"),
         BotCommand("accept",        "✅ Request လက်ခံရန်"),
         BotCommand("endchat",       "🔚 Session ပိတ်ရန်"),
+        BotCommand("depositrequest","💰 Customer ကို Deposit တောင်းရန်"),
     ]
     admin_commands = member_commands + [
         BotCommand("price",         "💰 ကားဈေးထည့်ရန် (Admin)"),
@@ -3261,6 +3686,9 @@ async def main():
         BotCommand("broadcast",     "📢 Broadcast ပို့ရန် (Admin)"),
         BotCommand("addbroker",     "👷 Broker ထည့်ရန် (Admin)"),
         BotCommand("brokers",       "📋 Broker list (Admin)"),
+        BotCommand("auctionwon",    "🏆 ကားရပြီ (Admin)"),
+        BotCommand("auctionlost",   "❌ ကားမရဘူး (Admin)"),
+        BotCommand("refunddone",    "💸 Refund ပြီး (Admin)"),
     ]
     try:
         await app.bot.set_my_commands(member_commands, scope=BotCommandScopeAllPrivateChats())
