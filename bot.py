@@ -1494,6 +1494,87 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown')
             return
 
+    # ── Photo Relay Mode (Proxy Chat) ──
+    str_uid = str(user_id)
+    cust_session_photo = next(
+        ((sid, s) for sid, s in proxy_sessions.items()
+         if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
+        None
+    )
+    broker_session_photo = next(
+        ((sid, s) for sid, s in proxy_sessions.items()
+         if str(s.get("brokerId","")) == str_uid and s.get("status") == "ACTIVE"),
+        None
+    )
+
+    if cust_session_photo or broker_session_photo:
+        # Caption filter — phone/link စစ်
+        if caption:
+            blocked, reason = proxy_filter(caption)
+            if blocked:
+                await update.message.reply_text(
+                    f"⚠️ *Photo Block ဖြစ်သွားတယ်*\n\n"
+                    f"❌ Caption မှာ {reason}\n"
+                    f"Caption ဖြုတ်ပြီး ပြန်ပို့ပါ",
+                    parse_mode='Markdown')
+                return
+
+        try:
+            file       = await photo.get_file()
+            file_bytes = bytes(await file.download_as_bytearray())
+        except Exception as e:
+            logger.error(f"photo relay download: {e}")
+            await update.message.reply_text("❌ ပုံ download မရဘူး")
+            return
+
+        # Cloudinary သိမ်း (Admin history အတွက်)
+        relay_image_url = ""
+        if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
+            session_id = cust_session_photo[0] if cust_session_photo else broker_session_photo[0]
+            relay_image_url = await upload_to_cloudinary(file_bytes, f"relay_{session_id}_{int(datetime.now().timestamp())}")
+
+        from io import BytesIO
+
+        if cust_session_photo:
+            sid, session    = cust_session_photo
+            broker_tg_id    = session.get("brokerId")
+            req_id          = session.get("reqId", sid)
+            cap_text        = f"📷 *Customer #{req_id}:*\n\n{caption}" if caption else f"📷 *Customer #{req_id}*"
+            if broker_tg_id:
+                try:
+                    bio = BytesIO(file_bytes); bio.name = "photo.jpg"
+                    await context.bot.send_photo(
+                        chat_id=int(broker_tg_id),
+                        photo=bio,
+                        caption=cap_text,
+                        parse_mode='Markdown')
+                    await update.message.reply_text("✅ ပုံ ပို့ပြီ")
+                except Exception as e:
+                    logger.error(f"photo relay C→B: {e}")
+                    await update.message.reply_text("❌ Broker ကို မပို့နိုင်ဘူး")
+            return
+
+        if broker_session_photo:
+            sid, session    = broker_session_photo
+            customer_id     = session.get("customerId")
+            broker_obj      = session.get("brokerObj", {})
+            broker_id       = broker_obj.get("brokerId", "B???")
+            req_id          = session.get("reqId", sid)
+            cap_text        = f"📷 *Broker #{broker_id}:*\n\n{caption}" if caption else f"📷 *Broker #{broker_id}*"
+            if customer_id:
+                try:
+                    bio = BytesIO(file_bytes); bio.name = "photo.jpg"
+                    await context.bot.send_photo(
+                        chat_id=int(customer_id),
+                        photo=bio,
+                        caption=cap_text,
+                        parse_mode='Markdown')
+                    await update.message.reply_text("✅ ပုံ ပို့ပြီ")
+                except Exception as e:
+                    logger.error(f"photo relay B→C: {e}")
+                    await update.message.reply_text("❌ Customer ကို မပို့နိုင်ဘူး")
+            return
+
     # ── Payment Slip Mode ──
     if user_id in pending_payment:
         pay_data = pending_payment[user_id]
