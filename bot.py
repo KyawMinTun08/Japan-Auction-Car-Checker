@@ -273,6 +273,7 @@ pending_request  = {}  # user_id -> {step, data}
 proxy_sessions   = {}  # session_id -> {customerId, brokerId, reqId, status}
 pending_rating   = {}  # customer_id -> {reqId, brokerId, brokerTgId}
 pending_deposit  = {}  # customer_id -> {reqId, brokerTgId, step, slip_info}
+active_timers    = {}  # req_id -> asyncio.Task
 warned_3days   = set()
 promo_used     = {}
 rate_limit     = {}
@@ -3213,6 +3214,15 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👷 Broker: #{broker['brokerId']} @{broker['username']}\n"
         f"👤 Customer: @{customer_username}")
 
+    # ── Auto Timer စတင် (4hr reminder + 24hr auto-cancel) ──
+    start_request_timer(
+        context,
+        req_id       = req_id,
+        broker_tg_id = user_id,
+        broker_id    = broker["brokerId"],
+        customer_id  = str(customer_id) if customer_id else ""
+    )
+
 # ── /endchat — End Proxy Session ── (Rating System ပါ)
 async def endchat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -3223,6 +3233,9 @@ async def endchat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     req_id = context.args[0].strip().upper() if context.args else ""
     session = proxy_sessions.pop(req_id, None)
+
+    # ── Timer cancel ──
+    cancel_request_timer(req_id)
 
     await update_broker(user_id, status="FREE")
 
@@ -3350,6 +3363,124 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 {days} ရက်\n"
         f"📊 သုံးပြီး: {used}/{max_uses}\n"
         f"🔢 ကျန်: {remaining}")
+
+# ── Auto Timer ───────────────────────────────────────
+async def request_timer_task(context, req_id: str, broker_tg_id: str,
+                              broker_id: str, customer_id: str):
+    """
+    4hr  → Broker + Admin reminder
+    24hr → Auto cancel + Broker FREE + notify
+    """
+    try:
+        # ── 4hr Reminder ──
+        await asyncio.sleep(4 * 3600)
+
+        # Check session still active
+        if req_id not in proxy_sessions:
+            return
+
+        broker_msg = (
+            f"⏰ *4 နာရီ Reminder*\n\n"
+            f"🆔 Request: `{req_id}`\n\n"
+            f"Customer ကို ကားရှာပေးနေပြီ ၄ နာရီကျော်ပြီ\n"
+            f"Update တစ်ခုခု ပေးဖို့ မမေ့ပါနဲ့ 📞\n\n"
+            f"ပြီးရင်: `/endchat {req_id}`"
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=int(broker_tg_id),
+                text=broker_msg,
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"timer 4hr broker: {e}")
+
+        await notify_admins(context,
+            f"⏰ *4hr Reminder*\n\n"
+            f"🆔 `{req_id}`\n"
+            f"👷 Broker #{broker_id} — 4 နာရီကျော်ပြီ\n"
+            f"Session ဆက်ဖွင့်နေဆဲ")
+
+        # ── 24hr Auto Cancel ──
+        await asyncio.sleep(20 * 3600)  # 4hr + 20hr = 24hr
+
+        if req_id not in proxy_sessions:
+            return
+
+        # Session ပိတ်
+        proxy_sessions.pop(req_id, None)
+        active_timers.pop(req_id, None)
+
+        # Broker FREE
+        await update_broker(broker_tg_id, status="FREE")
+
+        # Request cancel → Sheet
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                await client.post(SHEET_WEBHOOK, json={
+                    "action": "updateRequest",
+                    "reqId":  req_id,
+                    "status": "CANCELLED_TIMEOUT",
+                }, timeout=10)
+        except Exception as e:
+            logger.error(f"timer cancel sheet: {e}")
+
+        # Broker notify
+        try:
+            await context.bot.send_message(
+                chat_id=int(broker_tg_id),
+                text=(f"⚠️ *Request Auto Cancel ဖြစ်ပြီ*\n\n"
+                      f"🆔 `{req_id}`\n"
+                      f"24 နာရီ အတွင်း မပြီးဆုံးတဲ့အတွက် ပိတ်လိုက်ပြီ\n\n"
+                      f"🟢 Status: FREE ဖြစ်ပြီ"),
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"timer 24hr broker: {e}")
+
+        # Customer notify
+        if customer_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(customer_id),
+                    text=(f"⚠️ *Request ပိတ်သွားပြီ*\n\n"
+                          f"🆔 `{req_id}`\n"
+                          f"24 နာရီ အတွင်း ကားမရသောကြောင့် Request ပိတ်ပြီ\n\n"
+                          f"ပြန်တင်ရန်: /carrequest 🙏"),
+                    parse_mode='Markdown')
+            except Exception as e:
+                logger.error(f"timer 24hr customer: {e}")
+
+        await notify_admins(context,
+            f"🚨 *Request Auto Cancel (24hr timeout)*\n\n"
+            f"🆔 `{req_id}`\n"
+            f"👷 Broker #{broker_id} → FREE\n"
+            f"👤 Customer: `{customer_id}`")
+
+    except asyncio.CancelledError:
+        # /endchat ကနေ cancel လုပ်ခဲ့တာ — ပုံမှန်
+        logger.info(f"Timer cancelled for {req_id}")
+    except Exception as e:
+        logger.error(f"request_timer_task: {e}")
+
+
+def start_request_timer(context, req_id: str, broker_tg_id: str,
+                         broker_id: str, customer_id: str):
+    """Accept လုပ်တဲ့အချိန်မှာ timer စတင်"""
+    # ဟောင်း timer ရှိရင် cancel
+    if req_id in active_timers:
+        active_timers[req_id].cancel()
+
+    task = asyncio.create_task(
+        request_timer_task(context, req_id, broker_tg_id, broker_id, customer_id)
+    )
+    active_timers[req_id] = task
+
+
+def cancel_request_timer(req_id: str):
+    """endchat မှာ timer cancel လုပ်"""
+    task = active_timers.pop(req_id, None)
+    if task:
+        task.cancel()
+
 
 # ── /depositrequest (Broker only) ────────────────────
 async def depositrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
