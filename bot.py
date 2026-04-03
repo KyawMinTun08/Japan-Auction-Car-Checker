@@ -360,7 +360,7 @@ async def get_member_package(user_id: int) -> str | None:
             if status == 'ACTIVE' and expire_date >= now:
                 pkg = (pkg_cell.get('v','CH') if pkg_cell else 'CH') or 'CH'
                 pkg = str(pkg).upper()
-                # CH-PROMO / WEB-PROMO ကို treat လုပ်
+                # PROMO packages treat လုပ်
                 if pkg == 'CH-PROMO': return 'CH'
                 if pkg == 'WEB-PROMO': return 'WEB'
                 return pkg
@@ -1340,7 +1340,7 @@ def tesseract_ocr_chassis(file_bytes: bytes) -> str:
         return ""
 
 async def gemini_ocr_auction_list(file_bytes: bytes) -> tuple:
-    """Returns (cars_list, detected_location) where location is 'Klang9', 'MaeSot' or 'Border44'"""
+    """Returns (cars_list, detected_location) where location is 'Klang9' or 'MaeSot'"""
     if not GEMINI_API_KEY:
         return [], None
     try:
@@ -1353,15 +1353,13 @@ async def gemini_ocr_auction_list(file_bytes: bytes) -> tuple:
                 "STEP 1 — Read the TITLE/HEADER at the very top of the image:\n"
                 "   Look for these EXACT words in the blue/colored header band:\n"
                 "   → 'KLANG9' or 'KLANG 9' or '9.2 FREEZONE' = location is Klang9\n"
-                "   → 'MAESOT' or 'MAE SOT' = location is MaeSot\n"
-                "   → 'BEST BORDER' or '44 GATE' or 'BORDER-44' or 'BORDER 44' = location is Border44\n\n"
+                "   → 'MAESOT' or 'MAE SOT' = location is MaeSot\n\n"
                 "STEP 2 — Extract every car row from the table.\n\n"
                 "Return ONLY valid JSON, no markdown, no explanation:\n"
                 "{\"location\":\"Klang9\",\"cars\":[{\"chassis\":\"NT32-024640\",\"model\":\"X-TRAIL\",\"color\":\"BLACK\",\"year\":2014}]}\n\n"
                 "Rules:\n"
-                "- location MUST be exactly 'Klang9' OR 'MaeSot' OR 'Border44'\n"
+                "- location value MUST be exactly 'Klang9' OR 'MaeSot' (no other values)\n"
                 "- If header says KLANG9 → location = 'Klang9'\n"
-                "- If header says BEST BORDER or 44 GATE → location = 'Border44'\n"
                 "- If header says MAESOT → location = 'MaeSot'\n"
                 "- year must be a number (e.g. 2014 not '2014')"
             )},
@@ -1604,16 +1602,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Auction list: {e}"); new_cars = []; detected_loc = None
 
         # Location ဆုံးဖြတ်ခြင်း — Gemini ဦးစားပေး → caption fallback
-        cap_border44 = any(k in cap_lower for k in ["border44","border 44","44gate","44 gate","best border","border-44"])
-
         if detected_loc in ("Klang9", "MaeSot", "Border44"):
             import_loc = detected_loc
         elif caption_klang9:
             import_loc = "Klang9"
-        elif cap_border44:
-            import_loc = "Border44"
         elif caption_maesot:
             import_loc = "MaeSot"
+        elif any(k in cap_lower for k in ["border44","border 44","44gate","44 gate","best border"]):
+            import_loc = "Border44"
         else:
             import_loc = "MaeSot"
 
@@ -1716,45 +1712,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chassis and file_bytes:
         image_url = await upload_to_cloudinary(file_bytes, chassis)
 
-    # Location — CARS list ကစစ် / မရှိရင် Sheet ကစစ် / နောက်ဆုံး caption
-    if car:
-        car_loc = loc_display(car.get('loc', 'MaeSot'))
-    else:
-        # Sheet ကနေ chassis စစ်ပြီး location ဆွဲ
-        sheet_loc = None
-        if chassis and SHEET_WEBHOOK:
-            try:
-                async with httpx.AsyncClient(follow_redirects=True) as client:
-                    resp = await client.get(
-                        f"https://docs.google.com/spreadsheets/d/{os.environ.get('SHEET_ID','')}/gviz/tq?tqx=out:json&sheet=Sheet1",
-                        timeout=8)
-                raw = resp.text
-                import json as _json
-                data = _json.loads(raw[raw.index('{'):raw.rindex('}')+1])
-                rows = data.get('table',{}).get('rows',[])
-                for row in rows:
-                    c = row.get('c',[])
-                    if len(c) > 1:
-                        ch_val = (c[1].get('v','') or '') if c[1] else ''
-                        if str(ch_val).upper().strip() == chassis.upper().strip():
-                            loc_val = (c[6].get('v','') or '') if len(c) > 6 and c[6] else ''
-                            if loc_val:
-                                sheet_loc = str(loc_val)
-                            break
-            except Exception as e:
-                logger.error(f"sheet loc lookup: {e}")
-
-        if sheet_loc:
-            car_loc = loc_display(sheet_loc)
-        else:
-            # Caption fallback
-            cap_l = (caption or "").lower()
-            if any(k in cap_l for k in ["klang9","klang 9","klang","9.2"]):
-                car_loc = LOC_KLANG9
-            elif any(k in cap_l for k in ["border44","border 44","44gate","44 gate","best border","border-44"]):
-                car_loc = LOC_BORDER44
-            else:
-                car_loc = LOC_MAESOT
+    car_loc     = loc_display(car.get('loc','MaeSot')) if car else LOC_MAESOT
     final_model = gemini_model if gemini_model and gemini_model not in ("","UNKNOWN") else (car['model'] if car else guess_model_from_chassis(chassis or ""))
     final_color = gemini_color if gemini_color and gemini_color != "-" else (car['color'] if car else "-")
     final_year  = gemini_year  if gemini_year  else (car.get('year', 0) if car else 0)
@@ -2531,7 +2489,6 @@ async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     def pkg_label(pkg):
         if pkg == 'WEB':      return '💎 WEB'
         if pkg == 'CH-PROMO': return '🎁 PROMO'
-        if pkg == 'WEB-PROMO': return '🎁 PROMO+WEB'
         return '📱 CH'
 
     txt = f"👥 *Members*\n✅ Active: {len(active)} | ❌ Expired: {len(expired)} | 🚫 Kicked: {len(kicked)}\n\n"
@@ -3155,7 +3112,10 @@ async def endchat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Promo Code Helper ────────────────────────────────
 def parse_promo_codes() -> dict:
-    """Returns {CODE: {days, max_uses}} from env var"""
+    """Returns {CODE: {days, max_uses, pkg}} from env var
+    Format: CODE:days:maxuses:PACKAGE (e.g. WEBCODE30:30:40:WEB)
+    PACKAGE is optional, defaults to CH
+    """
     codes = {}
     if not PROMO_CODES_RAW:
         return codes
@@ -3165,7 +3125,8 @@ def parse_promo_codes() -> dict:
             code     = parts[0].strip().upper()
             days     = int(parts[1]) if parts[1].isdigit() else 30
             max_uses = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 40
-            codes[code] = {"days": days, "max_uses": max_uses}
+            pkg      = parts[3].strip().upper() if len(parts) > 3 and parts[3].strip().upper() in ("WEB","CH") else "CH"
+            codes[code] = {"days": days, "max_uses": max_uses, "pkg": pkg}
     return codes
 
 # ── /redeem command (Sheet-backed) ───────────────────
@@ -3218,20 +3179,19 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_uses   = result.get("max", 40)
     remaining  = max_uses - used
 
-    # Code name မှာ "WEB" ပါရင် WEB-PROMO / မပါရင် CH-PROMO
-    is_web     = "WEB" in code.upper()
-    pkg_save   = "WEB-PROMO" if is_web else "CH-PROMO"
-    pkg_send   = "WEB"       if is_web else "CH"
-    pkg_label  = "💎 Web + Channel" if is_web else "📱 Channel Only"
+    # Promo code ရဲ့ package စစ် (WEB or CH)
+    promo_codes = parse_promo_codes()
+    promo_pkg   = promo_codes.get(code, {}).get("pkg", "CH")
+    sheet_pkg   = "WEB-PROMO" if promo_pkg == "WEB" else "CH-PROMO"
 
     password   = generate_password()
-    await save_member_to_sheet(str(user_id), username, days, password, pkg_save)
+    await save_member_to_sheet(str(user_id), username, days, password, sheet_pkg)
     invite_url = await create_invite_link(context, days)
-    await send_approval_dm(context, user_id, days // 30, password, invite_url, package=pkg_send)
+    await send_approval_dm(context, user_id, days // 30, password, invite_url, package=promo_pkg)
 
     await update.message.reply_text(
         f"🎉 *Promo Code အောင်မြင်!*\n\n"
-        f"{pkg_label} Membership *{days} ရက်* ရပါပြီ\n"
+        f"📱 Channel Only Membership *{days} ရက်* ရပါပြီ\n"
         f"🔑 Password DM ပို့ပြီ\n\n"
         f"🙏 ကျေးဇူးတင်ပါသည်",
         parse_mode='Markdown')
@@ -3239,7 +3199,7 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await notify_admins(context,
         f"🎁 *Promo Redeemed!*\n\n"
         f"👤 @{username} (ID: `{user_id}`)\n"
-        f"🏷 Code: `{code}` ({pkg_label})\n"
+        f"🏷 Code: `{code}`\n"
         f"📅 {days} ရက်\n"
         f"📊 သုံးပြီး: {used}/{max_uses}\n"
         f"🔢 ကျန်: {remaining}")
