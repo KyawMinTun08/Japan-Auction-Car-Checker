@@ -316,8 +316,9 @@ def generate_password() -> str:
 
 # ── Helpers ───────────────────────────────────────────
 def loc_display(loc_key: str) -> str:
-    if loc_key == "Klang9": return LOC_KLANG9
-    if loc_key in ("Border44","Best Border","44Gate","44gate"): return LOC_BORDER44
+    k = (loc_key or "").upper()
+    if "KLANG" in k: return LOC_KLANG9
+    if "BORDER" in k or "44" in k: return LOC_BORDER44
     return LOC_MAESOT
 
 async def get_member_package(user_id: int) -> str | None:
@@ -360,9 +361,8 @@ async def get_member_package(user_id: int) -> str | None:
             if status == 'ACTIVE' and expire_date >= now:
                 pkg = (pkg_cell.get('v','CH') if pkg_cell else 'CH') or 'CH'
                 pkg = str(pkg).upper()
-                # PROMO packages treat လုပ်
+                # CH-PROMO ကို CH အဖြစ် treat လုပ် (access level တူတယ်)
                 if pkg == 'CH-PROMO': return 'CH'
-                if pkg == 'WEB-PROMO': return 'WEB'
                 return pkg
             return None  # Found but expired/inactive
         return None  # Not found
@@ -3112,10 +3112,7 @@ async def endchat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Promo Code Helper ────────────────────────────────
 def parse_promo_codes() -> dict:
-    """Returns {CODE: {days, max_uses, pkg}} from env var
-    Format: CODE:days:maxuses:PACKAGE (e.g. WEBCODE30:30:40:WEB)
-    PACKAGE is optional, defaults to CH
-    """
+    """Returns {CODE: {days, max_uses}} from env var"""
     codes = {}
     if not PROMO_CODES_RAW:
         return codes
@@ -3125,8 +3122,7 @@ def parse_promo_codes() -> dict:
             code     = parts[0].strip().upper()
             days     = int(parts[1]) if parts[1].isdigit() else 30
             max_uses = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 40
-            pkg      = parts[3].strip().upper() if len(parts) > 3 and parts[3].strip().upper() in ("WEB","CH") else "CH"
-            codes[code] = {"days": days, "max_uses": max_uses, "pkg": pkg}
+            codes[code] = {"days": days, "max_uses": max_uses}
     return codes
 
 # ── /redeem command (Sheet-backed) ───────────────────
@@ -3179,15 +3175,10 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_uses   = result.get("max", 40)
     remaining  = max_uses - used
 
-    # Promo code ရဲ့ package စစ် (WEB or CH)
-    promo_codes = parse_promo_codes()
-    promo_pkg   = promo_codes.get(code, {}).get("pkg", "CH")
-    sheet_pkg   = "WEB-PROMO" if promo_pkg == "WEB" else "CH-PROMO"
-
     password   = generate_password()
-    await save_member_to_sheet(str(user_id), username, days, password, sheet_pkg)
+    await save_member_to_sheet(str(user_id), username, days, password, "CH-PROMO")
     invite_url = await create_invite_link(context, days)
-    await send_approval_dm(context, user_id, days // 30, password, invite_url, package=promo_pkg)
+    await send_approval_dm(context, user_id, days // 30, password, invite_url, package="CH")
 
     await update.message.reply_text(
         f"🎉 *Promo Code အောင်မြင်!*\n\n"
