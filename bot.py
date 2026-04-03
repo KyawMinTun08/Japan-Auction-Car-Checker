@@ -3218,14 +3218,20 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_uses   = result.get("max", 40)
     remaining  = max_uses - used
 
+    # Code name မှာ "WEB" ပါရင် WEB-PROMO / မပါရင် CH-PROMO
+    is_web     = "WEB" in code.upper()
+    pkg_save   = "WEB-PROMO" if is_web else "CH-PROMO"
+    pkg_send   = "WEB"       if is_web else "CH"
+    pkg_label  = "💎 Web + Channel" if is_web else "📱 Channel Only"
+
     password   = generate_password()
-    await save_member_to_sheet(str(user_id), username, days, password, "WEB-PROMO")
+    await save_member_to_sheet(str(user_id), username, days, password, pkg_save)
     invite_url = await create_invite_link(context, days)
-    await send_approval_dm(context, user_id, days // 30, password, invite_url, package="WEB")
+    await send_approval_dm(context, user_id, days // 30, password, invite_url, package=pkg_send)
 
     await update.message.reply_text(
         f"🎉 *Promo Code အောင်မြင်!*\n\n"
-        f"📱 Channel Only Membership *{days} ရက်* ရပါပြီ\n"
+        f"{pkg_label} Membership *{days} ရက်* ရပါပြီ\n"
         f"🔑 Password DM ပို့ပြီ\n\n"
         f"🙏 ကျေးဇူးတင်ပါသည်",
         parse_mode='Markdown')
@@ -3233,7 +3239,7 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await notify_admins(context,
         f"🎁 *Promo Redeemed!*\n\n"
         f"👤 @{username} (ID: `{user_id}`)\n"
-        f"🏷 Code: `{code}`\n"
+        f"🏷 Code: `{code}` ({pkg_label})\n"
         f"📅 {days} ရက်\n"
         f"📊 သုံးပြီး: {used}/{max_uses}\n"
         f"🔢 ကျန်: {remaining}")
