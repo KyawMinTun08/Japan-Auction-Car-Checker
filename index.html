@@ -735,7 +735,7 @@ function checkSession() {
 function showApp() {
   document.getElementById('loginOverlay').style.display = 'none';
 
-  if (!SESSION || SESSION.package !== 'WEB') {
+  if (!SESSION || (SESSION.package !== 'WEB' && SESSION.package !== 'WEB-PROMO')) {
     // CH Only — upgrade page ပြ
     document.getElementById('loadingOverlay').style.display = 'none';
     document.querySelector('.main').innerHTML = `
@@ -780,7 +780,7 @@ function showApp() {
 // ── Update User Bar ───────────────────────────────────────
 function updateUserBar() {
   if (!SESSION) return;
-  const pkg = SESSION.package === 'WEB' ? '📱+🌐 CH+Web' : '📱 CH Only';
+  const pkg = (SESSION.package === 'WEB' || SESSION.package === 'WEB-PROMO') ? '📱+🌐 CH+Web' : '📱 CH Only';
   document.querySelector('.sidebar-footer').innerHTML = `
     <div style="display:flex;align-items:center;gap:10px">
       <div class="user-avatar">${(SESSION.username||'?').charAt(0).toUpperCase()}</div>
