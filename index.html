@@ -980,8 +980,13 @@ function pgBtn(active) {
 
 // dd/mm/yyyy → Date for sorting
 function parseDate(s) {
-  const p = String(s||'').split('/');
-  if(p.length===3) return new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+  const str = String(s||'').trim();
+  // dd/MM/yyyy format
+  const p = str.split('/');
+  if(p.length===3 && p[2].length===4) return new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+  // JS Date string format (Thu Mar 05 2026...)
+  const d = new Date(str);
+  if(!isNaN(d.getTime())) return d;
   return new Date(0);
 }
 
