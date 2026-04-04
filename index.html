@@ -3,8 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Japan Auction Car Checker</title>
+<!-- ── Security Headers ── -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
+               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+               font-src 'self' https://fonts.gstatic.com;
+               img-src 'self' data: https: blob:;
+               connect-src 'self' https://script.google.com https://docs.google.com;">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+<meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=()">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
@@ -783,7 +793,27 @@ function doLogout() {
 }
 
 // ── Entry Point ───────────────────────────────────────────
+// ── Visitor Logger ──────────────────────────────────────
+async function logVisitor() {
+  try {
+    const r = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
+    const d = await r.json();
+    await fetch(WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action:  'logVisitor',
+        country: d.country_name || '',
+        city:    d.city         || '',
+        region:  d.region       || '',
+        ip:      d.ip           || ''
+      })
+    });
+  } catch(e) { /* silent fail */ }
+}
+
 window.addEventListener('DOMContentLoaded', function() {
+  logVisitor(); // log visitor location silently
   if (checkSession()) {
     showApp();
   } else {
