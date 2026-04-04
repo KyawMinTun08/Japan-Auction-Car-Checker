@@ -2846,6 +2846,52 @@ async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
+async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if ADMIN_IDS and user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Format: `/kickbroker 123456789`\n"
+            "ဥပမာ: `/kickbroker 987654321`",
+            parse_mode='Markdown'); return
+    try:
+        tg_id = context.args[0].strip()
+        if not tg_id.isdigit():
+            await update.message.reply_text("❌ Telegram ID ဂဏန်းဖြစ်ရမည်"); return
+
+        # Check broker exists first
+        brokers = await get_brokers()
+        broker = next((b for b in brokers if str(b.get("telegramId","")) == tg_id), None)
+        if not broker:
+            await update.message.reply_text(f"❌ Broker ID `{tg_id}` မရှိဘူး", parse_mode='Markdown'); return
+
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action":     "removeBroker",
+                "telegramId": tg_id,
+            }, timeout=10)
+
+        if resp.json().get("status") == "ok":
+            # Notify the kicked broker
+            try:
+                await context.bot.send_message(
+                    chat_id=int(tg_id),
+                    text="🚫 *Japan Auction Car Checker*\n\nသင်၏ Broker အကောင့် ပိတ်သိမ်းလိုက်ပါပြီ။\nAdmin ကို ဆက်သွယ်ပါ။",
+                    parse_mode='Markdown')
+            except Exception as e:
+                logger.error(f"kickbroker DM: {e}")
+
+            await update.message.reply_text(
+                f"✅ *Broker ဖြတ်ပြီ*\n\n"
+                f"👤 @{broker.get('username','?')}\n"
+                f"🆔 TG ID: `{tg_id}`",
+                parse_mode='Markdown')
+        else:
+            await update.message.reply_text("❌ Sheet error — ထပ်ကြိုးစားပါ")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
 async def brokers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if ADMIN_IDS and user_id not in ADMIN_IDS:
@@ -3990,6 +4036,7 @@ async def main():
     app.add_handler(CommandHandler("upgrade",     upgrade_cmd))
     app.add_handler(CommandHandler("redeem",        redeem_cmd))
     app.add_handler(CommandHandler("addbroker",     addbroker_cmd))
+    app.add_handler(CommandHandler("kickbroker",    kickbroker_cmd))
     app.add_handler(CommandHandler("brokers",       brokers_cmd))
     app.add_handler(CommandHandler("brokerstart",   brokerstart_cmd))
     app.add_handler(CommandHandler("available",     available_cmd))
@@ -4041,6 +4088,7 @@ async def main():
         BotCommand("backup",        "💾 CSV Backup (Admin)"),
         BotCommand("broadcast",     "📢 Broadcast ပို့ရန် (Admin)"),
         BotCommand("addbroker",     "👷 Broker ထည့်ရန် (Admin)"),
+        BotCommand("kickbroker",    "🚫 Broker ဖြတ်ရန် (Admin)"),
         BotCommand("brokers",       "📋 Broker list (Admin)"),
         BotCommand("auctionwon",    "🏆 ကားရပြီ (Admin)"),
         BotCommand("auctionlost",   "❌ ကားမရဘူး (Admin)"),
