@@ -862,17 +862,24 @@ function fixImgUrl(url) {
 
 async function init() {
   try {
-    const raw = await fetchSheet('Sheet1');
-    allCars = raw.map(r => ({
-      date:     String(r['Date']||r[Object.keys(r)[0]]||''),
-      chassis:  String(r['Chassis']||r[Object.keys(r)[1]]||''),
-      model:    String(r['Model']||r[Object.keys(r)[2]]||'UNKNOWN').trim(),
-      color:    String(r['Color']||r[Object.keys(r)[3]]||'-').trim(),
-      year:     parseInt(String(r['Year']||r[Object.keys(r)[4]]||0))||0,
-      price:    parseInt(String(r['Price']||r[Object.keys(r)[5]]||0).replace(/[^0-9]/g,''))||0,
-      location: String(r['Location']||r[Object.keys(r)[6]]||'-').trim(),
-      addedBy:  String(r['Added By']||r[Object.keys(r)[7]]||'-').trim(),
-      imageUrl: fixImgUrl(String(r['Image URL']||r[Object.keys(r)[8]]||''))
+    const res = await fetch(WEBHOOK, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'getData', token: SESSION.token})
+    });
+    const result = await res.json();
+    if (result.status !== 'ok') throw new Error(result.msg || 'Data fetch failed');
+
+    allCars = result.cars.map(r => ({
+      date:     String(r.date||''),
+      chassis:  String(r.chassis||''),
+      model:    String(r.model||'UNKNOWN').trim(),
+      color:    String(r.color||'-').trim(),
+      year:     parseInt(String(r.year||0))||0,
+      price:    parseInt(String(r.price||0).replace(/[^0-9]/g,''))||0,
+      location: String(r.location||'-').trim(),
+      addedBy:  String(r.addedBy||'-').trim(),
+      imageUrl: fixImgUrl(String(r.imageUrl||''))
     })).filter(r => r.chassis||r.model);
 
     document.getElementById('liveCount').textContent = allCars.length;
@@ -885,7 +892,7 @@ async function init() {
     renderMembers();
     document.getElementById('loadingOverlay').style.display = 'none';
   } catch(e) {
-    document.getElementById('loadingOverlay').innerHTML = `<div style="text-align:center;padding:32px"><div style="font-size:40px;margin-bottom:12px">⚠️</div><div style="font-size:15px;font-weight:700;margin-bottom:8px">Connection Failed</div><div style="font-size:13px;color:#666;margin-bottom:6px">${e.message}</div><div style="font-size:13px;color:#666;margin-bottom:20px">Check that your Google Sheet is set to <b>"Anyone with link → Viewer"</b></div><button onclick="location.reload()" style="background:#0057FF;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit">🔄 Retry</button></div>`;
+    document.getElementById('loadingOverlay').innerHTML = `<div style="text-align:center;padding:32px"><div style="font-size:40px;margin-bottom:12px">⚠️</div><div style="font-size:15px;font-weight:700;margin-bottom:8px">Connection Failed</div><div style="font-size:13px;color:#666;margin-bottom:6px">${e.message}</div><button onclick="location.reload()" style="background:#0057FF;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit">🔄 Retry</button></div>`;
   }
 }
 
