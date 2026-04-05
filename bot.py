@@ -3533,15 +3533,24 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     used       = result.get("used", 0)
     max_uses   = result.get("max", 40)
     remaining  = max_uses - used
+    pkg        = result.get("package", "WEB").upper()  # WEB or CH from sheet
+
+    # Determine member package suffix and label
+    if pkg == "WEB":
+        member_pkg = "WEB-PROMO"
+        pkg_label  = "🌐 Web + Channel"
+    else:
+        member_pkg = "CH-PROMO"
+        pkg_label  = "📱 Channel Only"
 
     password   = generate_password()
-    await save_member_to_sheet(str(user_id), username, days, password, "WEB-PROMO")
+    await save_member_to_sheet(str(user_id), username, days, password, member_pkg)
     invite_url = await create_invite_link(context, days)
-    await send_approval_dm(context, user_id, days // 30, password, invite_url, package="WEB")
+    await send_approval_dm(context, user_id, days // 30, password, invite_url, package=pkg)
 
     await update.message.reply_text(
         f"🎉 *Promo Code အောင်မြင်!*\n\n"
-        f"🌐 Web + Channel Membership *{days} ရက်* ရပါပြီ\n"
+        f"{pkg_label} Membership *{days} ရက်* ရပါပြီ\n"
         f"🔑 Password DM ပို့ပြီ\n\n"
         f"🙏 ကျေးဇူးတင်ပါသည်",
         parse_mode='Markdown')
