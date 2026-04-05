@@ -3535,13 +3535,13 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining  = max_uses - used
 
     password   = generate_password()
-    await save_member_to_sheet(str(user_id), username, days, password, "CH-PROMO")
+    await save_member_to_sheet(str(user_id), username, days, password, "WEB-PROMO")
     invite_url = await create_invite_link(context, days)
-    await send_approval_dm(context, user_id, days // 30, password, invite_url, package="CH")
+    await send_approval_dm(context, user_id, days // 30, password, invite_url, package="WEB")
 
     await update.message.reply_text(
         f"🎉 *Promo Code အောင်မြင်!*\n\n"
-        f"📱 Channel Only Membership *{days} ရက်* ရပါပြီ\n"
+        f"🌐 Web + Channel Membership *{days} ရက်* ရပါပြီ\n"
         f"🔑 Password DM ပို့ပြီ\n\n"
         f"🙏 ကျေးဇူးတင်ပါသည်",
         parse_mode='Markdown')
