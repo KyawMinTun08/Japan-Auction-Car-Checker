@@ -807,12 +807,13 @@ async function logVisitor() {
         region  = d.region       || '';
         ip      = d.ip           || '';
       }
-    } catch(e2) { /* ipapi failed, log anyway */ }
+    } catch(e2) { /* ipapi failed */ }
 
-    fetch(WEBHOOK, {
+    await fetch(WEBHOOK, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'logVisitor', country, city, region, ip })
+      body: JSON.stringify({ action: 'logVisitor', country, city, region, ip }),
+      keepalive: true
     });
   } catch(e) { /* silent fail */ }
 }
