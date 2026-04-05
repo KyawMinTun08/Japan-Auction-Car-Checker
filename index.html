@@ -796,8 +796,13 @@ function doLogout() {
 // ── Visitor Logger ──────────────────────────────────────
 async function logVisitor() {
   try {
-    const r = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
+    // Use IPv4 endpoint to avoid IPv6 issues
+    const r = await fetch('https://ipapi.co/json/?format=json', { cache: 'no-store' });
     const d = await r.json();
+    if (d.error) return; // rate limited or blocked
+    const ip = d.ip || '';
+    // Skip if IPv6 (contains ':')
+    const safeIp = ip.includes(':') ? 'IPv6' : ip;
     await fetch(WEBHOOK, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -806,7 +811,7 @@ async function logVisitor() {
         country: d.country_name || '',
         city:    d.city         || '',
         region:  d.region       || '',
-        ip:      d.ip           || ''
+        ip:      safeIp
       })
     });
   } catch(e) { /* silent fail */ }
