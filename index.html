@@ -695,6 +695,7 @@ async function doLogin() {
       loginTime:  Date.now()
     };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(SESSION));
+    logVisitor(); // log visitor after successful login
     showApp();
   } catch(e) {
     err.style.display = 'block';
@@ -817,7 +818,6 @@ async function logVisitor() {
 }
 
 window.addEventListener('DOMContentLoaded', function() {
-  logVisitor(); // log visitor location silently
   if (checkSession()) {
     showApp();
   } else {
