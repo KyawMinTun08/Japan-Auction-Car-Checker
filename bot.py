@@ -1937,6 +1937,32 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     str_uid = str(user_id)
 
+    # ── Broker T&C Acceptance ──
+    if "JAN Broker T&C သဘောတူပါသည်" in text:
+        brokers = await get_brokers()
+        broker  = next((b for b in brokers if b.get("telegramId") == str_uid), None)
+        if broker:
+            if broker.get("status") == "KICKED":
+                await update.message.reply_text("🚫 Account ပိတ်သိမ်းထားပြီ — Admin ကို ဆက်သွယ်ပါ")
+                return
+            await update_broker(str_uid, status="FREE")
+            await update.message.reply_text(
+                f"✅ *T&C လက်ခံပြီ!*\n\n"
+                f"🆔 Broker #{broker['brokerId']}\n"
+                f"🟢 Status: FREE — Request လက်ခံနိုင်ပြီ\n\n"
+                f"Available ဖြစ်ကြောင်း: /available\n"
+                f"Busy ဖြစ်ရင်: /busy\n"
+                f"Request လက်ခံရန်: `/accept [ReqID]`",
+                parse_mode='Markdown')
+            await notify_admins(context,
+                f"✅ *Broker T&C လက်ခံပြီ*\n\n"
+                f"👤 @{update.effective_user.username or str_uid}\n"
+                f"🆔 #{broker['brokerId']}\n"
+                f"🟢 Status: FREE")
+        else:
+            await update.message.reply_text("❌ Broker အဖြစ် မှတ်ပုံမတင်ရသေးဘူး — Admin ကို ဆက်သွယ်ပါ")
+        return
+
     cust_session = next(
         ((sid, s) for sid, s in proxy_sessions.items()
          if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
