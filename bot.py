@@ -2651,6 +2651,93 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         await query.message.reply_text("❌ Deposit ပယ်ချပြီ")
 
+    # ── Broker Request Accept/Decline buttons ──
+    elif data.startswith("breq_accept_"):
+        req_id  = data.replace("breq_accept_", "")
+        user_id = str(query.from_user.id)
+        brokers = await get_brokers()
+        broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
+        if not broker:
+            await query.answer("❌ Broker မဟုတ်ဘူး", show_alert=True); return
+        if broker.get("status") == "BUSY":
+            await query.answer("❌ BUSY ဖြစ်နေတယ် — /available နှိပ်ပြီးမှ လက်ခံပါ", show_alert=True); return
+
+        # getRequest
+        customer_id = None; customer_username = ""; req_data = {}
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await client.post(SHEET_WEBHOOK, json={
+                    "action": "getRequest", "reqId": req_id,
+                }, timeout=10)
+            rdata = resp.json()
+            if rdata.get("status") == "ok":
+                customer_id       = rdata.get("customerId")
+                customer_username = rdata.get("username", "")
+                req_data          = rdata
+            else:
+                await query.answer(f"❌ Request {req_id} မတွေ့ဘူး", show_alert=True); return
+        except Exception as e:
+            logger.error(f"breq_accept getRequest: {e}")
+            await query.answer("❌ Sheet error", show_alert=True); return
+
+        await update_broker(user_id, status="BUSY")
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                await client.post(SHEET_WEBHOOK, json={
+                    "action": "updateRequest", "reqId": req_id,
+                    "status": "MATCHED", "brokerId": broker["brokerId"],
+                }, timeout=10)
+        except Exception as e:
+            logger.error(f"breq_accept updateRequest: {e}")
+
+        proxy_sessions[req_id] = {
+            "customerId":       customer_id,
+            "customerUsername": customer_username,
+            "brokerId":         user_id,
+            "brokerObj":        broker,
+            "reqId":            req_id,
+            "status":           "ACTIVE",
+            "startTime":        datetime.now().isoformat(),
+        }
+
+        await query.edit_message_text(
+            f"✅ *Request လက်ခံပြီ!*\n\n"
+            f"🆔 `{req_id}`\n"
+            f"🚗 {req_data.get('carType','')}\n"
+            f"💰 {req_data.get('budget','')}\n\n"
+            f"💬 Customer ကို message ပို့နိုင်ပြီ\n"
+            f"ပြီးရင်: `/endchat {req_id}`",
+            parse_mode='Markdown')
+
+        if customer_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(customer_id),
+                    text=(f"🎉 *Broker ရှာပေးနေပြီ!*\n\n"
+                          f"🆔 Request: `{req_id}`\n"
+                          f"👷 Broker #{broker['brokerId']} က သင့် Request လက်ခံပြီ\n\n"
+                          f"ကားရှာပေးနေတယ် ⏳\n"
+                          f"Status စစ်ရန်: /mystatus"),
+                    parse_mode='Markdown')
+            except Exception as e:
+                logger.error(f"breq_accept customer notify: {e}")
+
+        await notify_admins(context,
+            f"🤝 *Broker Accept ပြီ (Button)*\n\n"
+            f"🆔 `{req_id}`\n"
+            f"👷 #{broker['brokerId']} @{broker['username']}\n"
+            f"👤 Customer: @{customer_username}")
+
+        start_request_timer(context, req_id=req_id,
+            broker_tg_id=user_id, broker_id=broker["brokerId"],
+            customer_id=str(customer_id) if customer_id else "")
+
+    elif data.startswith("breq_decline_"):
+        req_id = data.replace("breq_decline_", "")
+        await query.edit_message_text(
+            f"❌ *Request ငြင်းပယ်ပြီ*\n\n🆔 `{req_id}`\n\nRequest အသစ် ထပ်လာရင် notify ပေးမည် 🔔",
+            parse_mode='Markdown')
+
     # ── Rating ── ← NEW
     elif data.startswith("rate_"):
         parts      = data.split("_")
@@ -3396,6 +3483,10 @@ async def submit_request(context, user_id: int, username: str):
     free_brokers = [b for b in brokers if b.get("status") == "FREE"]
     for b in free_brokers:
         try:
+            req_kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ လက်ခံမည်", callback_data=f"breq_accept_{req_id}"),
+                InlineKeyboardButton("❌ ငြင်းမည်",  callback_data=f"breq_decline_{req_id}"),
+            ]])
             await context.bot.send_message(
                 chat_id=int(b["telegramId"]),
                 text=(f"🔔 *Request အသစ်!*\n\n"
@@ -3405,9 +3496,9 @@ async def submit_request(context, user_id: int, username: str):
                       f"🔧 Grade: {d.get('grade','')}\n"
                       f"💰 Budget: {d.get('budget','')}\n"
                       f"⭐ Condition: {d.get('condition','')}\n"
-                      f"⏳ Timeline: {d.get('timeline','')}\n\n"
-                      f"လက်ခံရန်: `/accept {req_id}`"),
-                parse_mode='Markdown')
+                      f"⏳ Timeline: {d.get('timeline','')}"),
+                parse_mode='Markdown',
+                reply_markup=req_kb)
         except Exception as e:
             logger.error(f"notify broker {b['brokerId']}: {e}")
 
@@ -3564,7 +3655,6 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ *Request Accept ပြီ!*\n\n"
         f"🆔 `{req_id}`\n"
-        f"👤 Customer: @{customer_username}\n"
         f"🚗 {req_data.get('carType','')}\n"
         f"💰 {req_data.get('budget','')}\n\n"
         f"💬 Customer ကို message ပေးပို့နိုင်ပြီ\n"
