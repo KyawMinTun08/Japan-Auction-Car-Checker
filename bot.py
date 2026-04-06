@@ -2651,6 +2651,112 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         await query.message.reply_text("❌ Deposit ပယ်ချပြီ")
 
+    # ── Car Request Service Type ──
+    elif data.startswith("reqtype_"):
+        parts       = data.split("_")
+        svc_type    = parts[1]          # "auction" or "search"
+        target_uid  = int(parts[2])
+
+        if query.from_user.id != target_uid:
+            await query.answer("❌ သင်၏ request မဟုတ်ဘူး", show_alert=True); return
+
+        user_id = target_uid
+        str_uid = str(user_id)
+
+        # Active session / pending စစ်
+        existing_session = next(
+            ((sid, s) for sid, s in proxy_sessions.items()
+             if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
+            None
+        )
+        if existing_session:
+            await query.answer("⚠️ Request တင်ပြီးသားရှိနေတယ်", show_alert=True); return
+        if user_id in pending_request:
+            await query.answer("⚠️ Request ဖြည်နေဆဲ", show_alert=True); return
+
+        pending_request[user_id] = {"step": 0, "data": {"service_type": svc_type}}
+
+        if svc_type == "auction":
+            await query.edit_message_text(
+                "🏆 *လေလံဆွဲရန် Request*\n\n"
+                "⚠️ ဒီဝန်ဆောင်မှုမှာ Deposit *฿20,000* လိုအပ်ပါသည်\n\n"
+                "မေးချင်တဲ့ ကားအမည် ရိုက်ထည့်ပါ:\n"
+                "ဥပမာ: `ALPHARD`, `X-TRAIL`, `HIACE VAN`\n\n"
+                "Cancel လုပ်ရန်: /cancelrequest",
+                parse_mode='Markdown')
+        else:
+            await query.edit_message_text(
+                "🔍 *ကားရှာရန် Request*\n\n"
+                "မေးချင်တဲ့ ကားအမည် ရိုက်ထည့်ပါ:\n"
+                "ဥပမာ: `X-TRAIL`, `ALPHARD`, `HIACE VAN`\n\n"
+                "Cancel လုပ်ရန်: /cancelrequest",
+                parse_mode='Markdown')
+
+    # ── Endchat Confirm ──
+    elif data.startswith("endchat_yes_"):
+        req_id  = data.replace("endchat_yes_", "")
+        user_id = str(query.from_user.id)
+        brokers = await get_brokers()
+        broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
+        if not broker:
+            await query.answer("❌ Broker မဟုတ်ဘူး", show_alert=True); return
+
+        session = proxy_sessions.pop(req_id, None)
+        cancel_request_timer(req_id)
+        await update_broker(user_id, status="FREE")
+
+        if session:
+            try:
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    await client.post(SHEET_WEBHOOK, json={
+                        "action": "updateRequest",
+                        "reqId":  req_id,
+                        "status": "CLOSED",
+                    }, timeout=10)
+            except Exception as e:
+                logger.error(f"endchat confirm: {e}")
+
+            await query.edit_message_text(
+                f"✅ *Session ပိတ်ပြီ*\n\n"
+                f"🆔 `{req_id}`\n"
+                f"🟢 FREE ဖြစ်ပြီ — Request အသစ် လက်ခံနိုင်ပြီ",
+                parse_mode='Markdown')
+
+            customer_id = session.get("customerId")
+            if customer_id:
+                try:
+                    rating_kb = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⭐1", callback_data=f"rate_1_{req_id}"),
+                         InlineKeyboardButton("⭐2", callback_data=f"rate_2_{req_id}"),
+                         InlineKeyboardButton("⭐3", callback_data=f"rate_3_{req_id}")],
+                        [InlineKeyboardButton("⭐4", callback_data=f"rate_4_{req_id}"),
+                         InlineKeyboardButton("⭐5", callback_data=f"rate_5_{req_id}")],
+                    ])
+                    await context.bot.send_message(
+                        chat_id=int(customer_id),
+                        text=f"🌟 *Broker ကို Rate လုပ်ပေးပါ*\n\n"
+                             f"🆔 Request: `{req_id}`\n\n"
+                             f"⭐1 = ညံ့ | ⭐3 = ပုံမှန် | ⭐5 = အကောင်းဆုံး",
+                        parse_mode='Markdown',
+                        reply_markup=rating_kb)
+                    pending_rating[str(customer_id)] = {
+                        "reqId":      req_id,
+                        "brokerId":   broker["brokerId"],
+                        "brokerTgId": user_id,
+                    }
+                except Exception as e:
+                    logger.error(f"endchat rating prompt: {e}")
+        else:
+            await query.edit_message_text("✅ FREE ဖြစ်ပြီ")
+
+    elif data.startswith("endchat_no_"):
+        req_id = data.replace("endchat_no_", "")
+        await query.edit_message_text(
+            f"↩️ *Cancel — Session ဆက်ဖွင့်နေဆဲ*\n\n"
+            f"🆔 `{req_id}`\n"
+            f"💬 Chat ဆက်လုပ်နိုင်ပါသည်",
+            parse_mode='Markdown')
+
     # ── Broker Request Accept/Decline buttons ──
     elif data.startswith("breq_accept_"):
         req_id  = data.replace("breq_accept_", "")
@@ -3200,13 +3306,18 @@ async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ Request ဖြည်နေဆဲရှိတယ် — ဆက်ဖြည့်ပါ\nCancel လုပ်ရန်: /cancelrequest")
         return
 
-    pending_request[user_id] = {"step": 0, "data": {}}
+    # ── Service Type ရွေးချယ်မှု ──
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🏆 လေလံဆွဲရန်", callback_data=f"reqtype_auction_{user_id}"),
+        InlineKeyboardButton("🔍 ကားရှာရန်",   callback_data=f"reqtype_search_{user_id}"),
+    ]])
     await update.message.reply_text(
-        "🚗 *ကားရှာဖွေမှု Request*\n\n"
-        "မေးချင်တဲ့ ကားအမည် ရိုက်ထည့်ပါ:\n"
-        "ဥပမာ: `X-TRAIL`, `ALPHARD`, `HIACE VAN`\n\n"
-        "Cancel လုပ်ရန်: /cancelrequest",
-        parse_mode='Markdown')
+        "🚗 *ကားဝန်ဆောင်မှု*\n\n"
+        "🏆 *လေလံဆွဲရန်* — Auction ကားဝယ်ယူရန် (Deposit ฿20,000 လိုအပ်)\n"
+        "🔍 *ကားရှာရန်* — ကားရှာဖွေပေးမည်\n\n"
+        "ဝန်ဆောင်မှု ရွေးချယ်ပါ 👇",
+        parse_mode='Markdown',
+        reply_markup=kb)
 
 async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
@@ -3459,7 +3570,7 @@ async def submit_request(context, user_id: int, username: str):
                 "reqId":      req_id,
                 "customerId": str(user_id),
                 "username":   username,
-                "carType":    "Auction" if "auction" in d.get("car_name","").lower() else "Any",
+                "carType":    "Auction" if d.get("service_type") == "auction" else "Search",
                 "budget":     d.get("budget",""),
                 "year":       d.get("year",""),
                 "grade":      d.get("grade",""),
@@ -3487,10 +3598,12 @@ async def submit_request(context, user_id: int, username: str):
                 InlineKeyboardButton("✅ လက်ခံမည်", callback_data=f"breq_accept_{req_id}"),
                 InlineKeyboardButton("❌ ငြင်းမည်",  callback_data=f"breq_decline_{req_id}"),
             ]])
+            svc_label = "🏆 လေလံဆွဲရန်" if d.get("service_type") == "auction" else "🔍 ကားရှာရန်"
             await context.bot.send_message(
                 chat_id=int(b["telegramId"]),
                 text=(f"🔔 *Request အသစ်!*\n\n"
                       f"🆔 `{req_id}`\n"
+                      f"📌 {svc_label}\n"
                       f"🚘 *{d.get('car_name','')}*\n"
                       f"📅 နှစ်: {d.get('year','')}\n"
                       f"🔧 Grade: {d.get('grade','')}\n"
@@ -3505,6 +3618,7 @@ async def submit_request(context, user_id: int, username: str):
     await notify_admins(context,
         f"📥 *Request အသစ် တင်ပြီ*\n\n"
         f"🆔 `{req_id}`\n"
+        f"📌 {'🏆 လေလံဆွဲရန်' if d.get('service_type') == 'auction' else '🔍 ကားရှာရန်'}\n"
         f"👤 @{username} (ID: `{user_id}`)\n"
         f"🚘 {d.get('car_name','')}\n"
         f"📅 {d.get('year','')}\n"
@@ -3698,57 +3812,32 @@ async def endchat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Broker မဟုတ်ဘူး"); return
 
     req_id = context.args[0].strip().upper() if context.args else ""
-    session = proxy_sessions.pop(req_id, None)
-
-    # ── Timer cancel ──
-    cancel_request_timer(req_id)
-
-    await update_broker(user_id, status="FREE")
-
-    if session:
-        try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                await client.post(SHEET_WEBHOOK, json={
-                    "action": "updateRequest",
-                    "reqId":  req_id,
-                    "status": "CLOSED",
-                }, timeout=10)
-        except Exception as e:
-            logger.error(f"endchat: {e}")
-
+    if not req_id:
         await update.message.reply_text(
-            f"✅ *Session ပိတ်ပြီ*\n\n"
-            f"🆔 `{req_id}`\n"
-            f"🟢 FREE ဖြစ်ပြီ — Request အသစ် လက်ခံနိုင်ပြီ",
-            parse_mode='Markdown')
+            "❌ Format: `/endchat R123456`", parse_mode='Markdown'); return
 
-        # ── Customer ကို Rating prompt ပို့ ← NEW ──
-        customer_id = session.get("customerId")
-        if customer_id:
-            try:
-                kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⭐1", callback_data=f"rate_1_{req_id}"),
-                     InlineKeyboardButton("⭐2", callback_data=f"rate_2_{req_id}"),
-                     InlineKeyboardButton("⭐3", callback_data=f"rate_3_{req_id}")],
-                    [InlineKeyboardButton("⭐4", callback_data=f"rate_4_{req_id}"),
-                     InlineKeyboardButton("⭐5", callback_data=f"rate_5_{req_id}")],
-                ])
-                await context.bot.send_message(
-                    chat_id=int(customer_id),
-                    text=f"🌟 *Broker ကို Rate လုပ်ပေးပါ*\n\n"
-                         f"🆔 Request: `{req_id}`\n\n"
-                         f"⭐1 = ညံ့ | ⭐3 = ပုံမှန် | ⭐5 = အကောင်းဆုံး",
-                    parse_mode='Markdown',
-                    reply_markup=kb)
-                pending_rating[str(customer_id)] = {
-                    "reqId":      req_id,
-                    "brokerId":   broker["brokerId"],
-                    "brokerTgId": user_id,
-                }
-            except Exception as e:
-                logger.error(f"rating prompt: {e}")
-    else:
-        await update.message.reply_text("✅ FREE ဖြစ်ပြီ")
+    # Session ရှိမရှိ စစ်
+    if req_id not in proxy_sessions:
+        await update.message.reply_text(
+            f"❌ `{req_id}` Session မတွေ့ပါ\nပိတ်ပြီးသားဖြစ်နိုင်တယ်",
+            parse_mode='Markdown'); return
+
+    # ── Confirm မမေးသေးဘူး → Warning + Buttons ──
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ ဟုတ်ကဲ့ — ပိတ်မည်",  callback_data=f"endchat_yes_{req_id}"),
+        InlineKeyboardButton("❌ မပိတ်သေးဘူး",         callback_data=f"endchat_no_{req_id}"),
+    ]])
+    await update.message.reply_text(
+        f"⚠️ *Session ပိတ်တော့မည်!*\n\n"
+        f"🆔 `{req_id}`\n\n"
+        f"Session ပိတ်လိုက်ရင်:\n"
+        f"• Chat history အကုန် ဆုံးသွားမည်\n"
+        f"• Customer ကို Rating prompt သွားမည်\n"
+        f"• Timer ပိတ်သွားမည်\n"
+        f"• သင် FREE ဖြစ်သွားမည်\n\n"
+        f"သေချာပြီလား?",
+        parse_mode='Markdown',
+        reply_markup=kb)
 
 # ── Promo Code ────────────────────────────────────────
 def parse_promo_codes() -> dict:
