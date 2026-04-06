@@ -1167,9 +1167,9 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(
+            resp = await client.post(
                 SHEET_WEBHOOK,
-                params={"action": "getMembers"},
+                json={"action": "getMembers"},
                 timeout=15,
                 follow_redirects=True
             )
@@ -2703,7 +2703,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         session = proxy_sessions.pop(req_id, None)
         cancel_request_timer(req_id)
-        await update_broker(user_id, status="FREE")
+        # session pop ပြီးမှ recalc လုပ်
+        new_broker_status = recalc_broker_status(user_id)
+        await update_broker(user_id, status=new_broker_status)
 
         if session:
             try:
@@ -2716,10 +2718,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"endchat confirm: {e}")
 
+            status_msg = {
+                "FREE":        "🟢 FREE — Request အသစ် ၂ ခုထိ လက်ခံနိုင်ပြီ",
+                "HAS_AUCTION": "🟡 Auction ၁ ခု ကျန်နေဆဲ — ကားရှာ request လက်ခံနိုင်ပြီ",
+                "HAS_SEARCH":  "🟡 ကားရှာ ၁ ခု ကျန်နေဆဲ — Auction request လက်ခံနိုင်ပြီ",
+            }.get(new_broker_status, "🟢 FREE")
             await query.edit_message_text(
                 f"✅ *Session ပိတ်ပြီ*\n\n"
                 f"🆔 `{req_id}`\n"
-                f"🟢 FREE ဖြစ်ပြီ — Request အသစ် လက်ခံနိုင်ပြီ",
+                f"{status_msg}",
                 parse_mode='Markdown')
 
             customer_id = session.get("customerId")
@@ -3063,6 +3070,28 @@ async def get_brokers() -> list:
         logger.error(f"getBrokers: {e}")
         return []
 
+def get_broker_session_types(broker_tg_id: str) -> set:
+    """Broker ရဲ့ active sessions မှာ ဘယ် type တွေ ရှိလဲ စစ်"""
+    types = set()
+    for sid, s in proxy_sessions.items():
+        if str(s.get("brokerId","")) == broker_tg_id and s.get("status") == "ACTIVE":
+            svc = s.get("serviceType", "search")
+            types.add(svc)
+    return types
+
+def recalc_broker_status(broker_tg_id: str) -> str:
+    """Active sessions အပေါ်မူတည်ပြီး broker status တွက်"""
+    types = get_broker_session_types(broker_tg_id)
+    if not types:
+        return "FREE"
+    if "auction" in types and "search" in types:
+        return "FULL"
+    if "auction" in types:
+        return "HAS_AUCTION"
+    if "search" in types:
+        return "HAS_SEARCH"
+    return "FREE"
+
 async def update_broker(telegram_id: str, **kwargs) -> bool:
     if not SHEET_WEBHOOK: return False
     try:
@@ -3176,9 +3205,11 @@ async def brokers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not brokers:
         await update.message.reply_text("👷 Broker မရှိသေးဘူး — `/addbroker` နဲ့ ထည့်ပါ", parse_mode='Markdown'); return
 
-    free  = [b for b in brokers if b.get("status") == "FREE"]
-    busy  = [b for b in brokers if b.get("status") == "BUSY"]
-    other = [b for b in brokers if b.get("status") not in ("FREE","BUSY")]
+    free      = [b for b in brokers if b.get("status") == "FREE"]
+    has_auc   = [b for b in brokers if b.get("status") == "HAS_AUCTION"]
+    has_srch  = [b for b in brokers if b.get("status") == "HAS_SEARCH"]
+    full      = [b for b in brokers if b.get("status") == "FULL"]
+    other     = [b for b in brokers if b.get("status") not in ("FREE","HAS_AUCTION","HAS_SEARCH","FULL")]
 
     def badge(b):
         deals  = b.get("deals", 0)
@@ -3193,17 +3224,25 @@ async def brokers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     txt = f"👷 *Broker List ({len(brokers)} ယောက်)*\n\n"
     if free:
-        txt += "🟢 *FREE:*\n"
+        txt += "🟢 *FREE (ရနိုင်):*\n"
         for b in free:
-            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])} | Deals: {b['deals']}\n"
-    if busy:
-        txt += "\n🔴 *BUSY:*\n"
-        for b in busy:
-            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])} | Deals: {b['deals']}\n"
+            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])} | Deals: {b.get('deals',0)}\n"
+    if has_auc:
+        txt += "\n🏆 *HAS AUCTION (ကားရှာ slot ရနိုင်):*\n"
+        for b in has_auc:
+            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])}\n"
+    if has_srch:
+        txt += "\n🔍 *HAS SEARCH (Auction slot ရနိုင်):*\n"
+        for b in has_srch:
+            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])}\n"
+    if full:
+        txt += "\n🔴 *FULL (နှစ်ခုပြည့်):*\n"
+        for b in full:
+            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])}\n"
     if other:
         txt += "\n⚫ *Others:*\n"
         for b in other:
-            txt += f"  #{b['brokerId']} @{b['username']} — {b['status']}\n"
+            txt += f"  #{b['brokerId']} @{b['username']} — {b.get('status','?')}\n"
 
     await update.message.reply_text(txt, parse_mode='Markdown')
 
@@ -3590,20 +3629,44 @@ async def submit_request(context, user_id: int, username: str):
               f"Status စစ်ရန်: `/mystatus`"),
         parse_mode='Markdown')
 
-    brokers = await get_brokers()
-    free_brokers = [b for b in brokers if b.get("status") == "FREE"]
-    for b in free_brokers:
+    brokers    = await get_brokers()
+    svc_type   = d.get("service_type", "search")
+    svc_label  = "🏆 လေလံဆွဲရန်" if svc_type == "auction" else "🔍 ကားရှာရန်"
+
+    # FULL မဟုတ်တဲ့ + ဒီ type slot ရှိတဲ့ broker တွေကိုသာ notify
+    eligible_brokers = []
+    for b in brokers:
+        if b.get("status") in ("BANNED", "KICKED"): continue
+        tg_id       = str(b.get("telegramId",""))
+        active_types = get_broker_session_types(tg_id)
+        if svc_type in active_types: continue      # ဒီ type ရှိပြီးသား
+        if len(active_types) >= 2:   continue      # FULL
+        eligible_brokers.append(b)
+
+    for b in eligible_brokers:
         try:
+            btn_label = "🏆 Auction Order လက်ခံမည်" if svc_type == "auction" else "🔍 ကားရှာ Order လက်ခံမည်"
             req_kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("✅ လက်ခံမည်", callback_data=f"breq_accept_{req_id}"),
-                InlineKeyboardButton("❌ ငြင်းမည်",  callback_data=f"breq_decline_{req_id}"),
+                InlineKeyboardButton(btn_label,    callback_data=f"breq_accept_{req_id}"),
+                InlineKeyboardButton("❌ ငြင်းမည်", callback_data=f"breq_decline_{req_id}"),
             ]])
-            svc_label = "🏆 လေလံဆွဲရန်" if d.get("service_type") == "auction" else "🔍 ကားရှာရန်"
+            svc_header = (
+                "🏆 *AUCTION CAR ORDER*\n"
+                "━━━━━━━━━━━━━━\n"
+                "⚠️ ဒီ Order ဟာ လေလံကားဝယ်ယူရန် ဖြစ်သည်\n"
+                "Deposit ฿20,000 လိုအပ်မည်\n"
+                "━━━━━━━━━━━━━━"
+                if svc_type == "auction" else
+                "🔍 *ကားရှာ ORDER*\n"
+                "━━━━━━━━━━━━━━\n"
+                "ဒီ Order ဟာ အပြင်ကား ရှာပေးရန် ဖြစ်သည်\n"
+                "━━━━━━━━━━━━━━"
+            )
             await context.bot.send_message(
                 chat_id=int(b["telegramId"]),
-                text=(f"🔔 *Request အသစ်!*\n\n"
+                text=(f"🔔 *Order အသစ်တက်လာပြီ!*\n\n"
+                      f"{svc_header}\n\n"
                       f"🆔 `{req_id}`\n"
-                      f"📌 {svc_label}\n"
                       f"🚘 *{d.get('car_name','')}*\n"
                       f"📅 နှစ်: {d.get('year','')}\n"
                       f"🔧 Grade: {d.get('grade','')}\n"
@@ -3714,8 +3777,8 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not broker:
         await update.message.reply_text("❌ Broker မဟုတ်ဘူး"); return
 
-    if broker.get("status") == "BUSY":
-        await update.message.reply_text("❌ BUSY ဖြစ်နေတယ် — /available နှိပ်ပြီးမှ Accept လုပ်ပါ"); return
+    if broker.get("status") == "BANNED":
+        await update.message.reply_text("🚫 Account ပိတ်သိမ်းထားပြီ"); return
 
     if not context.args:
         await update.message.reply_text("❌ Format: `/accept R123456`", parse_mode='Markdown'); return
@@ -3743,7 +3806,33 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"accept getRequest: {e}")
         await update.message.reply_text("❌ Sheet error — ထပ်ကြိုးစားပါ"); return
 
-    await update_broker(user_id, status="BUSY")
+    # ── Slot check ──
+    svc_type     = "auction" if req_data.get("carType","").lower() == "auction" else "search"
+    active_types = get_broker_session_types(user_id)
+    if svc_type in active_types:
+        svc_label = "🏆 လေလံ" if svc_type == "auction" else "🔍 ကားရှာ"
+        await update.message.reply_text(
+            f"❌ {svc_label} session တစ်ခု ရှိပြီးသားပါ\n\n"
+            f"တစ်ကြိမ်မှာ ခေါင်းစဉ်တူ request နှစ်ခု မလက်ခံနိုင်ပါ",
+            parse_mode='Markdown')
+        return
+    if len(active_types) >= 2:
+        await update.message.reply_text(
+            "❌ Order ၂ ခု ပြည့်နေပြီ — တစ်ခု ပြီးမှ ထပ်လက်ခံပါ",
+            parse_mode='Markdown')
+        return
+
+    # Status update
+    new_status = recalc_broker_status(user_id)
+    # session ထည့်ပြီးမှ recalc မှ မှန်မည် — မထည့်မီ manually တွက်
+    if "auction" in active_types or svc_type == "auction":
+        if "search" in active_types or svc_type == "search":
+            new_status = "FULL"
+        else:
+            new_status = "HAS_AUCTION" if svc_type == "auction" else "HAS_SEARCH"
+    else:
+        new_status = "HAS_AUCTION" if svc_type == "auction" else "HAS_SEARCH"
+    await update_broker(user_id, status=new_status)
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -3763,13 +3852,15 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "brokerObj":        broker,
         "reqId":            req_id,
         "status":           "ACTIVE",
+        "serviceType":      svc_type,
         "startTime":        datetime.now().isoformat(),
     }
 
+    svc_label_accept = "🏆 လေလံ" if svc_type == "auction" else "🔍 ကားရှာ"
     await update.message.reply_text(
         f"✅ *Request Accept ပြီ!*\n\n"
         f"🆔 `{req_id}`\n"
-        f"🚗 {req_data.get('carType','')}\n"
+        f"📌 {svc_label_accept}\n"
         f"💰 {req_data.get('budget','')}\n\n"
         f"💬 Customer ကို message ပေးပို့နိုင်ပြီ\n"
         f"ပြီးရင်: `/endchat {req_id}`",
