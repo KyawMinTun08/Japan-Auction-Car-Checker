@@ -1,2 +1,2 @@
-# JanJapan-Auction
-Auction Car Janpan 
+# Japan Auction Car Checker
+Japan Auction Car Price Tracker & Broker Marketplace
