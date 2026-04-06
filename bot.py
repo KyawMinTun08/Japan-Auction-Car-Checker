@@ -3081,12 +3081,45 @@ REQ_LABELS = {
 }
 
 async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user    = update.effective_user
+    user_id = user.id
+    str_uid = str(user_id)
+
+    if not await is_active_member(user_id):
+        await update.message.reply_text(
+            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
+            parse_mode='Markdown')
+        return
+
+    # Active session ရှိနေပြီဆိုရင် ဆက်မတင်နိုင်
+    existing_session = next(
+        ((sid, s) for sid, s in proxy_sessions.items()
+         if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
+        None
+    )
+    if existing_session:
+        _, sess = existing_session
+        await update.message.reply_text(
+            f"⚠️ *Request တင်ပြီးသားရှိနေတယ်*\n\n"
+            f"🆔 `{sess.get('reqId','')}`\n\n"
+            f"Status စစ်ရန်: /mystatus\n"
+            f"Cancel လုပ်ရန်: /cancelrequest",
+            parse_mode='Markdown')
+        return
+
+    # Q&A ဖြည်နေဆဲ
+    if user_id in pending_request:
+        await update.message.reply_text(
+            "⚠️ Request ဖြည်နေဆဲရှိတယ် — ဆက်ဖြည့်ပါ\nCancel လုပ်ရန်: /cancelrequest")
+        return
+
+    pending_request[user_id] = {"step": 0, "data": {}}
     await update.message.reply_text(
-        "🔔 *ကားရှာဖွေမှု ဝန်ဆောင်မှု*\n\n"
-        "⏳ မကြာမီ ဖွင့်လှစ်မည်!\n\n"
-        "ဆက်သွယ်ရန်: " + (f"@{os.environ.get('ADMIN_USERNAME','')}" if os.environ.get('ADMIN_USERNAME') else "Admin"),
+        "🚗 *ကားရှာဖွေမှု Request*\n\n"
+        "မေးချင်တဲ့ ကားအမည် ရိုက်ထည့်ပါ:\n"
+        "ဥပမာ: `X-TRAIL`, `ALPHARD`, `HIACE VAN`\n\n"
+        "Cancel လုပ်ရန်: /cancelrequest",
         parse_mode='Markdown')
-    return
 
 async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
@@ -3389,12 +3422,83 @@ async def submit_request(context, user_id: int, username: str):
         f"⏳ {d.get('timeline','')}")
 
 async def mystatus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    str_uid = str(user_id)
+
+    if not await is_active_member(user_id):
+        await update.message.reply_text(
+            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
+            parse_mode='Markdown')
+        return
+
+    # Active proxy session ရှိမရှိ စစ်
+    session_data = next(
+        ((sid, s) for sid, s in proxy_sessions.items()
+         if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
+        None
+    )
+
+    if session_data:
+        sid, sess    = session_data
+        req_id       = sess.get("reqId", sid)
+        broker_obj   = sess.get("brokerObj", {})
+        broker_id    = broker_obj.get("brokerId", "?")
+        start_time   = sess.get("startTime", "")
+        await update.message.reply_text(
+            f"📋 *Request Status*\n\n"
+            f"🆔 Request ID: `{req_id}`\n"
+            f"🤝 Status: *MATCHED*\n"
+            f"👷 Broker: #{broker_id}\n\n"
+            f"Broker က ကားရှာပေးနေပြီ ⏳\n\n"
+            f"Cancel လုပ်ရန်: /cancelrequest",
+            parse_mode='Markdown')
+        return
+
+    # pending_request (Q&A အဆင့်)
+    if user_id in pending_request:
+        step = pending_request[user_id].get("step", 0)
+        await update.message.reply_text(
+            f"📋 *Request Status*\n\n"
+            f"🖊 Request ဖြည်နေဆဲ ({step}/{len(REQ_STEPS)} အဆင့်)\n\n"
+            f"Cancel လုပ်ရန်: /cancelrequest")
+        return
+
+    # Sheet မှာ request ရှိမရှိ စစ်
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action":     "getMyRequests",
+                "customerId": str_uid,
+            }, timeout=10)
+        data     = resp.json()
+        requests = data.get("requests", [])
+        if requests:
+            latest = requests[0]
+            req_id = latest.get("reqId", "?")
+            status = latest.get("status", "?")
+            status_map = {
+                "PENDING":             "⏳ Broker ရှာနေဆဲ",
+                "MATCHED":             "🤝 Broker ရပြီ",
+                "CLOSED":              "✅ ပြီးဆုံးပြီ",
+                "CANCELLED_BY_CUSTOMER": "❌ Cancel လုပ်ပြီ",
+                "CANCELLED_TIMEOUT":   "⏰ Time Out ဖြစ်ပြီ",
+            }
+            status_label = status_map.get(status, status)
+            await update.message.reply_text(
+                f"📋 *Request မှတ်တမ်း*\n\n"
+                f"🆔 `{req_id}`\n"
+                f"🚗 {latest.get('carType','')}\n"
+                f"💰 {latest.get('budget','')}\n"
+                f"📊 Status: {status_label}\n\n"
+                f"ကားသစ် request တင်ရန်: /carrequest",
+                parse_mode='Markdown')
+            return
+    except Exception as e:
+        logger.error(f"mystatus getMyRequests: {e}")
+
     await update.message.reply_text(
-        "🔔 *Request Status*\n\n"
-        "⏳ မကြာမီ ဖွင့်လှစ်မည်!\n\n"
-        "ဆက်သွယ်ရန်: " + (f"@{os.environ.get('ADMIN_USERNAME','')}" if os.environ.get('ADMIN_USERNAME') else "Admin"),
-        parse_mode='Markdown')
-    return
+        "📋 *Request မရှိသေးဘူး*\n\n"
+        "ကားရှာဖွေမှု request တင်ရန်: /carrequest")
 
 async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
