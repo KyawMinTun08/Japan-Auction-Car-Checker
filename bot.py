@@ -458,7 +458,7 @@ def format_car_info(car, price=None, history=None) -> str:
         txt += f"\n📈 *မှတ်တမ်း ({len(history)} ကြိမ်):*\n"
         for h in history[-5:]:
             txt += f"  • {h['date']} → ฿{h['price']:,}\n"
-    txt += f"\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/)"
+    txt += f"\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     return txt
 
 async def upload_to_cloudinary(file_bytes: bytes, chassis: str) -> str:
@@ -508,7 +508,7 @@ async def post_to_channel(context, chassis, model, color, year, price, image_url
         f"💰 Price   : *฿{int(price):,}*\n"
         f"📍 {location}\n"
         f"━━━━━━━━━━━━━━\n"
-        f"🌐 [Japan Auction Car Checker](https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/)"
+        f"🌐 [Japan Auction Car Checker](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     )
     try:
         if image_url:
@@ -636,7 +636,7 @@ async def send_approval_dm(context, member_id: int, months: int,
         cust_kb.append([InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)])
     if is_web:
         cust_kb.append([InlineKeyboardButton("🌐 Web App ဖွင့်",
-                        url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/")])
+                        url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/")])
 
     if is_web:
         text = (
@@ -645,7 +645,7 @@ async def send_approval_dm(context, member_id: int, months: int,
             f"📅 သက်တမ်း: *{months} လ*\n"
             f"⏰ ကုန်ဆုံးရက်: `{expire_date}`\n\n"
             f"🔑 *Web Password: `{password}`*\n"
-            f"🌐 Web: kyawmintun08.github.io/Japan-Auction-Car-Checker-/\n\n"
+            f"🌐 Web: kyawmintun08.github.io/Japan-Auction-Car-Checker/\n\n"
             f"⚠️ Password ကို မည်သူ့ကိုမျှ မပေးပါနဲ့\n"
             f"   မျှဝေပါက Membership ပိတ်သိမ်းခံရမည်\n\n"
             f"သက်တမ်းတိုးဖို့: /renew\nကျေးဇူးတင်ပါတယ် 🙏"
@@ -684,7 +684,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ADMIN_USERNAME:
         kb.append([InlineKeyboardButton("💬 Admin ကို ဆက်သွယ်", url=f"https://t.me/{ADMIN_USERNAME}")])
     kb.append([InlineKeyboardButton("🌐 Web App ကြည့်",
-               url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/")])
+               url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/")])
 
     if is_admin:
         cmd_text = (
@@ -795,7 +795,7 @@ async def find_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history   = get_price_history(car['chassis'])
         price_str = f"฿{history[-1]['price']:,}" if history else "ဈေးမရသေး"
         txt += f"• `{car['chassis']}` — {car['color']} {ys(car.get('year',0))} [{loc_display(car.get('loc','MaeSot'))}] — *{price_str}*\n"
-    txt += f"\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/)"
+    txt += f"\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     await update.message.reply_text(txt, parse_mode='Markdown')
 
 async def add_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -875,7 +875,7 @@ async def add_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ *ဈေးထည့်ပြီး!*\n\n🚗 {car['model']} ({ys(car.get('year',0))}) — `{chassis}`\n"
         f"🎨 {car['color']}\n💰 ฿{price:,}\n📍 {loc}\n📅 {entry['date']}\n👤 {user_name}\n\n"
-        f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/)",
+        f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)",
         parse_mode='Markdown')
 
 async def price_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -927,7 +927,7 @@ async def list_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt += f"{status} `{car['chassis']}` — {car['model']} {ys(car.get('year',0))} [{loc_display(car.get('loc','MaeSot'))}]\n"
     if len(CARS) > 20:
         txt += f"\n... နှင့် {len(CARS)-20} စီး ထပ်ရှိ"
-    txt += f"\n\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/)"
+    txt += f"\n\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     await update.message.reply_text(txt, parse_mode='Markdown')
 
 async def web_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -936,7 +936,7 @@ async def web_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if pkg == "WEB":
         await update.message.reply_text(
             f"🌐 *Japan Auction Car Checker — Web App*\n\n"
-            f"https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/\n\n"
+            f"https://kyawmintun08.github.io/Japan-Auction-Car-Checker/\n\n"
             f"• {LOC_MAESOT} + {LOC_KLANG9} 🚗\n• ဈေးကြည့်နိုင် 📈\n• Chart ကြည့်နိုင် 📊",
             parse_mode='Markdown')
     elif pkg == "CH":
@@ -1015,7 +1015,7 @@ async def mypassword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"🔑 *သင်၏ Web Password*\n\n"
                 f"`{data['password']}`\n\n"
-                f"🌐 https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/\n\n"
+                f"🌐 https://kyawmintun08.github.io/Japan-Auction-Car-Checker/\n\n"
                 f"⚠️ Password ကို မည်သူ့ကိုမျှ မပေးပါနဲ့\n"
                 f"   မျှဝေပါက Membership ပိတ်သိမ်းခံရမည်",
                 parse_mode='Markdown')
@@ -1055,7 +1055,7 @@ async def resetpass_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         chat_id=int(member_id),
                         text=f"🔑 *Password Reset လုပ်ပြီ*\n\n"
                              f"New Password: `{new_pw}`\n\n"
-                             f"🌐 https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/\n\n"
+                             f"🌐 https://kyawmintun08.github.io/Japan-Auction-Car-Checker/\n\n"
                              f"⚠️ မည်သူ့ကိုမျှ မပေးပါနဲ့",
                         parse_mode='Markdown')
                 except Exception as e:
@@ -2167,7 +2167,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             f"✅ *Save ပြီး!*\n\n🚗 {info['model']} ({ys(info.get('year',0))})\n"
             f"🔑 `{info['chassis']}`\n📍 {info.get('loc', LOC_MAESOT)}\n💰 ฿{info['price']:,}\n\n"
-            f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/)",
+            f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)",
             parse_mode='Markdown')
         await post_to_channel(context, info['chassis'], info['model'], info['color'],
                              info['year'], info['price'], info.get('image_url',''), info.get('loc', LOC_MAESOT))
@@ -2446,7 +2446,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         text=f"✅ *Account Update ပြီ*\n\n"
                              f"Telegram ID အသစ်နဲ့ ချိတ်ဆက်ပြီ\n"
                              f"🔑 New Password: `{new_pw}`\n\n"
-                             f"🌐 https://kyawmintun08.github.io/Japan-Auction-Car-Checker-/",
+                             f"🌐 https://kyawmintun08.github.io/Japan-Auction-Car-Checker/",
                         parse_mode='Markdown')
                 except Exception as e:
                     logger.error(f"UpdateID notify: {e}")
