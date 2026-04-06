@@ -1678,7 +1678,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif caption_maesot:
             import_loc = "MaeSot"
         else:
-            import_loc = "MaeSot"
+            await update.message.reply_text(
+                "⚠️ *Location မသိပါ!*\n\n"
+                "Caption မှာ location ထည့်ပြီး ပြန်တင်ပါ:\n"
+                "• `klang9 list` → Klang9 Freezone\n"
+                "• `maesot list` → MaeSot Freezone\n"
+                "• `border44 list` → Best Border-44 Gate\n\n"
+                "💡 List ပုံရဲ့ Header ကိုလည်း Gemini ဖတ်ပေးနိုင်တယ်",
+                parse_mode='Markdown')
+            return
 
         if import_loc == "Klang9": loc_name = LOC_KLANG9
         elif import_loc == "Border44": loc_name = LOC_BORDER44
@@ -1841,9 +1849,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         field_labels = {"Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
         fill_btns = [InlineKeyboardButton(f"✏️ {field_labels.get(f,f)} ဖြည့်",
                      callback_data=f"fill_{user_id}_{f.lower()}") for f in missing if f != "Chassis"]
+        loc_row = [
+            InlineKeyboardButton(f"{'✅' if car_loc == LOC_MAESOT else '📍'} MaeSot",    callback_data=f"setloc_{user_id}_MaeSot"),
+            InlineKeyboardButton(f"{'✅' if car_loc == LOC_KLANG9 else '📍'} Klang9",    callback_data=f"setloc_{user_id}_Klang9"),
+            InlineKeyboardButton(f"{'✅' if car_loc == LOC_BORDER44 else '📍'} Border44", callback_data=f"setloc_{user_id}_Border44"),
+        ]
         rows = []
         if fill_btns:
             rows.append(fill_btns)
+        rows.append(loc_row)
         rows.append([
             InlineKeyboardButton("✅ Save",    callback_data=f"cs_{user_id}"),
             InlineKeyboardButton("❌ Cancel",  callback_data=f"cc_{user_id}"),
@@ -1861,10 +1875,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "color":final_color,"year":final_year,"price":None,"loc":car_loc,"image_url":image_url,
         }
         warn = f"\n⚠️ မသေချာ: *{', '.join(missing)}*\n" if missing else ""
+        loc_row2 = [
+            InlineKeyboardButton(f"{'✅' if car_loc == LOC_MAESOT else '📍'} MaeSot",    callback_data=f"setloc_{user_id}_MaeSot"),
+            InlineKeyboardButton(f"{'✅' if car_loc == LOC_KLANG9 else '📍'} Klang9",    callback_data=f"setloc_{user_id}_Klang9"),
+            InlineKeyboardButton(f"{'✅' if car_loc == LOC_BORDER44 else '📍'} Border44", callback_data=f"setloc_{user_id}_Border44"),
+        ]
         await update.message.reply_text(
             f"🚗 *{final_model}* ({ys(final_year)})\n🔑 `{final_chassis}`\n"
             f"🎨 {final_color}\n📍 {car_loc}\n{warn}\n💰 ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`",
-            parse_mode='Markdown')
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([loc_row2]))
     elif chassis:
         guessed = gemini_model or guess_model_from_chassis(chassis)
         if not guessed or guessed == "UNKNOWN":
@@ -2134,6 +2154,42 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ *Cancel လုပ်ပြီး*\n\nChassis ကိုယ်တိုင် ထည့်ပါ:\n"
             "`/price [chassis] [ဈေး]`\nဥပမာ: `/price GP1-1049821 58000`",
             parse_mode='Markdown')
+
+    # ── 📍 Location Select ──
+    elif data.startswith("setloc_"):
+        parts      = data.split("_")
+        target_uid = int(parts[1])
+        loc_key    = parts[2]
+        loc_map    = {"MaeSot": LOC_MAESOT, "Klang9": LOC_KLANG9, "Border44": LOC_BORDER44}
+        new_loc    = loc_map.get(loc_key, LOC_MAESOT)
+        if target_uid not in pending_photo:
+            await query.answer("❌ Data ကုန်သွားပြီ — ပုံ ပြန်တင်ပါ", show_alert=True)
+            return
+        pending_photo[target_uid]["loc"] = new_loc
+        pdata = pending_photo[target_uid]
+        loc_row = [
+            InlineKeyboardButton(f"{'✅' if new_loc == LOC_MAESOT else '📍'} MaeSot",    callback_data=f"setloc_{target_uid}_MaeSot"),
+            InlineKeyboardButton(f"{'✅' if new_loc == LOC_KLANG9 else '📍'} Klang9",    callback_data=f"setloc_{target_uid}_Klang9"),
+            InlineKeyboardButton(f"{'✅' if new_loc == LOC_BORDER44 else '📍'} Border44", callback_data=f"setloc_{target_uid}_Border44"),
+        ]
+        if pdata.get('price') is not None:
+            await query.edit_message_text(
+                f"⚠️ *စစ်ဆေးပါ — မှန်ကန်ပါသလား?*\n\n"
+                f"🚗 *{pdata['model']}* ({ys(pdata.get('year',0))})\n"
+                f"🔑 `{pdata['chassis']}`\n🎨 {pdata['color']}\n📍 {new_loc}\n💰 ฿{pdata['price']:,}",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup([
+                    loc_row,
+                    [InlineKeyboardButton("✅ Save",   callback_data=f"cs_{target_uid}"),
+                     InlineKeyboardButton("❌ Cancel", callback_data=f"cc_{target_uid}")],
+                ]))
+        else:
+            await query.edit_message_text(
+                f"🚗 *{pdata['model']}* ({ys(pdata.get('year',0))})\n"
+                f"🔑 `{pdata['chassis']}`\n🎨 {pdata['color']}\n📍 {new_loc}\n\n"
+                f"💰 ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup([loc_row]))
 
     # ── Edit Car ──
     elif data.startswith("editcar_"):
