@@ -305,6 +305,67 @@ async def is_active_member(user_id: int) -> bool:
         pass
     return False
 
+# ── 10 Day Promo Helpers ──────────────────────────────
+async def get_cancel_count(str_uid: str) -> int:
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action": "getCancelCount", "userId": str_uid,
+            }, timeout=10)
+        return resp.json().get("cancelCount", 0)
+    except:
+        return 0
+
+async def check_promo10d_eligibility(str_uid: str) -> dict:
+    """Returns {eligible, reason, active, carreq_count}"""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers"}, timeout=10)
+        members = resp.json().get("members", [])
+        for m in members:
+            if str(m.get("userId","")) == str_uid:
+                pkg    = str(m.get("package","")).upper()
+                status = str(m.get("status","")).upper()
+                if pkg == "PROMO10D":
+                    if status == "ACTIVE":
+                        return {"eligible": True, "active": True, "reason": ""}
+                    if status in ("KICKED", "EXPIRED"):
+                        return {"eligible": False, "active": False,
+                                "reason": "10 Day Promo သုံးပြီး Order မတင်ခဲ့သောကြောင့် ထပ်မရနိုင်ပါ"}
+    except Exception as e:
+        logger.error(f"check_promo10d: {e}")
+
+    # Cancel count check
+    cancel_count = await get_cancel_count(str_uid)
+    if cancel_count >= 2:
+        return {"eligible": False, "active": False,
+                "reason": "Cancel ၂ ကြိမ်နှင့်အထက် ရှိသောကြောင့် 10 Day Promo မရနိုင်ပါ"}
+
+    return {"eligible": True, "active": False, "reason": ""}
+
+async def activate_promo10d(context, user_id: int, username: str) -> bool:
+    """Save PROMO10D member to sheet"""
+    now        = datetime.now()
+    start_date = now.strftime("%d/%m/%Y")
+    expire_date= (now + timedelta(days=10)).strftime("%d/%m/%Y")
+    password   = generate_password()
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action":     "saveMember",
+                "userId":     str(user_id),
+                "username":   username,
+                "startDate":  start_date,
+                "expireDate": expire_date,
+                "status":     "ACTIVE",
+                "password":   password,
+                "package":    "PROMO10D",
+            }, timeout=10)
+        return resp.json().get("status") == "ok"
+    except Exception as e:
+        logger.error(f"activate_promo10d: {e}")
+        return False
+
 def generate_password() -> str:
     letters = random.choices(string.ascii_uppercase, k=5)
     digits  = random.choices(string.digits, k=5)
@@ -775,10 +836,32 @@ async def find_car(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_id  = update.effective_user.id
     if not await is_active_member(user_id):
-        await update.message.reply_text(
-            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
-            parse_mode='Markdown')
-        return
+        # 10 Day Promo eligibility check
+        promo_info = await check_promo10d_eligibility(str_uid)
+        if promo_info.get("active"):
+            pass  # PROMO10D active — proceed to carrequest
+        elif not promo_info.get("eligible"):
+            await update.message.reply_text(
+                f"❌ *ဝင်ခွင့်မရပါ*\n\n{promo_info['reason']}\n\n"
+                f"Membership ရယူရန် /start နှိပ်ပါ",
+                parse_mode='Markdown')
+            return
+        else:
+            # Show buying car button
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("🚗 ကားဝယ်ယူဖို့ လာတာလားး?", callback_data=f"buying_car_{user_id}")
+            ]])
+            await update.message.reply_text(
+                "👋 *Japan Auction Car Checker*\n\n"
+                "ကားဝယ်ယူလိုပါက *10 Day Free Promo* ရရှိနိုင်ပါသည်\n\n"
+                "⚠️ စည်ကမ်းချက်:\n"
+                "• Broker နှင့် ဆက်သွယ်ပြီး Order တင်ရမည်\n"
+                "• 10 ရက်အတွင်း Order မတင်ပါက Kick ခံရမည်\n"
+                "• Cancel ၂ ကြိမ်နှင့်အထက် ဖြစ်ပါက Promo မရနိုင်\n\n"
+                "ဆက်လုပ်မည်ဆိုပါက 👇",
+                parse_mode='Markdown',
+                reply_markup=kb)
+            return
     if not context.args:
         await update.message.reply_text("❌ Chassis ထည့်ပါ\nဥပမာ: `/find NT32-504837`", parse_mode='Markdown')
         return
@@ -2217,6 +2300,61 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data  = query.data
+
+    # ── 🚗 Buying Car 10 Day Promo ──
+    if data.startswith("buying_car_"):
+        uid_str  = data.replace("buying_car_", "")
+        caller   = str(query.from_user.id)
+        if caller != uid_str:
+            await query.answer("❌ သင့် button မဟုတ်ဘူး", show_alert=True)
+            return
+        user_id_int = int(uid_str)
+        username    = query.from_user.username or query.from_user.first_name or "Unknown"
+
+        # Double-check eligibility
+        promo_info = await check_promo10d_eligibility(uid_str)
+        if not promo_info.get("eligible") or promo_info.get("active"):
+            await query.answer("❌ Promo မရနိုင်ပါ", show_alert=True)
+            return
+
+        ok = await activate_promo10d(context, user_id_int, username)
+        if not ok:
+            await query.edit_message_text("❌ Promo activate မဖြစ်ဘူး — Admin ကို ဆက်သွယ်ပါ")
+            return
+
+        expire_date = (datetime.now() + timedelta(days=10)).strftime("%d/%m/%Y")
+
+        # Channel invite
+        try:
+            invite = await context.bot.create_chat_invite_link(
+                chat_id=int(CHANNEL_ID),
+                member_limit=1,
+                expire_date=int((datetime.now() + timedelta(days=10)).timestamp()))
+            invite_url = invite.invite_link
+        except Exception as e:
+            logger.error(f"promo10d invite: {e}")
+            invite_url = ""
+
+        msg = (f"🎉 *10 Day Free Promo ရပြီ!*\n\n"
+               f"⏳ ကုန်ဆုံးရက်: `{expire_date}`\n\n"
+               f"✅ ခွင့်ပြုချက်:\n"
+               f"• ကားဈေးကြည့်ရန်\n"
+               f"• Broker နှင့် ဆက်သွယ်ရန်\n"
+               f"• /carrequest (၂ ကြိမ်သာ)\n\n"
+               f"⚠️ 10 ရက်အတွင်း Order မတင်ပါက Kick ခံရမည်\n\n")
+        kb_rows = []
+        if invite_url:
+            kb_rows.append([InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)])
+        kb_rows.append([InlineKeyboardButton("🚗 ကားတောင်းဆိုရန်", callback_data=f"reqtype_auction_{uid_str}")])
+
+        await query.edit_message_text(msg, parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(kb_rows))
+
+        await notify_admins(context,
+            f"🎁 *10 Day Promo အသစ်*\n\n"
+            f"👤 @{username} (ID: `{uid_str}`)\n"
+            f"⏳ ကုန်ဆုံးရက်: {expire_date}")
+        return
 
     # ── 🔚 Close Chat Button ──
     if data.startswith("closechat_"):
@@ -3657,6 +3795,18 @@ async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown')
         return
 
+    # PROMO10D — /carrequest 2ကြိမ်သာ limit
+    pkg = await get_member_package(user_id)
+    if pkg == "PROMO10D" or (await check_promo10d_eligibility(str_uid)).get("active"):
+        cancel_count = await get_cancel_count(str_uid)
+        if cancel_count >= 2:
+            await update.message.reply_text(
+                "❌ *10 Day Promo — Request ကုန်သွားပြီ*\n\n"
+                "Cancel ၂ ကြိမ် ပြည့်သောကြောင့် ထပ်မတင်နိုင်ပါ\n"
+                "Membership ဝယ်ရန်: /start",
+                parse_mode='Markdown')
+            return
+
     # Active session ရှိနေပြီဆိုရင် ဆက်မတင်နိုင်
     existing_session = next(
         ((sid, s) for sid, s in proxy_sessions.items()
@@ -4787,6 +4937,27 @@ async def check_expired_members(context):
                 if int(uid) in ADMIN_IDS:
                     logger.warning(f"Skipping kick for admin ID {uid}")
                     continue
+
+                pkg = str(m.get('package','')).upper()
+
+                # PROMO10D — Order ရှိမရှိ စစ်
+                if pkg == 'PROMO10D':
+                    # Cancel count 0 ဆိုရင် order မတင်ဘူး → KICKED + blacklist
+                    cancel_c = await get_cancel_count(uid)
+                    has_order = cancel_c > 0
+                    kick_status = "KICKED"
+                    try:
+                        await context.bot.send_message(
+                            chat_id=int(uid),
+                            text=("⏰ *10 Day Promo ကုန်ဆုံးပြီ*\n\n"
+                                  + ("Order တင်ခဲ့သောကြောင့် ကျေးဇူးတင်ပါသည် 🙏\n"
+                                     "Membership ဝယ်ရန် /start" if has_order else
+                                     "❌ Order မတင်ဘဲ ကုန်ဆုံးသောကြောင့် Kick ခံရပြီ\n"
+                                     "နောက်ထပ် Promo မရနိုင်ပါ")),
+                            parse_mode='Markdown')
+                    except Exception as e:
+                        logger.error(f"promo10d expire notify: {e}")
+
                 success = await kick_with_retry(context, int(uid))
                 if success:
                     kicked.append(m)
