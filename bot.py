@@ -1090,6 +1090,9 @@ async def updateid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if old_id == new_id:
         await update.message.reply_text("❌ Old ID နဲ့ New ID တူနေတယ်")
         return
+    if new_id in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin ID ကို Member ID အဖြစ် သုံးမရပါ")
+        return
     await update.message.reply_text("🔍 Old ID စစ်ဆေးနေတယ်... ⏳")
     try:
         async with httpx.AsyncClient() as client:
@@ -4440,6 +4443,9 @@ async def check_expired_members(context):
                         logger.error(f"3day warn: {e}")
 
             if m.get('status') == 'EXPIRED' and uid.isdigit():
+                if int(uid) in ADMIN_IDS:
+                    logger.warning(f"Skipping kick for admin ID {uid}")
+                    continue
                 success = await kick_with_retry(context, int(uid))
                 if success:
                     kicked.append(m)
