@@ -313,6 +313,48 @@ def generate_password() -> str:
     return "KMT-" + "".join(mixed[:6]) + "-" + "".join(mixed[6:])
 
 # ── Helpers ───────────────────────────────────────────
+# ── Tracking Buttons ──────────────────────────────────
+TRACKING_LABELS = {
+    "A": [
+        ("🔍 ကားကြည့်နေဆဲ",      "searching"),
+        ("🔎 ကားစစ်ဆေးနေဆဲ",    "checking"),
+        ("🚗 ကားရပြီ",            "found"),
+        ("🏷️ Auction တင်ပြီ",    "bidding"),
+        ("⏳ ရလဒ်စောင့်စားပါ",   "waiting"),
+        ("🏆 Auction Win",        "win"),
+        ("❌ Auction Loss",        "loss"),
+    ],
+    "R": [
+        ("🔍 ကားရှာနေဆဲ",        "searching"),
+        ("🚗 ကားရပြီ",            "found"),
+        ("✅ ကားအဆင်ပြေပြီ",     "ok"),
+    ],
+}
+
+TRACKING_NOTI = {
+    "searching": "🔍 Broker သည် ကားရှာနေဆဲ ဖြစ်ပါသည်",
+    "checking":  "🔎 Broker သည် ကားစစ်ဆေးနေဆဲ ဖြစ်ပါသည်",
+    "found":     "🚗 ကားတွေ့ပြီ — အသေးစိတ် ဆက်လာမည်",
+    "bidding":   "🏷️ Auction တင်ပြီ — ရလဒ် စောင့်ပါ",
+    "waiting":   "⏳ Auction ရလဒ် စောင့်နေဆဲ ဖြစ်ပါသည်",
+    "win":       "🏆 Auction Win! ကားရပြီ — Broker ဆက်သွယ်ပေးမည်",
+    "loss":      "❌ Auction Loss — Broker မှ နောက်ထပ် ဆက်သွယ်ပေးမည်",
+    "ok":        "✅ ကားအဆင်ပြေပြီ — Broker ဆက်သွယ်ပေးမည်",
+}
+
+def get_tracking_keyboard(svc_type: str, req_id: str) -> InlineKeyboardMarkup:
+    t = "A" if svc_type == "auction" else "R"
+    buttons = []
+    row = []
+    for label, key in TRACKING_LABELS[t]:
+        row.append(InlineKeyboardButton(label, callback_data=f"track_{t}_{key}_{req_id}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(buttons)
+
 def loc_display(loc_key: str) -> str:
     if loc_key == "Klang9": return LOC_KLANG9
     if loc_key in ("Border44","Best Border","44Gate","44gate"): return LOC_BORDER44
@@ -2157,6 +2199,46 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data  = query.data
 
+    # ── 📦 Tracking Status Update ──
+    if data.startswith("track_"):
+        parts    = data.split("_")          # track_A_searching_R123456
+        svc_t    = parts[1]                 # A or R
+        status   = parts[2]                 # searching / checking / etc
+        req_id   = "_".join(parts[3:])      # R123456
+        session  = proxy_sessions.get(req_id)
+        if not session:
+            await query.answer("❌ Session မတွေ့ပါ — ပြီးသွားပြီ ဖြစ်နိုင်တယ်", show_alert=True)
+            return
+        broker_id  = session.get("brokerId")
+        customer_id = session.get("customerId")
+        if str(query.from_user.id) != str(broker_id):
+            await query.answer("❌ သင့် Session မဟုတ်ဘူး", show_alert=True)
+            return
+        noti_text = TRACKING_NOTI.get(status, status)
+        # Customer ဆီ notify
+        if customer_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(customer_id),
+                    text=(f"📦 *Status Update*\n\n"
+                          f"🆔 `{req_id}`\n"
+                          f"{noti_text}\n\n"
+                          f"Status စစ်ရန်: /mystatus"),
+                    parse_mode='Markdown')
+            except Exception as e:
+                logger.error(f"tracking noti: {e}")
+        # Broker ဆီ confirm + buttons refresh
+        svc_type_full = "auction" if svc_t == "A" else "search"
+        svc_label     = "🏆 Auction" if svc_t == "A" else "🔍 ကားရှာ"
+        await query.edit_message_text(
+            f"📦 *Status Tracking — {svc_label}*\n\n"
+            f"🆔 `{req_id}`\n"
+            f"✅ ပို့ပြီး: {noti_text}\n\n"
+            f"နောက်တဆင့် Button နှိပ်ပါ 👇",
+            parse_mode='Markdown',
+            reply_markup=get_tracking_keyboard(svc_type_full, req_id))
+        return
+
     # ── ✅ Confirm Save ──
     if data.startswith("cs_"):
         uid  = int(data.replace("cs_",""))
@@ -3895,6 +3977,16 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         broker_tg_id = user_id,
         broker_id    = broker["brokerId"],
         customer_id  = str(customer_id) if customer_id else ""
+    )
+
+    # ── Tracking Buttons ပို့ ──
+    svc_label_track = "🏆 Auction" if svc_type == "auction" else "🔍 ကားရှာ"
+    await update.message.reply_text(
+        f"📦 *Status Tracking — {svc_label_track}*\n\n"
+        f"🆔 `{req_id}`\n\n"
+        f"အောက်က Button နှိပ်ရင် Customer ဆီ Auto Notify ရောက်မည် 👇",
+        parse_mode='Markdown',
+        reply_markup=get_tracking_keyboard(svc_type, req_id)
     )
 
 # ── /endchat — End Proxy Session ── (Rating System ပါ)
