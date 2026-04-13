@@ -2037,11 +2037,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if broker_tg_id:
             try:
+                req_id_c = session.get("reqId", "")
+                close_kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔚 Close Chat", callback_data=f"closechat_{req_id_c}_customer")
+                ]])
                 await context.bot.send_message(
                     chat_id=int(broker_tg_id),
-                    text=f"💬 *Customer #{session.get('reqId','')}:*\n\n{text}",
+                    text=f"💬 *Customer #{req_id_c}:*\n\n{text}",
                     parse_mode='Markdown')
-                await update.message.reply_text("✅ ပို့ပြီ")
+                await update.message.reply_text(
+                    "✅ ပို့ပြီ",
+                    reply_markup=close_kb)
             except Exception as e:
                 logger.error(f"proxy relay C→B: {e}")
                 await update.message.reply_text("❌ Broker ကို မပို့နိုင်ဘူး")
@@ -2058,13 +2064,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if customer_id:
             try:
-                broker_obj = session.get("brokerObj", {})
-                broker_id  = broker_obj.get("brokerId", "B???")
+                broker_obj  = session.get("brokerObj", {})
+                broker_id   = broker_obj.get("brokerId", "B???")
+                req_id_b    = session.get("reqId", "")
+                close_kb_b  = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔚 Close Chat", callback_data=f"closechat_{req_id_b}_broker")
+                ]])
                 await context.bot.send_message(
                     chat_id=int(customer_id),
                     text=f"💬 *Broker #{broker_id}:*\n\n{text}",
                     parse_mode='Markdown')
-                await update.message.reply_text("✅ ပို့ပြီ")
+                await update.message.reply_text(
+                    "✅ ပို့ပြီ",
+                    reply_markup=close_kb_b)
             except Exception as e:
                 logger.error(f"proxy relay B→C: {e}")
                 await update.message.reply_text("❌ Customer ကို မပို့နိုင်ဘူး")
@@ -2205,6 +2217,160 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data  = query.data
+
+    # ── 🔚 Close Chat Button ──
+    if data.startswith("closechat_"):
+        parts    = data.split("_")   # closechat_R123456_customer or _broker
+        req_id   = parts[1]
+        who      = parts[2] if len(parts) > 2 else "unknown"
+        session  = proxy_sessions.get(req_id)
+        if not session:
+            await query.answer("❌ Session မတွေ့ပါ — ပြီးသွားပြီ ဖြစ်နိုင်တယ်", show_alert=True)
+            return
+
+        broker_tg_id  = session.get("brokerId")
+        customer_id   = session.get("customerId")
+        broker_obj    = session.get("brokerObj", {})
+        broker_id_val = broker_obj.get("brokerId", "?")
+        closer_id     = str(query.from_user.id)
+
+        # Session ပိတ်
+        proxy_sessions.pop(req_id, None)
+        new_broker_status = recalc_broker_status(broker_tg_id)
+        await update_broker(broker_tg_id, status=new_broker_status)
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                await client.post(SHEET_WEBHOOK, json={
+                    "action": "updateRequest",
+                    "reqId":  req_id,
+                    "status": "CLOSED",
+                }, timeout=10)
+        except Exception as e:
+            logger.error(f"closechat updateRequest: {e}")
+
+        who_label = "Customer" if who == "customer" else "Broker"
+        await query.edit_message_text(
+            f"🔚 *Chat ပိတ်ပြီ*\n\n🆔 `{req_id}`\n{who_label} မှ ပိတ်လိုက်သည်",
+            parse_mode='Markdown')
+
+        # တဖက်ကို notify
+        try:
+            if who == "customer" and broker_tg_id:
+                await context.bot.send_message(
+                    chat_id=int(broker_tg_id),
+                    text=f"🔚 *Chat ပိတ်ပြီ*\n\n🆔 `{req_id}`\nCustomer မှ Chat ပိတ်လိုက်သည်",
+                    parse_mode='Markdown')
+            elif who == "broker" and customer_id:
+                await context.bot.send_message(
+                    chat_id=int(customer_id),
+                    text=f"🔚 *Chat ပိတ်ပြီ*\n\n🆔 `{req_id}`\nBroker မှ Chat ပိတ်လိုက်သည်",
+                    parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"closechat notify: {e}")
+
+        # Customer ဆီ Rating ပို့
+        if customer_id:
+            try:
+                rating_kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⭐1", callback_data=f"rate_1_{req_id}"),
+                     InlineKeyboardButton("⭐2", callback_data=f"rate_2_{req_id}"),
+                     InlineKeyboardButton("⭐3", callback_data=f"rate_3_{req_id}")],
+                    [InlineKeyboardButton("⭐4", callback_data=f"rate_4_{req_id}"),
+                     InlineKeyboardButton("⭐5", callback_data=f"rate_5_{req_id}")],
+                ])
+                await context.bot.send_message(
+                    chat_id=int(customer_id),
+                    text=f"🌟 *Broker ကို Rate လုပ်ပေးပါ*\n\n"
+                         f"🆔 Request: `{req_id}`\n\n"
+                         f"⭐1 = ညံ့ | ⭐3 = ပုံမှန် | ⭐5 = အကောင်းဆုံး",
+                    parse_mode='Markdown',
+                    reply_markup=rating_kb)
+                pending_rating[str(customer_id)] = {
+                    "reqId":      req_id,
+                    "brokerId":   broker_id_val,
+                    "brokerTgId": broker_tg_id,
+                }
+            except Exception as e:
+                logger.error(f"closechat rating: {e}")
+        return
+
+    # ── 📋 Report Form ──
+    if data.startswith("report_"):
+        parts      = data.split("_")
+        report_type = parts[1]   # ok / incomplete / wrongcar / nosearch
+        req_id     = "_".join(parts[2:])
+        rater_id   = str(query.from_user.id)
+
+        # pending_rating မှာ broker info ရှိနေသေးလားစစ် (မရှိလည်း ဆက်လုပ်နိုင်)
+        rate_info = pending_rating.get(rater_id, {})
+        broker_tg_id  = rate_info.get("brokerTgId", "")
+        broker_id_val = rate_info.get("brokerId", "?")
+
+        if report_type == "ok":
+            await query.edit_message_text(
+                f"✅ *ကျေးဇူးတင်ပါသည်!*\n\n"
+                f"🆔 `{req_id}`\n\n"
+                f"Feedback ပေးသည့်အတွက် ကျေးဇူးတင်ပါသည် 🙏",
+                parse_mode='Markdown')
+            return
+
+        # Report တင်ရင် → Broker 1 Month Temp Ban
+        report_labels = {
+            "incomplete": "⚠️ လုပ်ငန်းမပြီးစုံ",
+            "wrongcar":   "🚗 ကားမမှန်ကန်",
+            "nosearch":   "❌ ကားမရှာပေ",
+        }
+        report_label = report_labels.get(report_type, report_type)
+
+        await query.edit_message_text(
+            f"📋 *Report တင်ပြီ*\n\n"
+            f"🆔 `{req_id}`\n"
+            f"အကြောင်းရင်း: {report_label}\n\n"
+            f"Broker ကို 1 Month Temporary Ban ချမှတ်ပြီ",
+            parse_mode='Markdown')
+
+        # Broker Temp Ban (1 Month)
+        if broker_tg_id:
+            ban_until = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+            await update_broker(broker_tg_id, status="BANNED")
+            try:
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    await client.post(SHEET_WEBHOOK, json={
+                        "action":    "updateBroker",
+                        "telegramId": broker_tg_id,
+                        "status":    "TEMP_BAN",
+                        "banUntil":  ban_until,
+                    }, timeout=10)
+            except Exception as e:
+                logger.error(f"report temp ban: {e}")
+
+            # Broker ဆီ notify + Appeal msg
+            try:
+                await context.bot.send_message(
+                    chat_id=int(broker_tg_id),
+                    text=f"🚨 *Report တင်ခံရပြီ*\n\n"
+                         f"🆔 Request: `{req_id}`\n"
+                         f"အကြောင်းရင်း: {report_label}\n\n"
+                         f"⏳ 1 Month Temporary Ban ချမှတ်ခြင်းခံရပြီ\n"
+                         f"(ကုန်ဆုံးရက်: {ban_until})\n\n"
+                         f"မကျေနပ်ပါက သက်သေများ စုဆောင်းပြီး\n"
+                         f"Admin ထံ Appeal တင်နိုင်ပါသည် 👇",
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("📩 Admin ကို Appeal တင်ရန်",
+                                            url=f"https://t.me/{ADMIN_USERNAME}")
+                    ]]))
+            except Exception as e:
+                logger.error(f"report broker notify: {e}")
+
+        # Admin ဆီ notify
+        await notify_admins(context,
+            f"🚨 *Broker Report တင်ခံရပြီ*\n\n"
+            f"🆔 Request: `{req_id}`\n"
+            f"👷 Broker: #{broker_id_val}\n"
+            f"အကြောင်းရင်း: {report_label}\n"
+            f"⏳ 1 Month Temp Ban ချမှတ်ပြီ")
+        return
 
     # ── ✅ T&C Agree / Disagree ──
     if data.startswith("tc_agree_"):
@@ -3038,12 +3204,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"saveRating: {e}")
 
         star_display = "⭐" * stars
+        # Rating ပြီးရင် Report Form ပေါ်မယ်
+        report_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ လုပ်ငန်းပြီဆုံး၊ အဆင်ပြေပါတယ်", callback_data=f"report_ok_{req_id}")],
+            [InlineKeyboardButton("⚠️ လုပ်ငန်းမပြီးစုံ",               callback_data=f"report_incomplete_{req_id}")],
+            [InlineKeyboardButton("🚗 ကားမမှန်ကန်",                     callback_data=f"report_wrongcar_{req_id}")],
+            [InlineKeyboardButton("❌ ကားမရှာပေ",                       callback_data=f"report_nosearch_{req_id}")],
+        ])
         await query.edit_message_text(
-            f"✅ *Rating ပေးပြီ!*\n\n"
-            f"🆔 `{req_id}`\n"
-            f"{star_display} ({stars}/5)\n\n"
-            f"🙏 Feedback ပေးသည့်အတွက် ကျေးဇူးတင်ပါသည်",
-            parse_mode='Markdown')
+            f"✅ *Rating ပေးပြီ — {star_display} ({stars}/5)*\n\n"
+            f"🆔 `{req_id}`\n\n"
+            f"လုပ်ငန်းဆောင်တာ မည်သို့ဖြစ်ပါသလဲ? 👇",
+            parse_mode='Markdown',
+            reply_markup=report_kb)
 
         # Broker ကို notify
         try:
