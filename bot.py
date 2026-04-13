@@ -1966,9 +1966,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Proxy Chat Filter ─────────────────────────────────
 def proxy_filter(text: str):
-    if re.search(r'(\+?[\d\s\-]{9,15})', text):
-        if re.search(r'\d[\d\s\-]{8,}\d', text):
-            return True, "ဖုန်းနံပါတ် ပေးပို့ခြင်း တားမြစ်ထားသည်"
+    # မြန်မာဂဏန်း → English ဂဏန်း ပြောင်း
+    mm_digits = str.maketrans('၀၁၂၃၄၅၆၇၈၉', '0123456789')
+    normalized = text.translate(mm_digits)
+    # Space/dash ဖြုတ်ပြီး digit တွေ ဆက်စစ်
+    digits_only = re.sub(r'[\s\-\.]', '', normalized)
+    if re.search(r'\+?0?[6-9]\d{7,11}', digits_only):
+        return True, "ဖုန်းနံပါတ် ပေးပို့ခြင်း တားမြစ်ထားသည်"
+    # Space ပါတဲ့ ဖုန်းနံပါတ် (09 123 456 789)
+    if re.search(r'0\s*9[\d\s]{8,}', normalized):
+        return True, "ဖုန်းနံပါတ် ပေးပို့ခြင်း တားမြစ်ထားသည်"
     if re.search(r'@[a-zA-Z0-9_]{4,}', text):
         return True, "Telegram Username ပေးပို့ခြင်း တားမြစ်ထားသည်"
     if re.search(r'(https?://|www\.|t\.me/|wa\.me/|line\.me/)', text, re.IGNORECASE):
