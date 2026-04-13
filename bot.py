@@ -2199,6 +2199,68 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data  = query.data
 
+    # ── ✅ T&C Agree / Disagree ──
+    if data.startswith("tc_agree_"):
+        user_id = data.replace("tc_agree_", "")
+        if str(query.from_user.id) != user_id:
+            await query.answer("❌ သင့် button မဟုတ်ဘူး", show_alert=True)
+            return
+        brokers = await get_brokers()
+        broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
+        broker_id_val = broker["brokerId"] if broker else "?"
+        await query.edit_message_text(
+            f"✅ *သဘောတူပြီ!*\n\n"
+            f"🆔 Broker ID: `{broker_id_val}`\n\n"
+            f"Japan Auction Car Checker T&C ကို သဘောတူပြီး Broker အဖြစ် စတင်ပြီ 🎉\n\n"
+            f"Request လက်ခံဖို့ /available နှိပ်ပါ",
+            parse_mode='Markdown')
+        return
+
+    if data.startswith("tc_disagree_"):
+        user_id = data.replace("tc_disagree_", "")
+        if str(query.from_user.id) != user_id:
+            await query.answer("❌ သင့် button မဟုတ်ဘူး", show_alert=True)
+            return
+        await query.edit_message_text(
+            f"❌ *သဘောမတူဘူး*\n\n"
+            f"T&C သဘောမတူသောကြောင့် Broker အဖြစ် ဆက်လုပ်၍ မရပါ\n\n"
+            f"သဘောပြောင်းပါက Admin ကို ဆက်သွယ်ပါ",
+            parse_mode='Markdown')
+        return
+
+    # ── 👷 Broker Start Button ──
+    if data.startswith("brokerstart_"):
+        tg_id   = data.replace("brokerstart_", "")
+        user_id = str(query.from_user.id)
+        if user_id != tg_id:
+            await query.answer("❌ သင့် button မဟုတ်ဘူး", show_alert=True)
+            return
+        brokers = await get_brokers()
+        broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
+        if not broker:
+            await query.answer("❌ Broker အဖြစ် မှတ်ပုံမတင်ရသေးဘူး", show_alert=True)
+            return
+        broker_id_val = broker['brokerId']
+        tc_text = (
+            f"🤝 *Japan Auction Car Checker T&C*\n\n"
+            f"🆔 Broker ID: `{broker_id_val}`\n\n"
+            f"အောက်ပါ စည်ကမ်းများကို သဘောတူကြောင်း confirm လုပ်ပါ:\n\n"
+            f"① တစ်ချိန်တည်း Customer ၁ ယောက်သာ\n"
+            f"② Bot ထဲမှာပဲ ဆက်သွယ်ရမည်\n"
+            f"③ Condition Report မှန်ကန်စွာ ပေးရမည်\n"
+            f"④ Photo အနည်းဆုံး ၁၀ ပုံ ပေးရမည်\n"
+            f"⑤ Platform ပြင်ပ Deal = Lifetime Ban\n"
+            f"⑥ Rating 1 × 3 = Permanent Ban\n\n"
+            f"သဘောတူမတူ အောက်က Button နှိပ်ပါ 👇"
+        )
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ သဘောတူပါတယ်", callback_data=f"tc_agree_{user_id}"),
+            InlineKeyboardButton("❌ သဘောမတူပါ",    callback_data=f"tc_disagree_{user_id}"),
+        ]])
+        await query.message.reply_text(tc_text, parse_mode='Markdown', reply_markup=kb)
+        await query.edit_message_reply_markup(reply_markup=None)
+        return
+
     # ── 📦 Tracking Status Update ──
     if data.startswith("track_"):
         parts    = data.split("_")          # track_A_searching_R123456
@@ -3219,8 +3281,11 @@ async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=(f"🎉 *Japan Auction Car Checker*\n\n"
                           f"✅ Broker အဖြစ် ထည့်သွင်းပြီ!\n\n"
                           f"🆔 Broker ID: `{broker_id}`\n\n"
-                          f"စတင်ရန် `/brokerstart` နှိပ်ပါ"),
-                    parse_mode='Markdown')
+                          f"အောက်က Button နှိပ်ပြီး စတင်ပါ 👇"),
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("👷 Broker စတင်ရန်", callback_data=f"brokerstart_{tg_id}")
+                    ]]))
             except Exception as e:
                 logger.error(f"addbroker DM: {e}")
 
@@ -3341,9 +3406,10 @@ async def brokerstart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ Broker အဖြစ် မှတ်ပုံမတင်ရသေးဘူး\nAdmin ကို ဆက်သွယ်ပါ"); return
 
+    broker_id = broker['brokerId']
     tc_text = (
-        f"🤝 *Japan Auction Car Broker T&C*\n\n"
-        f"🆔 Broker ID: `{broker['brokerId']}`\n\n"
+        f"🤝 *Japan Auction Car Checker T&C*\n\n"
+        f"🆔 Broker ID: `{broker_id}`\n\n"
         f"အောက်ပါ စည်ကမ်းများကို သဘောတူကြောင်း confirm လုပ်ပါ:\n\n"
         f"① တစ်ချိန်တည်း Customer ၁ ယောက်သာ\n"
         f"② Bot ထဲမှာပဲ ဆက်သွယ်ရမည်\n"
@@ -3351,10 +3417,13 @@ async def brokerstart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"④ Photo အနည်းဆုံး ၁၀ ပုံ ပေးရမည်\n"
         f"⑤ Platform ပြင်ပ Deal = Lifetime Ban\n"
         f"⑥ Rating 1 × 3 = Permanent Ban\n\n"
-        f"✅ သဘောတူပါက အောက်ပါ message ပေးပို့ပါ:\n\n"
-        f"`ကျွန်တော်/မ [အမည်] JAN Broker T&C သဘောတူပါသည်`"
+        f"သဘောတူမတူ အောက်က Button နှိပ်ပါ 👇"
     )
-    await update.message.reply_text(tc_text, parse_mode='Markdown')
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ သဘောတူပါတယ်",  callback_data=f"tc_agree_{user_id}"),
+        InlineKeyboardButton("❌ သဘောမတူပါ",     callback_data=f"tc_disagree_{user_id}"),
+    ]])
+    await update.message.reply_text(tc_text, parse_mode='Markdown', reply_markup=kb)
 
 async def available_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
