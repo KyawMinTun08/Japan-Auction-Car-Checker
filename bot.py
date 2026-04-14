@@ -1637,6 +1637,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if cust_session_photo or broker_session_photo:
+        # Auction car + deposit မပေသေး (customer side) → silently drop
+        if cust_session_photo:
+            _sid_chk, _sess_chk = cust_session_photo
+            _rid_chk = _sess_chk.get("reqId", "")
+            if _rid_chk.startswith("A") and not _sess_chk.get("deposit_paid", False):
+                return
+
         # Caption filter — phone/link စစ်
         if caption:
             blocked, reason = proxy_filter(caption)
@@ -2063,6 +2070,17 @@ def proxy_filter(text: str):
         return True, "Telegram Username ပေးပို့ခြင်း တားမြစ်ထားသည်"
     if re.search(r'(https?://|www\.|t\.me/|wa\.me/|line\.me/)', text, re.IGNORECASE):
         return True, "Link ပေးပို့ခြင်း တားမြစ်ထားသည်"
+    # Social media platforms
+    if re.search(r'facebook\.com|fb\.com|fb\.me|instagram\.com|tiktok\.com', text, re.IGNORECASE):
+        return True, "Social Media link ပေးပို့ခြင်း တားမြစ်ထားသည်"
+    if re.search(r'\b(line\s?id|viber|whatsapp|zalo)\b', text, re.IGNORECASE):
+        return True, "Contact info ပေးပို့ခြင်း တားမြစ်ထားသည်"
+    # Myanmar address keywords
+    if re.search(r'တိုက်နံပါတ်|အခန်းနံပါတ်|ရပ်ကွက်|မြို့နယ်|တိုင်းဒေသ|ပြည်နယ်|နေရပ်လိပ်စာ|နေထိုင်ရာ', text):
+        return True, "လိပ်စာ ပေးပို့ခြင်း တားမြစ်ထားသည်"
+    # English address keywords
+    if re.search(r'\b(street|road|lane|avenue|st\.|address|district|township|quarter)\b', text, re.IGNORECASE):
+        return True, "လိပ်စာ ပေးပို့ခြင်း တားမြစ်ထားသည်"
     return False, ""
 
 # ── handle_text ──────────────────────────────────────
@@ -2112,6 +2130,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if cust_session:
         sid, session = cust_session
         broker_tg_id = session.get("brokerId")
+        req_id_c = session.get("reqId", "")
+
+        # Auction car + deposit မပေသေး → silently drop
+        if req_id_c.startswith("A") and not session.get("deposit_paid", False):
+            return
+
         blocked, reason = proxy_filter(text)
         if blocked:
             await update.message.reply_text(
@@ -3095,6 +3119,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📅 Rate: {mmk_rate} ks/฿",
             parse_mode='Markdown')
 
+        # Proxy session — chat relay unlock
+        if req_id in proxy_sessions:
+            proxy_sessions[req_id]["deposit_paid"] = True
+
     # ── Deposit Reject (Admin) ──
     elif data.startswith("dep_no_"):
         if query.from_user.id not in ADMIN_IDS:
@@ -3135,6 +3163,28 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_request[user_id] = {"step": 0, "data": {"service_type": svc_type}}
 
         if svc_type == "auction":
+            # Outside car completed >= 2 gate check
+            completed_outside = 0
+            try:
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    resp_oc = await client.post(SHEET_WEBHOOK, json={
+                        "action":     "getCompletedOutsideCount",
+                        "customerId": str_uid,
+                    }, timeout=10)
+                completed_outside = resp_oc.json().get("count", 0)
+            except Exception as e:
+                logger.error(f"getCompletedOutsideCount: {e}")
+
+            if completed_outside < 2:
+                await query.edit_message_text(
+                    "⚠️ Auction Car — Access မရသေးပါ\n\n"
+                    "လေလံကား request လုပ်ဖို့ outside car *၂ ကြိမ်* deal ပြီးဖြစ်ရပါမယ်။\n\n"
+                    "💰 ဘာကြောင့်လဲ?\n"
+                    "Auction car တိုင်းမှာ *Deposit ฿20,000* ကြိုပေးရလို့ပါ။ "
+                    "Outside car ၂ ကြိမ်ပြီးမှသာ unlock ဖြစ်ပါမယ်။",
+                    parse_mode='Markdown')
+                return
+
             await query.edit_message_text(
                 "🏆 *လေလံဆွဲရန် Request*\n\n"
                 "⚠️ ဒီဝန်ဆောင်မှုမှာ Deposit *฿20,000* လိုအပ်ပါသည်\n\n"
@@ -4084,7 +4134,8 @@ async def submit_request(context, user_id: int, username: str):
     if not req: return
 
     d      = req["data"]
-    req_id = 'R' + ''.join(random.choices(string.digits, k=6))
+    svc_prefix = 'A' if d.get("service_type") == "auction" else 'R'
+    req_id = svc_prefix + ''.join(random.choices(string.digits, k=6))
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
