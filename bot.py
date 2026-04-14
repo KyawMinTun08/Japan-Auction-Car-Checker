@@ -3167,6 +3167,47 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_request[user_id] = {"step": 0, "data": {"service_type": svc_type}}
 
         if svc_type == "auction":
+            # Auction ban check
+            ban_count  = 0
+            ban_status = ""
+            ban_expire = ""
+            try:
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    resp_ban = await client.post(SHEET_WEBHOOK, json={
+                        "action":     "getAuctionCancelCount",
+                        "customerId": str_uid,
+                    }, timeout=10)
+                ban_data   = resp_ban.json()
+                ban_count  = ban_data.get("banCount", 0)
+                ban_status = ban_data.get("banStatus", "")
+                ban_expire = ban_data.get("banExpire", "")
+            except Exception as e:
+                logger.error(f"auction ban check: {e}")
+
+            if ban_count > 0 and ban_status:
+                if ban_status == "LIFETIME_BAN":
+                    await query.edit_message_text(
+                        "🚫 *Auction Car — Lifetime Ban*\n\n"
+                        "Deposit မပေဘဲ Cancel ၃ ကြိမ်ကျော်သောကြောင့်\n"
+                        "Auction Car access ထာဝရပိတ်ပြီ",
+                        parse_mode='Markdown')
+                    return
+                elif ban_expire and ban_expire != "LIFETIME":
+                    try:
+                        ep = ban_expire.split('/')
+                        expire_dt = datetime(int(ep[2]), int(ep[1]), int(ep[0]))
+                        if datetime.now() < expire_dt:
+                            days_left = (expire_dt - datetime.now()).days + 1
+                            await query.edit_message_text(
+                                f"⏳ *Auction Car — Temporary Ban*\n\n"
+                                f"Deposit မပေဘဲ Cancel လုပ်ခဲ့သောကြောင့် Ban ဖြစ်နေသည်\n\n"
+                                f"🗓 Ban ကုန်ဆုံးရက်: `{ban_expire}`\n"
+                                f"⏰ ကျန်ရှိသည်: {days_left} ရက်",
+                                parse_mode='Markdown')
+                            return
+                    except Exception as e:
+                        logger.error(f"ban expire parse: {e}")
+
             # Outside car completed >= 2 gate check
             completed_outside = 0
             try:
