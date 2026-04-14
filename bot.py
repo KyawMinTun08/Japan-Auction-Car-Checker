@@ -274,6 +274,7 @@ proxy_sessions   = {}  # session_id -> {customerId, brokerId, reqId, status}
 pending_rating   = {}  # customer_id -> {reqId, brokerId, brokerTgId}
 pending_deposit  = {}  # customer_id -> {reqId, brokerTgId, step, slip_info}
 active_timers    = {}  # req_id -> asyncio.Task
+auction_dep_timers = {}  # req_id -> asyncio.Task (48hr deposit timeout)
 warned_3days   = set()
 promo_used     = {}
 rate_limit     = {}
@@ -3123,6 +3124,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if req_id in proxy_sessions:
             proxy_sessions[req_id]["deposit_paid"] = True
 
+        # 48hr deposit timer cancel
+        cancel_auction_dep_timer(req_id)
+
     # ── Deposit Reject (Admin) ──
     elif data.startswith("dep_no_"):
         if query.from_user.id not in ADMIN_IDS:
@@ -3211,6 +3215,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         session = proxy_sessions.pop(req_id, None)
         cancel_request_timer(req_id)
+        cancel_auction_dep_timer(req_id)
         # session pop ပြီးမှ recalc လုပ်
         new_broker_status = recalc_broker_status(user_id)
         await update_broker(user_id, status=new_broker_status)
@@ -3352,6 +3357,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_request_timer(context, req_id=req_id,
             broker_tg_id=user_id, broker_id=broker["brokerId"],
             customer_id=str(customer_id) if customer_id else "")
+
+        # Auction request ဆိုရင် 48hr deposit timer စတင်
+        if req_id.startswith("A"):
+            start_auction_dep_timer(
+                context,
+                req_id       = req_id,
+                customer_id  = str(customer_id) if customer_id else "",
+                broker_tg_id = user_id,
+                broker_id    = broker["brokerId"],
+                username     = customer_username,
+            )
 
     elif data.startswith("breq_decline_"):
         req_id = data.replace("breq_decline_", "")
@@ -3956,6 +3972,7 @@ async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Session ပိတ် ──
     proxy_sessions.pop(sid, None)
     cancel_request_timer(req_id)
+    cancel_auction_dep_timer(req_id)
     broker_tg_id = session.get("brokerId","")
     broker_obj   = session.get("brokerObj", {})
     broker_id    = broker_obj.get("brokerId","B???")
@@ -4429,6 +4446,17 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         customer_id  = str(customer_id) if customer_id else ""
     )
 
+    # Auction request ဆိုရင် 48hr deposit timer စတင်
+    if svc_type == "auction":
+        start_auction_dep_timer(
+            context,
+            req_id       = req_id,
+            customer_id  = str(customer_id) if customer_id else "",
+            broker_tg_id = user_id,
+            broker_id    = broker["brokerId"],
+            username     = customer_username,
+        )
+
     # ── Tracking Buttons ပို့ ──
     svc_label_track = "🏆 Auction" if svc_type == "auction" else "🔍 ကားရှာ"
     await update.message.reply_text(
@@ -4678,6 +4706,127 @@ def start_request_timer(context, req_id: str, broker_tg_id: str,
 def cancel_request_timer(req_id: str):
     """endchat မှာ timer cancel လုပ်"""
     task = active_timers.pop(req_id, None)
+    if task:
+        task.cancel()
+
+
+# ── Auction Deposit 48hr Timer ────────────────────────
+async def _auction_dep_timer_task(context, req_id: str, customer_id: str,
+                                   broker_tg_id: str, broker_id: str, username: str):
+    await asyncio.sleep(48 * 3600)  # 48 hours
+
+    # Deposit ပေးပြီးလား စစ်
+    session = proxy_sessions.get(req_id)
+    if session and session.get("deposit_paid", False):
+        auction_dep_timers.pop(req_id, None)
+        return
+
+    # Ban count ယူ
+    ban_count = 0
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action":     "getAuctionCancelCount",
+                "customerId": customer_id,
+            }, timeout=10)
+        ban_count = resp.json().get("banCount", 0)
+    except Exception as e:
+        logger.error(f"getAuctionCancelCount timer: {e}")
+
+    new_ban_count = ban_count + 1
+    if new_ban_count == 1:
+        ban_expire = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y")
+        ban_status = "BAN_7D"
+        ban_label  = f"⏳ 7 Day Auction Ban\n(ကုန်ဆုံးရက်: {ban_expire})"
+    elif new_ban_count == 2:
+        ban_expire = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+        ban_status = "BAN_1M"
+        ban_label  = f"⏳ 1 Month Auction Ban\n(ကုန်ဆုံးရက်: {ban_expire})"
+    else:
+        ban_expire = "LIFETIME"
+        ban_status = "LIFETIME_BAN"
+        ban_label  = "🚫 Lifetime Ban — Auction Car access ထာဝရပိတ်ပြီ"
+
+    # AuctionCancels sheet သိမ်း
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            await client.post(SHEET_WEBHOOK, json={
+                "action":     "saveAuctionCancel",
+                "customerId": customer_id,
+                "username":   username,
+                "reqId":      req_id,
+                "banCount":   new_ban_count,
+                "banStatus":  ban_status,
+                "banExpire":  ban_expire,
+            }, timeout=10)
+    except Exception as e:
+        logger.error(f"saveAuctionCancel: {e}")
+
+    # Session ပိတ် + broker FREE
+    proxy_sessions.pop(req_id, None)
+    if broker_tg_id:
+        await update_broker(broker_tg_id, status="FREE")
+
+    # Request status update
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            await client.post(SHEET_WEBHOOK, json={
+                "action": "updateRequest",
+                "reqId":  req_id,
+                "status": "CANCELLED_NO_DEPOSIT",
+            }, timeout=10)
+    except Exception as e:
+        logger.error(f"auc_dep_timer updateRequest: {e}")
+
+    # Customer notify
+    try:
+        await context.bot.send_message(
+            chat_id=int(customer_id),
+            text=(f"⏰ *Auction Deposit Timeout*\n\n"
+                  f"🆔 `{req_id}`\n\n"
+                  f"Deposit ฿20,000 ၂ ရက်အတွင်း မပေသောကြောင့်\n"
+                  f"Request အလိုအလျောက် Cancel ဖြစ်သွားပြီ\n\n"
+                  f"{ban_label}"),
+            parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"auc_dep_timer customer notify: {e}")
+
+    # Broker notify
+    if broker_tg_id:
+        try:
+            await context.bot.send_message(
+                chat_id=int(broker_tg_id),
+                text=(f"⏰ *Auction Deposit Timeout*\n\n"
+                      f"🆔 `{req_id}`\n"
+                      f"Customer Deposit မပေဘဲ ၂ ရက် ကြာသောကြောင့် Auto Cancel ဖြစ်ပြီ\n\n"
+                      f"🟢 FREE ဖြစ်ပြီ — Request အသစ် လက်ခံနိုင်ပြီ"),
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"auc_dep_timer broker notify: {e}")
+
+    # Admin notify
+    await notify_admins(context,
+        f"⏰ *Auction Deposit Timeout Auto Cancel*\n\n"
+        f"🆔 `{req_id}`\n"
+        f"👤 Customer: `{customer_id}`\n"
+        f"📊 Ban Count: {new_ban_count} → {ban_status}\n"
+        f"🗓 {ban_expire}")
+
+    auction_dep_timers.pop(req_id, None)
+
+
+def start_auction_dep_timer(context, req_id: str, customer_id: str,
+                             broker_tg_id: str, broker_id: str, username: str = ""):
+    if req_id in auction_dep_timers:
+        auction_dep_timers[req_id].cancel()
+    task = asyncio.create_task(
+        _auction_dep_timer_task(context, req_id, customer_id, broker_tg_id, broker_id, username)
+    )
+    auction_dep_timers[req_id] = task
+
+
+def cancel_auction_dep_timer(req_id: str):
+    task = auction_dep_timers.pop(req_id, None)
     if task:
         task.cancel()
 
