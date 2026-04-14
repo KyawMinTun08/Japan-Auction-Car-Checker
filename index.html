@@ -1249,8 +1249,7 @@ function renderDashDrillDown() {
   }
 }
 
-
-
+function populateFilters() {
   const u = arr => [...new Set(arr)].filter(Boolean).sort();
   setOpts('fModel', u(allCars.map(c=>c.model)));
   setOpts('fColor', u(allCars.map(c=>c.color).filter(c=>c&&c!=='-')));
