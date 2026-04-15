@@ -318,7 +318,7 @@ select:focus{border-color:var(--primary);}
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 32px 80px rgba(0,0,0,0.6);position:relative;z-index:1">
     <div style="text-align:center;margin-bottom:30px">
       <div style="width:64px;height:64px;background:linear-gradient(135deg,var(--primary),#6366F1);border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 14px">🚗</div>
-      <div style="font-family:'Outfit',sans-serif;font-size:20px;font-weight:800;color:#1A1A1A;letter-spacing:-0.3px">Japan Auction <span style="color:var(--primary)">Car Checker</span></div>
+      <div style="font-family:'Outfit',sans-serif;font-size:20px;font-weight:800;color:var(--primary);letter-spacing:-0.3px">Japan Auction <span style="color:#1A1A1A">Car Checker</span></div>
       <div style="font-size:11px;color:var(--text-dim);margin-top:6px;letter-spacing:1px;text-transform:uppercase">MaeSot & Klang9 Freezone</div>
     </div>
     <div id="loginErr" style="display:none;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#EF4444;margin-bottom:16px;text-align:center;"></div>
@@ -347,12 +347,12 @@ select:focus{border-color:var(--primary);}
     <div style="margin-top:22px;border-top:1px solid var(--border2);padding-top:16px;">
       <div style="font-size:10px;color:var(--text-dim);text-align:center;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.8px">Sponsored</div>
       <a href="https://t.me/JapanAuctionCar_Bot" target="_blank"
-        style="display:block;background:linear-gradient(135deg,var(--dark2),var(--dark4));border-radius:10px;padding:13px 15px;text-decoration:none;border:1px solid var(--border);">
+        style="display:block;background:linear-gradient(135deg,#1A2535,#0D1B2E);border-radius:10px;padding:13px 15px;text-decoration:none;border:1px solid var(--border);">
         <div style="display:flex;align-items:center;gap:12px;">
           <div style="font-size:26px">🚗</div>
           <div>
-            <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:2px">Japan Auction Car Checker</div>
-            <div style="font-size:11px;color:var(--text-muted);">MaeSot & Klang9 Freezone</div>
+            <div style="font-size:13px;font-weight:700;color:#FFFFFF;margin-bottom:2px">Japan Auction Car Checker</div>
+            <div style="font-size:11px;color:#BBBBBB;">MaeSot & Klang9 Freezone</div>
             <div style="font-size:11px;color:var(--primary);font-weight:600;margin-top:3px;">Member ဝင်ရောက်ပါ →</div>
           </div>
         </div>
@@ -1072,17 +1072,25 @@ async function init() {
     const result = await res.json();
     if (result.status !== 'ok') throw new Error(result.msg || 'Data fetch failed');
 
-    allCars = result.cars.map(r => ({
-      date:     String(r.date||''),
-      chassis:  String(r.chassis||''),
-      model:    String(r.model||'UNKNOWN').trim(),
-      color:    String(r.color||'-').trim(),
-      year:     parseInt(String(r.year||0))||0,
-      price:    parseInt(String(r.price||0).replace(/[^0-9]/g,''))||0,
-      location: String(r.location||'-').trim(),
-      addedBy:  String(r.addedBy||'-').trim(),
-      imageUrl: fixImgUrl(String(r.imageUrl||''))
-    })).filter(r => r.chassis||r.model);
+    allCars = result.cars.map(r => {
+      let model = String(r.model||'UNKNOWN').trim().toUpperCase();
+      // Normalize "TOYOTA WISH" → "WISH", "NISSAN X-TRAIL" → "X-TRAIL" etc.
+      const prefixes = ['TOYOTA ','NISSAN ','HONDA ','DAIHATSU ','MITSUBISHI ','SUBARU ','MAZDA ','SUZUKI ','ISUZU ','HINO '];
+      for (const p of prefixes) {
+        if (model.startsWith(p)) { model = model.slice(p.length); break; }
+      }
+      return {
+        date:     String(r.date||''),
+        chassis:  String(r.chassis||''),
+        model,
+        color:    String(r.color||'-').trim(),
+        year:     parseInt(String(r.year||0))||0,
+        price:    parseInt(String(r.price||0).replace(/[^0-9]/g,''))||0,
+        location: String(r.location||'-').trim(),
+        addedBy:  String(r.addedBy||'-').trim(),
+        imageUrl: fixImgUrl(String(r.imageUrl||''))
+      };
+    }).filter(r => r.chassis||r.model);
 
     document.getElementById('liveCount').textContent = allCars.length;
     populateFilters();
@@ -1142,7 +1150,7 @@ function renderDashboard() {
     <tr>
       <td>${c.date}</td>
       <td style="font-family:monospace;font-size:12px;font-weight:600">${c.chassis}</td>
-      <td><strong>${c.model}</strong></td>
+      <td style="font-weight:700;color:#E53935">${c.model}</td>
       <td>${c.color}</td>
       <td>${c.year||'-'}</td>
       <td style="font-weight:700;color:var(--primary)">${c.price>0?'฿'+c.price.toLocaleString():'-'}</td>
@@ -1594,7 +1602,7 @@ function renderChassisTbl(filter='') {
   document.getElementById('chassisTbl').innerHTML = d.slice(0,100).map(c=>`
     <tr onclick="goLookup('${c.chassis}')" style="cursor:pointer">
       <td style="font-family:monospace;font-size:12px;font-weight:600">${c.chassis}</td>
-      <td><strong>${c.model}</strong></td><td>${c.color}</td><td>${c.year||'-'}</td>
+      <td style="font-weight:700;color:#E53935">${c.model}</td><td>${c.color}</td><td>${c.year||'-'}</td>
       <td style="font-weight:700;color:var(--primary)">${c.price>0?'฿'+c.price.toLocaleString():'-'}</td>
       <td>${c.date}</td><td>${c.location}</td>
     </tr>`).join('');
@@ -1779,6 +1787,15 @@ function toggleSidebar() {
 }
 // Close sidebar when nav item clicked on mobile
 document.querySelectorAll('.nav-item').forEach(el => {
+  el.addEventListener('click', () => {
+    if(window.innerWidth <= 900) {
+      const sidebar = document.querySelector('.sidebar');
+      if(sidebar.classList.contains('open')) toggleSidebar();
+    }
+  });
+});
+// Close sidebar when tab clicked on mobile
+document.querySelectorAll('.tab').forEach(el => {
   el.addEventListener('click', () => {
     if(window.innerWidth <= 900) {
       const sidebar = document.querySelector('.sidebar');
