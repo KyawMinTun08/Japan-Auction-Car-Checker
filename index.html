@@ -1169,8 +1169,8 @@ function renderBrandGrid() {
       <div style="width:48px;height:48px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto 8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
         <img src="${getBrandLogoUrl(brand)||''}" style="width:34px;height:34px;object-fit:contain" onerror="this.parentElement.innerHTML='<span style=font-size:18px;font-weight:800;color:${info.color}>${brand.charAt(0)}</span>'">
       </div>
-      <div style="font-size:11px;font-weight:700;color:#fff">${brand}</div>
-      <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${count} cars</div>
+      <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:2px;letter-spacing:0.3px">${brand}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${count} cars</div>
     </div>`).join('');
 }
 
@@ -1190,7 +1190,7 @@ function renderBodyTypeGrid() {
       onmouseover="this.style.borderColor='${info.color}';this.style.background='${info.color}22'"
       onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--surface2)'">
       <div style="font-size:26px;margin-bottom:6px">${info.emoji}</div>
-      <div style="font-size:12px;font-weight:700;color:#fff">${type}</div>
+      <div style="font-size:12px;font-weight:700;color:var(--text)">${type}</div>
       <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${count} cars</div>
     </div>`).join('');
 }
@@ -1281,7 +1281,7 @@ function renderDashDrillDown() {
         onmouseout="this.style.borderColor='var(--border)';this.style.transform='none'">
         <div style="height:80px;background:linear-gradient(135deg,#0D1B2E,#162235);display:flex;align-items:center;justify-content:center;font-size:34px">🚗</div>
         <div style="padding:10px 12px">
-          <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">${model}</div>
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">${model}</div>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span style="font-size:11px;background:${bc1Color}22;color:${bc1Color};padding:2px 7px;border-radius:10px">${count} cars</span>
             ${avg ? `<span style="font-size:11px;font-weight:700;color:var(--primary)">฿${avg.toLocaleString()}</span>` : ''}
