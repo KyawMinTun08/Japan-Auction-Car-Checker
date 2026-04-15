@@ -3205,8 +3205,34 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ Admin only", show_alert=True); return
         customer_id = int(data.replace("ftdep_ok_", ""))
         str_cid     = str(customer_id)
+        ft_data     = fasttrack_pending.pop(str_cid, {})
+        slip_info   = ft_data.get("slip_info", {})
         fasttrack_paid.add(str_cid)
-        fasttrack_pending.pop(str_cid, None)
+
+        mmk_rate   = int(os.environ.get("MMK_RATE", "3800"))
+        thb_amount = 20000
+        mmk_amount = thb_amount * mmk_rate
+        now_str    = datetime.now().strftime("%d/%m/%Y")
+
+        # ── Sheet save ──
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                await client.post(SHEET_WEBHOOK, json={
+                    "action":     "saveDeposit",
+                    "reqId":      "FASTTRACK",
+                    "customerId": str_cid,
+                    "brokerTgId": "",
+                    "thbAmount":  thb_amount,
+                    "mmkAmount":  mmk_amount,
+                    "mmkRate":    mmk_rate,
+                    "date":       now_str,
+                    "txnNo":      slip_info.get("TRANSACTION_NO", ""),
+                    "payType":    slip_info.get("TYPE", ""),
+                    "status":     "FASTTRACK_HOLD",
+                }, timeout=10)
+        except Exception as e:
+            logger.error(f"ftdep_ok saveDeposit: {e}")
+
         await query.edit_message_text(f"✅ Fast Track Confirm — `{customer_id}`", parse_mode='Markdown')
         pending_request[customer_id] = {"step": 0, "data": {"service_type": "auction"}}
         try:
@@ -5334,6 +5360,23 @@ async def check_expired_members(context):
     except Exception as e:
         logger.error(f"check_expired: {e}")
 
+# ── Ban Auto-Lift Scheduler ───────────────────────────
+async def check_expired_bans(context):
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action": "liftExpiredBans",
+            }, timeout=15)
+        result = resp.json()
+        lifted = result.get("lifted", [])
+        if lifted:
+            txt = "🔓 *Ban Auto-Lift*\n\n"
+            for row in lifted:
+                txt += f"• `{row.get('customerId')}` (@{row.get('username','?')}) — {row.get('banStatus')} ကုန်ဆုံးပြီ\n"
+            await notify_admins(context, txt)
+    except Exception as e:
+        logger.error(f"check_expired_bans: {e}")
+
 # ── Main ──────────────────────────────────────────────
 async def main():
     logger.info("Bot starting...")
@@ -5378,6 +5421,7 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.job_queue.run_repeating(check_expired_members, interval=43200, first=60)
+    app.job_queue.run_repeating(check_expired_bans,    interval=43200, first=120)
     await app.initialize()
     await app.start()
 
