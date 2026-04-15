@@ -1135,9 +1135,10 @@ function renderDashboard() {
   renderBrandGrid();
   renderBodyTypeGrid();
 
-  // Recent table
+  // Recent table — newest first
+  const recentSorted = [...allCars].sort((a,b) => parseDate(b.date) - parseDate(a.date));
   document.getElementById('recentCount').textContent = `Showing ${Math.min(50,allCars.length)} of ${allCars.length}`;
-  document.getElementById('recentTbl').innerHTML = allCars.slice(0,50).map(c=>`
+  document.getElementById('recentTbl').innerHTML = recentSorted.slice(0,50).map(c=>`
     <tr>
       <td>${c.date}</td>
       <td style="font-family:monospace;font-size:12px;font-weight:600">${c.chassis}</td>
