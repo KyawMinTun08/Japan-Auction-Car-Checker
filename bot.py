@@ -275,6 +275,8 @@ pending_rating   = {}  # customer_id -> {reqId, brokerId, brokerTgId}
 pending_deposit  = {}  # customer_id -> {reqId, brokerTgId, step, slip_info}
 active_timers    = {}  # req_id -> asyncio.Task
 auction_dep_timers = {}  # req_id -> asyncio.Task (48hr deposit timeout)
+fasttrack_paid    = set()   # str_uid — fast track deposit ပေးပြီးသူများ
+fasttrack_pending = {}       # str_uid -> {"waiting_slip": True, "slip_info": {}}
 warned_3days   = set()
 promo_used     = {}
 rate_limit     = {}
@@ -1568,6 +1570,50 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── Deposit Slip Mode ──
+    # ── Fast Track Deposit Slip ──
+    if str(user_id) in fasttrack_pending and fasttrack_pending[str(user_id)].get("waiting_slip"):
+        await update.message.reply_text("🔍 Deposit Slip ဖတ်နေတယ်... ⏳")
+        try:
+            file       = await photo.get_file()
+            file_bytes = bytes(await file.download_as_bytearray())
+            slip_info  = await gemini_read_slip(file_bytes)
+        except Exception as e:
+            logger.error(f"fasttrack slip: {e}")
+            slip_info = {}
+        amount   = slip_info.get("AMOUNT",         "UNKNOWN")
+        pay_type = slip_info.get("TYPE",            "UNKNOWN")
+        txn_no   = slip_info.get("TRANSACTION_NO", "UNKNOWN")
+        date_str = slip_info.get("DATE",            "UNKNOWN")
+        amount_ok = ""
+        if amount != "UNKNOWN":
+            try:
+                amt_num = int(re.sub(r'[^\d]', '', amount))
+                amount_ok = "✅" if amt_num >= 20000 else "⚠️ မပြည့်မီ (฿20,000 လိုသည်)"
+            except:
+                amount_ok = "⚠️ စစ်မရ"
+        fasttrack_pending[str(user_id)]["slip_info"]    = slip_info
+        fasttrack_pending[str(user_id)]["waiting_slip"] = False
+        name = update.effective_user.first_name or str(user_id)
+        admin_text = (
+            f"⚡ *Fast Track Deposit Slip*\n\n"
+            f"👤 {name} (`{user_id}`)\n"
+            f"🏦 Type: {pay_type}\n"
+            f"🔢 Txn: `{txn_no}`\n"
+            f"💵 Amount: {amount} ฿ {amount_ok}\n"
+            f"📅 Date: {date_str}\n\n"
+            f"Confirm → Auction Q&A စတင်မည်"
+        )
+        admin_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"💬 {name}", url=f"tg://user?id={user_id}")],
+            [InlineKeyboardButton("✅ Confirm", callback_data=f"ftdep_ok_{user_id}"),
+             InlineKeyboardButton("❌ Reject",  callback_data=f"ftdep_no_{user_id}")],
+        ])
+        await notify_admins(context, admin_text, reply_markup=admin_kb)
+        await update.message.reply_text(
+            "✅ *Slip လက်ခံပြီ!*\n\nAdmin စစ်ဆေးနေသည် — ခဏစောင့်ပါ 🙏",
+            parse_mode='Markdown')
+        return
+
     if str(user_id) in pending_deposit:
         dep_data = pending_deposit[str(user_id)]
         if dep_data.get("step") == "waiting_slip":
@@ -3141,6 +3187,55 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         await query.message.reply_text("❌ Deposit ပယ်ချပြီ")
 
+    # ── Auction Fast Track Deposit ──
+    elif data.startswith("auction_fasttrack_"):
+        target_uid = int(data.replace("auction_fasttrack_", ""))
+        if query.from_user.id != target_uid:
+            await query.answer("❌ သင်၏ request မဟုတ်ဘူး", show_alert=True); return
+        fasttrack_pending[str(target_uid)] = {"waiting_slip": True}
+        await query.edit_message_text(
+            "💰 *Deposit Fast Track — ฿20,000*\n\n"
+            f"{PAYMENT_INFO}\n\n"
+            "Slip screenshot ပို့ပါ 👇\n\n"
+            "⏰ 15 မိနစ်အတွင်း မပို့ရင် cancel ဖြစ်မည်",
+            parse_mode='Markdown')
+
+    elif data.startswith("ftdep_ok_"):
+        if query.from_user.id not in ADMIN_IDS:
+            await query.answer("❌ Admin only", show_alert=True); return
+        customer_id = int(data.replace("ftdep_ok_", ""))
+        str_cid     = str(customer_id)
+        fasttrack_paid.add(str_cid)
+        fasttrack_pending.pop(str_cid, None)
+        await query.edit_message_text(f"✅ Fast Track Confirm — `{customer_id}`", parse_mode='Markdown')
+        pending_request[customer_id] = {"step": 0, "data": {"service_type": "auction"}}
+        try:
+            await context.bot.send_message(
+                chat_id=customer_id,
+                text="✅ *Admin confirm ပြီးပါပြီ — Deposit ฿20,000 ✅*\n\n"
+                     "🏆 *လေလံဆွဲရန် Request*\n\n"
+                     "မေးချင်တဲ့ ကားအမည် ရိုက်ထည့်ပါ:\n"
+                     "ဥပမာ: `ALPHARD`, `X-TRAIL`, `HIACE VAN`\n\n"
+                     "Cancel လုပ်ရန်: /cancelrequest",
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"ftdep_ok notify: {e}")
+
+    elif data.startswith("ftdep_no_"):
+        if query.from_user.id not in ADMIN_IDS:
+            await query.answer("❌ Admin only", show_alert=True); return
+        customer_id = int(data.replace("ftdep_no_", ""))
+        str_cid     = str(customer_id)
+        fasttrack_pending.pop(str_cid, None)
+        await query.edit_message_text(f"❌ Fast Track Reject — `{customer_id}`", parse_mode='Markdown')
+        try:
+            await context.bot.send_message(
+                chat_id=customer_id,
+                text="❌ *Deposit Slip မအတည်မပြုနိုင်*\n\nSlip မမှန်ကန်ပါ — ပြန်ကြိုးစားရန်: /carrequest",
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"ftdep_no notify: {e}")
+
     # ── Car Request Service Type ──
     elif data.startswith("reqtype_"):
         parts       = data.split("_")
@@ -3221,13 +3316,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"getCompletedOutsideCount: {e}")
 
             if completed_outside < 2:
+                pending_request.pop(user_id, None)
+                kb_ft = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⚡ ฿20,000 Deposit ပေးမည်",       callback_data=f"auction_fasttrack_{user_id}"),
+                    InlineKeyboardButton("🔍 အပြင်ကားရှာပေး ဆက်လုပ်မည်", callback_data=f"reqtype_search_{user_id}"),
+                ]])
                 await query.edit_message_text(
-                    "⚠️ Auction Car — Access မရသေးပါ\n\n"
-                    "လေလံကား request လုပ်ဖို့ outside car *၂ ကြိမ်* deal ပြီးဖြစ်ရပါမယ်။\n\n"
-                    "💰 ဘာကြောင့်လဲ?\n"
-                    "Auction car တိုင်းမှာ *Deposit ฿20,000* ကြိုပေးရလို့ပါ။ "
-                    "Outside car ၂ ကြိမ်ပြီးမှသာ unlock ဖြစ်ပါမယ်။",
-                    parse_mode='Markdown')
+                    "⚠️ *Auction Car — Access မရသေးပါ*\n\n"
+                    "အပြင်ကားရှာပေး × 2 ပြည့်ဖို့ လိုပါတယ်\n\n"
+                    f"သင့် record: {completed_outside}/2 ✅\n\n"
+                    "💡 OR — ฿20,000 Deposit ကြိုပေးပြီး တန်းဝင်နိုင်ပါတယ်",
+                    parse_mode='Markdown',
+                    reply_markup=kb_ft)
                 return
 
             await query.edit_message_text(
