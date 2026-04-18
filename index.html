@@ -318,7 +318,7 @@ select:focus{border-color:var(--primary);}
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 32px 80px rgba(0,0,0,0.6);position:relative;z-index:1">
     <div style="text-align:center;margin-bottom:30px">
       <div style="width:64px;height:64px;background:linear-gradient(135deg,var(--primary),#6366F1);border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 14px">🚗</div>
-      <div style="font-family:'Outfit',sans-serif;font-size:20px;font-weight:800;color:var(--primary);letter-spacing:-0.3px">Japan Auction <span style="color:#1A1A1A">Car Checker</span></div>
+      <div style="font-family:'Outfit',sans-serif;font-size:20px;font-weight:800;color:#1A1A1A;letter-spacing:-0.3px">Japan Auction <span style="color:var(--primary)">Car Checker</span></div>
       <div style="font-size:11px;color:var(--text-dim);margin-top:6px;letter-spacing:1px;text-transform:uppercase">MaeSot & Klang9 Freezone</div>
     </div>
     <div id="loginErr" style="display:none;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#EF4444;margin-bottom:16px;text-align:center;"></div>
@@ -347,12 +347,12 @@ select:focus{border-color:var(--primary);}
     <div style="margin-top:22px;border-top:1px solid var(--border2);padding-top:16px;">
       <div style="font-size:10px;color:var(--text-dim);text-align:center;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.8px">Sponsored</div>
       <a href="https://t.me/JapanAuctionCar_Bot" target="_blank"
-        style="display:block;background:linear-gradient(135deg,#1A2535,#0D1B2E);border-radius:10px;padding:13px 15px;text-decoration:none;border:1px solid var(--border);">
+        style="display:block;background:linear-gradient(135deg,var(--dark2),var(--dark4));border-radius:10px;padding:13px 15px;text-decoration:none;border:1px solid var(--border);">
         <div style="display:flex;align-items:center;gap:12px;">
           <div style="font-size:26px">🚗</div>
           <div>
-            <div style="font-size:13px;font-weight:700;color:#FFFFFF;margin-bottom:2px">Japan Auction Car Checker</div>
-            <div style="font-size:11px;color:#BBBBBB;">MaeSot & Klang9 Freezone</div>
+            <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:2px">Japan Auction Car Checker</div>
+            <div style="font-size:11px;color:var(--text-muted);">MaeSot & Klang9 Freezone</div>
             <div style="font-size:11px;color:var(--primary);font-weight:600;margin-top:3px;">Member ဝင်ရောက်ပါ →</div>
           </div>
         </div>
@@ -682,6 +682,61 @@ select:focus{border-color:var(--primary);}
         </div>
         <div class="card-body" id="locationActivity">
           <div class="empty"><div class="ei">⏳</div><p>Loading...</p></div>
+        </div>
+      </div>
+
+      <!-- MONTHLY BEST SELLER -->
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-header">
+          <div class="card-title">🏆 Monthly Best Seller</div>
+          <span style="font-size:11px;color:var(--text-muted)">လ ရွေးပြီး ranking ကြည့်</span>
+        </div>
+        <div class="card-body">
+          <div style="margin-bottom:14px">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Select Month / လ ရွေးပါ</label>
+            <select id="mbsMonth" onchange="renderMonthlyBestSeller()" style="width:100%;padding:10px 12px;border:1.5px solid #E0E0E0;border-radius:8px;font-size:14px;font-weight:600;font-family:inherit;background:#fff;outline:none;cursor:pointer">
+              <option value="">Loading...</option>
+            </select>
+          </div>
+          <div id="mbsContent"></div>
+        </div>
+      </div>
+
+      <!-- MISSING MODELS -->
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-header">
+          <div class="card-title">⚠️ Missing Models — ပျောက်သွားတဲ့ ကားများ</div>
+          <span style="font-size:11px;color:var(--text-muted)">ပြီးခဲ့တဲ့ ၃ လ ရှိ၊ ဒီလ မရှိ</span>
+        </div>
+        <div class="card-body" id="missingModelsContent">
+          <div class="empty"><div class="ei">⏳</div><p>Loading...</p></div>
+        </div>
+      </div>
+
+      <!-- PRICE ANALYSIS (SMA) -->
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-header">
+          <div class="card-title">📈 Price Analysis</div>
+          <span style="font-size:11px;color:var(--text-muted)">Model ရွေးပြီး SMA trend ကြည့်</span>
+        </div>
+        <div class="card-body">
+          <div style="margin-bottom:14px">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Select Model</label>
+            <select id="paModel" onchange="renderPriceAnalysis()" style="width:100%;padding:10px 12px;border:1.5px solid #E0E0E0;border-radius:8px;font-size:14px;font-weight:600;font-family:inherit;background:#fff;outline:none;cursor:pointer">
+              <option value="">-- Model ရွေးပါ --</option>
+            </select>
+          </div>
+          <div id="paInsight" style="display:none;margin-bottom:14px"></div>
+          <div id="paStats" style="display:none;margin-bottom:14px"></div>
+          <div id="paControls" style="display:none;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+            <button id="paBtnSMA10" onclick="paToggleSMA(10)" style="background:#1976D2;color:#fff;border:1px solid #1976D2;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">● SMA 10</button>
+            <button id="paBtnSMA20" onclick="paToggleSMA(20)" style="background:#E53935;color:#fff;border:1px solid #E53935;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">● SMA 20</button>
+          </div>
+          <div id="paChartWrap" style="display:none"><div style="height:300px"><canvas id="paChart"></canvas></div></div>
+          <div id="paEmpty" style="text-align:center;padding:30px;color:var(--text-muted)">
+            <div style="font-size:32px;margin-bottom:6px">📊</div>
+            <div style="font-size:12px">Model ရွေးပြီး ရှာပါ</div>
+          </div>
         </div>
       </div>
 
@@ -1072,25 +1127,17 @@ async function init() {
     const result = await res.json();
     if (result.status !== 'ok') throw new Error(result.msg || 'Data fetch failed');
 
-    allCars = result.cars.map(r => {
-      let model = String(r.model||'UNKNOWN').trim().toUpperCase();
-      // Normalize "TOYOTA WISH" → "WISH", "NISSAN X-TRAIL" → "X-TRAIL" etc.
-      const prefixes = ['TOYOTA ','NISSAN ','HONDA ','DAIHATSU ','MITSUBISHI ','SUBARU ','MAZDA ','SUZUKI ','ISUZU ','HINO '];
-      for (const p of prefixes) {
-        if (model.startsWith(p)) { model = model.slice(p.length); break; }
-      }
-      return {
-        date:     String(r.date||''),
-        chassis:  String(r.chassis||''),
-        model,
-        color:    String(r.color||'-').trim(),
-        year:     parseInt(String(r.year||0))||0,
-        price:    parseInt(String(r.price||0).replace(/[^0-9]/g,''))||0,
-        location: String(r.location||'-').trim(),
-        addedBy:  String(r.addedBy||'-').trim(),
-        imageUrl: fixImgUrl(String(r.imageUrl||''))
-      };
-    }).filter(r => r.chassis||r.model);
+    allCars = result.cars.map(r => ({
+      date:     String(r.date||''),
+      chassis:  String(r.chassis||''),
+      model:    String(r.model||'UNKNOWN').trim(),
+      color:    String(r.color||'-').trim(),
+      year:     parseInt(String(r.year||0))||0,
+      price:    parseInt(String(r.price||0).replace(/[^0-9]/g,''))||0,
+      location: String(r.location||'-').trim(),
+      addedBy:  String(r.addedBy||'-').trim(),
+      imageUrl: fixImgUrl(String(r.imageUrl||''))
+    })).filter(r => r.chassis||r.model);
 
     document.getElementById('liveCount').textContent = allCars.length;
     populateFilters();
@@ -1143,14 +1190,13 @@ function renderDashboard() {
   renderBrandGrid();
   renderBodyTypeGrid();
 
-  // Recent table — newest first
-  const recentSorted = [...allCars].sort((a,b) => parseDate(b.date) - parseDate(a.date));
+  // Recent table
   document.getElementById('recentCount').textContent = `Showing ${Math.min(50,allCars.length)} of ${allCars.length}`;
-  document.getElementById('recentTbl').innerHTML = recentSorted.slice(0,50).map(c=>`
+  document.getElementById('recentTbl').innerHTML = allCars.slice(0,50).map(c=>`
     <tr>
       <td>${c.date}</td>
       <td style="font-family:monospace;font-size:12px;font-weight:600">${c.chassis}</td>
-      <td style="font-weight:700;color:#E53935">${c.model}</td>
+      <td><strong>${c.model}</strong></td>
       <td>${c.color}</td>
       <td>${c.year||'-'}</td>
       <td style="font-weight:700;color:var(--primary)">${c.price>0?'฿'+c.price.toLocaleString():'-'}</td>
@@ -1177,8 +1223,8 @@ function renderBrandGrid() {
       <div style="width:48px;height:48px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto 8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
         <img src="${getBrandLogoUrl(brand)||''}" style="width:34px;height:34px;object-fit:contain" onerror="this.parentElement.innerHTML='<span style=font-size:18px;font-weight:800;color:${info.color}>${brand.charAt(0)}</span>'">
       </div>
-      <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:2px;letter-spacing:0.3px">${brand}</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${count} cars</div>
+      <div style="font-size:11px;font-weight:700;color:#fff">${brand}</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${count} cars</div>
     </div>`).join('');
 }
 
@@ -1198,7 +1244,7 @@ function renderBodyTypeGrid() {
       onmouseover="this.style.borderColor='${info.color}';this.style.background='${info.color}22'"
       onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--surface2)'">
       <div style="font-size:26px;margin-bottom:6px">${info.emoji}</div>
-      <div style="font-size:12px;font-weight:700;color:var(--text)">${type}</div>
+      <div style="font-size:12px;font-weight:700;color:#fff">${type}</div>
       <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${count} cars</div>
     </div>`).join('');
 }
@@ -1289,7 +1335,7 @@ function renderDashDrillDown() {
         onmouseout="this.style.borderColor='var(--border)';this.style.transform='none'">
         <div style="height:80px;background:linear-gradient(135deg,#0D1B2E,#162235);display:flex;align-items:center;justify-content:center;font-size:34px">🚗</div>
         <div style="padding:10px 12px">
-          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">${model}</div>
+          <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px">${model}</div>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span style="font-size:11px;background:${bc1Color}22;color:${bc1Color};padding:2px 7px;border-radius:10px">${count} cars</span>
             ${avg ? `<span style="font-size:11px;font-weight:700;color:var(--primary)">฿${avg.toLocaleString()}</span>` : ''}
@@ -1602,7 +1648,7 @@ function renderChassisTbl(filter='') {
   document.getElementById('chassisTbl').innerHTML = d.slice(0,100).map(c=>`
     <tr onclick="goLookup('${c.chassis}')" style="cursor:pointer">
       <td style="font-family:monospace;font-size:12px;font-weight:600">${c.chassis}</td>
-      <td style="font-weight:700;color:#E53935">${c.model}</td><td>${c.color}</td><td>${c.year||'-'}</td>
+      <td><strong>${c.model}</strong></td><td>${c.color}</td><td>${c.year||'-'}</td>
       <td style="font-weight:700;color:var(--primary)">${c.price>0?'฿'+c.price.toLocaleString():'-'}</td>
       <td>${c.date}</td><td>${c.location}</td>
     </tr>`).join('');
@@ -1650,8 +1696,351 @@ function lookupChassis() {
 
 function goLookup(chassis){switchTab('chassis');document.getElementById('chassisInput').value=chassis;lookupChassis();}
 
+// ── Monthly Best Seller ───────────────────────────────────
+function getMonthlyData() {
+  // Group cars by month: { '2026/04': { 'CROWN': 25, ... } }
+  const monthly = {};
+  allCars.forEach(c => {
+    if (!c.model || c.model.toUpperCase() === 'UNKNOWN') return;
+    const d = parseDate(c.date);
+    if (!d || d.getTime() === 0) return;
+    const key = d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0');
+    if (!monthly[key]) monthly[key] = {};
+    monthly[key][c.model] = (monthly[key][c.model] || 0) + 1;
+  });
+  return monthly;
+}
+
+function monthLabel(key) {
+  const [y, m] = key.split('/');
+  const names = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return names[parseInt(m)-1] + ' ' + y;
+}
+
+function renderMonthlyBestSeller() {
+  const sel = document.getElementById('mbsMonth');
+  if (!sel) return;
+  const monthly = getMonthlyData();
+  const months = Object.keys(monthly).sort().reverse();
+  if (!months.length) {
+    sel.innerHTML = '<option value="">No data</option>';
+    document.getElementById('mbsContent').innerHTML = '<div class="empty"><div class="ei">📭</div><p>No data</p></div>';
+    return;
+  }
+  // Preserve selection or use latest
+  const current = sel.value && monthly[sel.value] ? sel.value : months[0];
+  sel.innerHTML = months.map(m => {
+    const total = Object.values(monthly[m]).reduce((s,v)=>s+v,0);
+    return `<option value="${m}"${m===current?' selected':''}>${monthLabel(m)} (${total} cars)</option>`;
+  }).join('');
+  renderMonthlyBestSellerContent();
+  renderMissingModels();
+}
+
+function renderMonthlyBestSellerContent() {
+  const sel = document.getElementById('mbsMonth');
+  const el = document.getElementById('mbsContent');
+  if (!sel || !el) return;
+  const monthly = getMonthlyData();
+  const month = sel.value;
+  if (!month || !monthly[month]) { el.innerHTML = ''; return; }
+  const top = Object.entries(monthly[month]).sort((a,b)=>b[1]-a[1]).slice(0, 10);
+  const max = top[0]?.[1] || 1;
+  const total = Object.values(monthly[month]).reduce((s,v)=>s+v,0);
+  const unique = Object.keys(monthly[month]).length;
+
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div style="background:#FFF5F5;border:1px solid #FFCDD2;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;margin-bottom:4px">Total Cars</div>
+        <div style="font-size:22px;font-weight:800;color:#E53935">${total}</div>
+      </div>
+      <div style="background:#FFF5F5;border:1px solid #FFCDD2;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#888;text-transform:uppercase;margin-bottom:4px">Unique Models</div>
+        <div style="font-size:22px;font-weight:800;color:#E53935">${unique}</div>
+      </div>
+    </div>`;
+
+  const rankHtml = top.map(([model, count], i) => {
+    const pct = Math.round(count/max*100);
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'#'+(i+1);
+    const color = i===0?'#FFB300':i===1?'#B0BEC5':i===2?'#D84315':'#E53935';
+    return `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px 10px;background:${i<3?color+'12':'#FAFAFA'};border-radius:8px;border:1px solid ${i<3?color+'33':'#F0F0F0'}">
+        <div style="font-size:${i<3?16:12}px;font-weight:800;color:${color};width:30px;text-align:center;flex-shrink:0">${medal}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:#1A1A1A;margin-bottom:3px">${model}</div>
+          <div style="background:#F0F0F0;border-radius:3px;height:5px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,${color},${color}AA);border-radius:3px;transition:width 0.6s"></div>
+          </div>
+        </div>
+        <div style="font-size:14px;font-weight:800;color:${color};width:36px;text-align:right;flex-shrink:0;font-family:monospace">${count}</div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = statsHtml + rankHtml;
+}
+
+// Re-render rank on month change
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.id === 'mbsMonth') {
+    renderMonthlyBestSellerContent();
+    renderMissingModels();
+  }
+});
+
+// ── Missing Models ────────────────────────────────────────
+function renderMissingModels() {
+  const el = document.getElementById('missingModelsContent');
+  const sel = document.getElementById('mbsMonth');
+  if (!el || !sel) return;
+  const monthly = getMonthlyData();
+  const months = Object.keys(monthly).sort().reverse();
+  const current = sel.value;
+  const idx = months.indexOf(current);
+  if (idx === -1) { el.innerHTML = ''; return; }
+  const pastMonths = months.slice(idx+1, idx+4); // 3 older months
+
+  if (!pastMonths.length) {
+    el.innerHTML = '<div class="empty"><div class="ei">📭</div><p>ပြီးခဲ့တဲ့လ data မရှိ</p></div>';
+    return;
+  }
+
+  const currentModels = new Set(Object.keys(monthly[current] || {}));
+  const missing = {};
+  pastMonths.forEach(m => {
+    Object.entries(monthly[m] || {}).forEach(([model, count]) => {
+      if (!currentModels.has(model)) {
+        if (!missing[model]) missing[model] = { months: [], total: 0 };
+        missing[model].months.push({ m, count });
+        missing[model].total += count;
+      }
+    });
+  });
+  const list = Object.entries(missing).sort((a,b)=>b[1].total-a[1].total);
+
+  const header = `
+    <div style="background:#FFF9E6;border:1px solid #FFE082;border-radius:8px;padding:10px 12px;margin-bottom:12px">
+      <div style="font-size:11px;color:#795548;line-height:1.5">
+        ပြီးခဲ့တဲ့ <strong>${pastMonths.length} လ (${pastMonths.map(m=>monthLabel(m).split(' ')[0]).join(', ')})</strong> မှာ ပေါ်ပြီး
+        <br><strong>${monthLabel(current)}</strong> မှာ မပေါ်တော့တဲ့ ကားများ
+      </div>
+    </div>`;
+
+  if (!list.length) {
+    el.innerHTML = header + '<div class="empty"><div class="ei">✅</div><p>ပျောက်သွားတဲ့ model မရှိပါ</p></div>';
+    return;
+  }
+
+  const rows = list.map(([model, data]) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#FFF5F5;border-radius:8px;margin-bottom:8px;border:1px solid #FFCDD2">
+      <div style="font-size:18px;flex-shrink:0">⚠️</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:#1A1A1A;margin-bottom:2px">${model}</div>
+        <div style="font-size:10px;color:#888">Last seen: ${data.months.map(mo => monthLabel(mo.m).split(' ')[0]+' ('+mo.count+')').join(' · ')}</div>
+      </div>
+      <div style="background:#E53935;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;flex-shrink:0">${data.total} total</div>
+    </div>`).join('');
+
+  el.innerHTML = header + rows;
+}
+
+// ── Price Analysis (SMA) ──────────────────────────────────
+let paShowSMA10 = true, paShowSMA20 = true, paChart = null;
+
+function renderPriceAnalysisSetup() {
+  const sel = document.getElementById('paModel');
+  if (!sel) return;
+  // Get models with at least 5 priced entries
+  const modelCounts = {};
+  allCars.forEach(c => {
+    if (c.model && c.model.toUpperCase() !== 'UNKNOWN' && c.price > 0) {
+      modelCounts[c.model] = (modelCounts[c.model] || 0) + 1;
+    }
+  });
+  const models = Object.entries(modelCounts).filter(([_,n])=>n>=5).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
+  const current = sel.value;
+  sel.innerHTML = '<option value="">-- Model ရွေးပါ --</option>' +
+    models.map(m => `<option value="${m}"${m===current?' selected':''}>${m} (${modelCounts[m]} cars)</option>`).join('');
+}
+
+function paToggleSMA(period) {
+  if (period === 10) {
+    paShowSMA10 = !paShowSMA10;
+    const btn = document.getElementById('paBtnSMA10');
+    if (paShowSMA10) { btn.style.background='#1976D2'; btn.style.color='#fff'; btn.innerHTML='● SMA 10'; }
+    else { btn.style.background='#F5F5F5'; btn.style.color='#666'; btn.innerHTML='○ SMA 10'; btn.style.border='1px solid #DDD'; }
+  } else {
+    paShowSMA20 = !paShowSMA20;
+    const btn = document.getElementById('paBtnSMA20');
+    if (paShowSMA20) { btn.style.background='#E53935'; btn.style.color='#fff'; btn.innerHTML='● SMA 20'; }
+    else { btn.style.background='#F5F5F5'; btn.style.color='#666'; btn.innerHTML='○ SMA 20'; btn.style.border='1px solid #DDD'; }
+  }
+  renderPriceAnalysis();
+}
+
+function renderPriceAnalysis() {
+  const sel = document.getElementById('paModel');
+  const model = sel?.value;
+  const empty = document.getElementById('paEmpty');
+  const chartWrap = document.getElementById('paChartWrap');
+  const insight = document.getElementById('paInsight');
+  const stats = document.getElementById('paStats');
+  const controls = document.getElementById('paControls');
+
+  if (!model) {
+    empty.style.display = 'block';
+    chartWrap.style.display = 'none';
+    insight.style.display = 'none';
+    stats.style.display = 'none';
+    controls.style.display = 'none';
+    return;
+  }
+
+  // Collect & aggregate by day
+  const dayMap = {};
+  allCars.filter(c => c.model === model && c.price > 0).forEach(c => {
+    const d = parseDate(c.date);
+    if (!d || d.getTime() === 0) return;
+    const key = d.toISOString().slice(0,10);
+    if (!dayMap[key]) dayMap[key] = [];
+    dayMap[key].push(c.price);
+  });
+  const days = Object.keys(dayMap).sort();
+  if (days.length < 2) {
+    empty.style.display = 'block';
+    chartWrap.style.display = 'none';
+    insight.style.display = 'none';
+    stats.style.display = 'none';
+    controls.style.display = 'none';
+    empty.innerHTML = '<div style="font-size:32px;margin-bottom:6px">📊</div><div style="font-size:12px">Data မလုံလောက်ပါ (2+ ရက် လိုအပ်)</div>';
+    return;
+  }
+  const data = days.map(d => ({
+    date: d,
+    price: Math.round(dayMap[d].reduce((s,p)=>s+p,0)/dayMap[d].length),
+    count: dayMap[d].length,
+  }));
+
+  // SMA calc
+  const sma = (period) => data.map((_, i) => {
+    if (i < period-1) return null;
+    const slice = data.slice(i-period+1, i+1);
+    return Math.round(slice.reduce((s,x)=>s+x.price,0)/period);
+  });
+  const sma10 = sma(10), sma20 = sma(20);
+
+  // Stats
+  const prices = data.map(d=>d.price);
+  const latest = prices[prices.length-1];
+  const sma10L = sma10[sma10.length-1];
+  const sma20L = sma20[sma20.length-1];
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const avg = Math.round(prices.reduce((s,p)=>s+p,0)/prices.length);
+  const total = data.reduce((s,d)=>s+d.count,0);
+
+  // Trend
+  let trend = 'SIDEWAYS', tColor = '#F57F17', tIcon = '→ STABLE', tMsg = 'ဈေးတည်ငြိမ်';
+  if (sma10L && sma20L) {
+    if (latest > sma10L && sma10L > sma20L) { trend='UP'; tColor='#2E7D32'; tIcon='↗ UPTREND'; tMsg='ဈေးတက်နေ — ရောင်းဖို့ ကောင်းတဲ့အချိန်'; }
+    else if (latest < sma10L && sma10L < sma20L) { trend='DOWN'; tColor='#E53935'; tIcon='↘ DOWNTREND'; tMsg='ဈေးကျနေ — ဝယ်ဖို့ စောင့်'; }
+  }
+
+  // Show sections
+  empty.style.display = 'none';
+  chartWrap.style.display = 'block';
+  insight.style.display = 'block';
+  stats.style.display = 'block';
+  controls.style.display = 'flex';
+
+  insight.innerHTML = `
+    <div style="background:#fff;border-left:4px solid ${tColor};border-radius:8px;padding:14px;border:1px solid #E8E8E8">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="background:${tColor}15;border:1px solid ${tColor}44;border-radius:8px;padding:8px 14px">
+          <div style="font-size:15px;font-weight:800;color:${tColor}">${tIcon}</div>
+          <div style="font-size:10px;color:${tColor};margin-top:2px">${tMsg}</div>
+        </div>
+        <div style="flex:1;min-width:130px">
+          <div style="font-size:9px;color:#888;text-transform:uppercase">Current</div>
+          <div style="font-size:22px;font-weight:800;color:#1A1A1A">฿${latest.toLocaleString()}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;font-size:11px">
+        <div style="background:#E3F2FD;border:1px solid #90CAF9;border-radius:6px;padding:6px 10px">
+          <div style="color:#888;font-size:9px;text-transform:uppercase">SMA 10</div>
+          <div style="font-weight:700;color:#1976D2">${sma10L?'฿'+sma10L.toLocaleString():'-'}</div>
+        </div>
+        <div style="background:#FFEBEE;border:1px solid #FFCDD2;border-radius:6px;padding:6px 10px">
+          <div style="color:#888;font-size:9px;text-transform:uppercase">SMA 20</div>
+          <div style="font-weight:700;color:#E53935">${sma20L?'฿'+sma20L.toLocaleString():'-'}</div>
+        </div>
+      </div>
+    </div>`;
+
+  stats.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+      ${[
+        {l:'Total',v:total,c:'#E53935'},
+        {l:'Avg',v:'฿'+Math.round(avg/1000)+'K',c:'#2E7D32'},
+        {l:'Min',v:'฿'+Math.round(min/1000)+'K',c:'#1976D2'},
+        {l:'Max',v:'฿'+Math.round(max/1000)+'K',c:'#F57F17'}
+      ].map(s=>`
+        <div style="background:#fff;border-radius:8px;border:1px solid #E8E8E8;padding:8px 6px;text-align:center;border-top:3px solid ${s.c}">
+          <div style="font-size:9px;color:#888;text-transform:uppercase;margin-bottom:2px">${s.l}</div>
+          <div style="font-size:13px;font-weight:800;color:${s.c}">${s.v}</div>
+        </div>`).join('')}
+    </div>`;
+
+  // Chart
+  if (paChart) { try { paChart.destroy(); } catch(e){} }
+  const labels = data.map(d => {
+    const dt = new Date(d.date);
+    return (dt.getMonth()+1) + '/' + dt.getDate();
+  });
+  const datasets = [
+    {
+      type:'line', label:'Price', data: prices,
+      borderColor:'#1A1A1A', backgroundColor:'rgba(229,57,53,0.15)',
+      borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 4,
+      tension: 0.3, fill: true, order: 3,
+    }
+  ];
+  if (paShowSMA10) datasets.push({
+    type:'line', label:'SMA 10', data: sma10,
+    borderColor:'#1976D2', borderWidth: 1.8, pointRadius: 0,
+    tension: 0.4, fill: false, order: 2, spanGaps: true,
+  });
+  if (paShowSMA20) datasets.push({
+    type:'line', label:'SMA 20', data: sma20,
+    borderColor:'#E53935', borderWidth: 1.8, pointRadius: 0,
+    tension: 0.4, fill: false, order: 1, spanGaps: true,
+  });
+
+  paChart = new Chart(document.getElementById('paChart'), {
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { color: '#555', boxWidth: 12, font: { family: 'Outfit' } } },
+        tooltip: {
+          backgroundColor: '#1A1A1A', borderColor: '#E53935', borderWidth: 1,
+          titleColor: '#fff', bodyColor: '#fff', padding: 10,
+          callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ฿' + (ctx.parsed.y||0).toLocaleString() }
+        }
+      },
+      scales: {
+        y: { grid: { color: '#F0F0F0' }, ticks: { color: '#888', callback: v => '฿'+Math.round(v/1000)+'K' } },
+        x: { grid: { display: false }, ticks: { color: '#888', maxRotation: 30, font: { size: 10 } } }
+      }
+    }
+  });
+}
+
 function renderTrends() {
   renderLocationActivity();
+  renderMonthlyBestSeller();
+  renderPriceAnalysisSetup();
   const mm={};
   allCars.forEach(c=>{
     const p=String(c.date).split('/');
@@ -1787,15 +2176,6 @@ function toggleSidebar() {
 }
 // Close sidebar when nav item clicked on mobile
 document.querySelectorAll('.nav-item').forEach(el => {
-  el.addEventListener('click', () => {
-    if(window.innerWidth <= 900) {
-      const sidebar = document.querySelector('.sidebar');
-      if(sidebar.classList.contains('open')) toggleSidebar();
-    }
-  });
-});
-// Close sidebar when tab clicked on mobile
-document.querySelectorAll('.tab').forEach(el => {
   el.addEventListener('click', () => {
     if(window.innerWidth <= 900) {
       const sidebar = document.querySelector('.sidebar');
