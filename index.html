@@ -409,19 +409,17 @@ select:focus{border-color:var(--primary);}
 <div class="main">
   <header class="header">
     <button id="mobileMenuBtn" onclick="toggleSidebar()">☰</button>
-    <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-      <div style="font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:700;color:var(--primary);white-space:nowrap;display:none" class="desktop-only">🚗 Japan Auction Car Checker</div>
-      <div style="color:var(--border);display:none" class="desktop-only">|</div>
-      <div class="header-title" id="headerTitle" style="font-size:14px">Dashboard <span>Overview</span></div>
+    <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+      <div style="width:38px;height:38px;background:linear-gradient(135deg,#E53935,#C62828);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px;box-shadow:0 3px 10px rgba(229,57,53,0.3);flex-shrink:0">🚗</div>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:9.5px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;line-height:1;margin-bottom:2px">Japan Auction</div>
+        <div style="font-size:16px;font-weight:800;color:#1A1A1A;letter-spacing:-0.3px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Car <span style="color:var(--primary)">Checker</span></div>
+      </div>
     </div>
-    <div class="search-box">
-      <span style="color:var(--gray3)">🔍</span>
-      <input type="text" placeholder="Search model, chassis, color..." id="globalSearch" oninput="debouncedSearch()">
-    </div>
-    <div style="display:flex;align-items:center;gap:10px">
-      <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--success);font-weight:600"><span class="live-dot"></span>Live</span>
-      <button class="btn btn-outline btn-sm" onclick="exportCSV()">↓ CSV</button>
-      <button class="btn btn-primary btn-sm" onclick="refreshData()">🔄 Refresh</button>
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--success);font-weight:600"><span class="live-dot"></span><span class="desktop-only">Live</span></span>
+      <button class="btn btn-outline btn-sm desktop-only" onclick="exportCSV()">↓ CSV</button>
+      <button class="btn btn-primary btn-sm" onclick="refreshData()">🔄 <span class="desktop-only">Refresh</span></button>
     </div>
   </header>
 
@@ -948,14 +946,26 @@ function updateUserBar() {
   if (!SESSION) return;
   const pkg = (SESSION.package === 'WEB' || SESSION.package === 'WEB-PROMO') ? '📱+🌐 CH+Web' : '📱 CH Only';
   document.querySelector('.sidebar-footer').innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px">
-      <div class="user-avatar">${(SESSION.username||'?').charAt(0).toUpperCase()}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@${SESSION.username||''}</div>
-        <div style="font-size:10px;color:var(--gray3)">${pkg} · ကုန်: ${SESSION.expireDate||''}</div>
+    <button onclick="doLogout()" style="width:100%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.25);border-radius:8px;padding:8px;font-size:12px;color:#fff;cursor:pointer;font-family:inherit;font-weight:600;margin-bottom:10px">🚪 Logout</button>
+    <div style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:10px 12px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <div class="user-avatar" style="background:#fff;color:#E53935">${(SESSION.username||'?').charAt(0).toUpperCase()}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:10px;color:#FFE0E0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Account</div>
+          <div style="font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@${SESSION.username||''}</div>
+        </div>
       </div>
-    </div>
-    <button onclick="doLogout()" style="margin-top:10px;width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px;font-size:11px;color:rgba(255,255,255,0.5);cursor:pointer;font-family:inherit">🚪 Logout</button>`;
+      <div style="border-top:1px solid rgba(255,255,255,0.15);padding-top:8px;display:flex;flex-direction:column;gap:5px">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px">
+          <span style="color:#FFE0E0">📦 Package</span>
+          <strong style="color:#fff">${pkg}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px">
+          <span style="color:#FFE0E0">⏰ ကုန်ဆုံး</span>
+          <strong style="color:#FFEB3B">${SESSION.expireDate||'-'}</strong>
+        </div>
+      </div>
+    </div>`;
 }
 
 // ── Logout ────────────────────────────────────────────────
@@ -2087,7 +2097,9 @@ function renderMembers() {
 }
 
 function globalSearchFn() {
-  const q=document.getElementById('globalSearch').value.toLowerCase(); if(!q)return;
+  const el = document.getElementById('globalSearch');
+  if (!el) return;
+  const q = el.value.toLowerCase(); if(!q)return;
   switchTab('explorer');
   const r=allCars.filter(c=>c.model.toLowerCase().includes(q)||c.chassis.toLowerCase().includes(q)||c.color.toLowerCase().includes(q)||c.location.toLowerCase().includes(q));
   document.getElementById('explorerCount').textContent=r.length+' results for "'+q+'"';
