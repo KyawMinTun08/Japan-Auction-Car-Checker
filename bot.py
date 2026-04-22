@@ -38,9 +38,9 @@ PLAN_CH_1M  = int(os.environ.get('PLAN_CH_1M',  '15000'))
 PLAN_CH_2M  = int(os.environ.get('PLAN_CH_2M',  '30000'))
 PLAN_CH_3M  = int(os.environ.get('PLAN_CH_3M',  '40000'))
 PLAN_CH_5M  = int(os.environ.get('PLAN_CH_5M',  '70000'))
-PLAN_WEB_1M = int(os.environ.get('PLAN_WEB_1M', '20000'))
-PLAN_WEB_2M = int(os.environ.get('PLAN_WEB_2M', '40000'))
-PLAN_WEB_3M = int(os.environ.get('PLAN_WEB_3M', '45000'))
+PLAN_WEB_1M = int(os.environ.get('PLAN_WEB_1M', '30000'))
+PLAN_WEB_2M = int(os.environ.get('PLAN_WEB_2M', '55000'))
+PLAN_WEB_3M = int(os.environ.get('PLAN_WEB_3M', '80000'))
 PAYMENT_INFO = os.environ.get('PAYMENT_INFO', 'KPay / Wave: ဆက်သွယ်ရန် @' + ADMIN_USERNAME)
 
 # ── Promo Codes: "CODE:days:maxuses,CODE2:days:maxuses" ──
