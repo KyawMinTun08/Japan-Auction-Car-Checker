@@ -1,0 +1,13 @@
+{
+  "background_color": "#ffffff",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "Japan Auction Car Checker",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "JACC",
+  "start_url": "/",
+  "theme_color": "#e53935",
+  "id": "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/",
+  "description": "Japan car auction tracker for MaeSot Auction Car . Check prices, models, and chassis info."
+}
