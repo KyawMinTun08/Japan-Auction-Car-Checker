@@ -2354,23 +2354,29 @@ function renderPriceHistory() {
 }
 
 function renderPhMonth(data, label, year) {
-  // Group by YYYY/MM
+  // Group by YYYY/MM — store full car objects so modal can display them
   const groups = {};
   data.forEach(c => {
     const d = phParseDate(c.date);
     if (!d) return;
     const key = d.y + '/' + String(d.m).padStart(2,'0');
     if (!groups[key]) groups[key] = [];
-    groups[key].push(c.price);
+    groups[key].push(c);
   });
 
   const sorted   = Object.keys(groups).sort();
   const labels   = sorted;
   const avgs     = sorted.map(k => {
-    const arr = groups[k];
-    return Math.round(arr.reduce((a,b)=>a+b,0)/arr.length);
+    const prices = groups[k].map(c => c.price).filter(p => p > 0);
+    if (!prices.length) return 0;
+    return Math.round(prices.reduce((a,b)=>a+b,0)/prices.length);
   });
   const counts   = sorted.map(k => groups[k].length);
+
+  // Store last period cars globally for modal access
+  const lastKey  = sorted[sorted.length-1];
+  window._phModalCars  = lastKey ? groups[lastKey] : [];
+  window._phModalTitle = `${label}${year ? ' '+year : ''} — ${lastKey || ''}`;
 
   // Trend
   const last  = avgs[avgs.length-1] || 0;
@@ -2399,7 +2405,9 @@ function renderPhMonth(data, label, year) {
         <div style="font-size:11px;color:${tcolor};margin-top:2px">${diff !== 0 ? (diff > 0 ? '+' : '') + '฿' + Math.abs(diff).toLocaleString() + ' vs prev month' : 'ဈေးတည်ငြိမ်'}</div>
       </div>
       <div style="color:#8899BB;font-size:12px">
-        📅 <b style="color:#fff">${mName}</b> — ${lastCount} listings recorded<br>
+        <span onclick="openListingsModal()" style="cursor:pointer;display:inline-block;padding:4px 8px;margin:-4px -8px;border-radius:6px;transition:background 0.2s" onmouseover="this.style.background='rgba(229,57,53,0.1)'" onmouseout="this.style.background='transparent'">
+          📅 <b style="color:#fff">${mName}</b> — <u style="color:#E53935">${lastCount} listings recorded</u> 🔽
+        </span><br>
         ${diff > 0 ? `<span style="color:#10B981">${mName} prices rising</span>` : diff < 0 ? `<span style="color:#EF4444">${mName} prices falling</span>` : `<span style="color:#F59E0B">Prices stable</span>`}
       </div>
     </div>`;
@@ -2465,21 +2473,27 @@ function renderPhMonth(data, label, year) {
 }
 
 function renderPhYear(data, label) {
-  // Group by year → monthly avg → yearly avg
+  // Group by year — store full car objects so modal can display them
   const yGroups = {};
   data.forEach(c => {
     const d = phParseDate(c.date);
     if (!d || !d.y) return;
     if (!yGroups[d.y]) yGroups[d.y] = [];
-    yGroups[d.y].push(c.price);
+    yGroups[d.y].push(c);
   });
 
   const sorted = Object.keys(yGroups).sort();
   const avgs   = sorted.map(y => {
-    const arr = yGroups[y];
-    return Math.round(arr.reduce((a,b)=>a+b,0)/arr.length);
+    const prices = yGroups[y].map(c => c.price).filter(p => p > 0);
+    if (!prices.length) return 0;
+    return Math.round(prices.reduce((a,b)=>a+b,0)/prices.length);
   });
   const counts = sorted.map(y => yGroups[y].length);
+
+  // Store last year cars globally for modal access
+  const lastKey = sorted[sorted.length-1];
+  window._phModalCars  = lastKey ? yGroups[lastKey] : [];
+  window._phModalTitle = `${label} — ${lastKey || ''}`;
 
   const last  = avgs[avgs.length-1] || 0;
   const prev  = avgs[avgs.length-2] || last;
@@ -2499,7 +2513,9 @@ function renderPhYear(data, label) {
         <div style="font-size:11px;color:${tcolor};margin-top:2px">${diff !== 0 ? (diff > 0 ? '+' : '') + '฿' + Math.abs(diff).toLocaleString() + ' vs prev year' : 'ဈေးတည်ငြိမ်'}</div>
       </div>
       <div style="color:#8899BB;font-size:12px">
-        📆 <b style="color:#fff">${lastYear}</b> — ${counts[counts.length-1]} listings recorded<br>
+        <span onclick="openListingsModal()" style="cursor:pointer;display:inline-block;padding:4px 8px;margin:-4px -8px;border-radius:6px;transition:background 0.2s" onmouseover="this.style.background='rgba(229,57,53,0.1)'" onmouseout="this.style.background='transparent'">
+          📆 <b style="color:#fff">${lastYear}</b> — <u style="color:#E53935">${counts[counts.length-1]} listings recorded</u> 🔽
+        </span><br>
         ${diff > 0 ? `<span style="color:#10B981">${lastYear} yearly prices rising</span>` : diff < 0 ? `<span style="color:#EF4444">${lastYear} yearly prices falling</span>` : `<span style="color:#F59E0B">Yearly prices stable</span>`}
       </div>
     </div>`;
@@ -2576,5 +2592,78 @@ if ('serviceWorker' in navigator) {
   });
 }
 </script>
+<!-- ── LISTINGS DRILL-DOWN MODAL ── -->
+<div id="phListingsModal" onclick="if(event.target===this) closeListingsModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;width:100%;max-width:520px;max-height:85vh;border-radius:20px 20px 0 0;overflow:hidden;display:flex;flex-direction:column;animation:phSlideUp 0.25s ease">
+    <div style="background:linear-gradient(135deg,#C62828,#B71C1C);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div id="phModalTitle" style="font-size:15px;font-weight:700">Listings</div>
+        <div id="phModalSubtitle" style="font-size:12px;opacity:0.85;margin-top:2px"></div>
+      </div>
+      <button onclick="closeListingsModal()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;width:32px;height:32px;border-radius:50%;font-size:20px;cursor:pointer;line-height:1">×</button>
+    </div>
+    <div id="phModalBody" style="overflow-y:auto;padding:14px;background:#FAFAFA;flex:1"></div>
+  </div>
+</div>
+<style>
+@keyframes phSlideUp { from { transform:translateY(100%); } to { transform:translateY(0); } }
+</style>
+<script>
+function openListingsModal() {
+  const cars = window._phModalCars || [];
+  if (!cars.length) { alert('No listings to show'); return; }
+
+  const title = window._phModalTitle || 'Listings';
+  const prices = cars.map(c => c.price).filter(p => p > 0);
+  const avg = prices.length ? Math.round(prices.reduce((a,b)=>a+b,0)/prices.length) : 0;
+
+  document.getElementById('phModalTitle').textContent = title;
+  document.getElementById('phModalSubtitle').textContent =
+    `${cars.length} cars • Avg ฿${avg.toLocaleString()}`;
+
+  // Sort by price DESC
+  const sorted = [...cars].sort((a,b) => (b.price||0) - (a.price||0));
+
+  document.getElementById('phModalBody').innerHTML = sorted.map(c => `
+    <div style="background:#fff;border-radius:12px;padding:14px;margin-bottom:10px;border-left:4px solid #E53935;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px">
+        <div style="font-family:monospace;font-weight:700;font-size:14px;color:#222;word-break:break-all">${c.chassis||'-'}</div>
+        <div style="background:#E53935;color:#fff;padding:4px 10px;border-radius:8px;font-weight:700;font-size:13px;white-space:nowrap">${c.price>0?'฿'+c.price.toLocaleString():'N/A'}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+        <div>
+          <div style="color:#999;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Model</div>
+          <div style="color:#222;font-weight:600;margin-top:2px">${c.model||'-'}</div>
+        </div>
+        <div>
+          <div style="color:#999;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Year</div>
+          <div style="color:#222;font-weight:600;margin-top:2px">${c.year||'-'}</div>
+        </div>
+        <div>
+          <div style="color:#999;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Color</div>
+          <div style="color:#222;font-weight:600;margin-top:2px">${c.color||'-'}</div>
+        </div>
+        <div>
+          <div style="color:#999;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Date</div>
+          <div style="color:#222;font-weight:600;margin-top:2px">${c.date||'-'}</div>
+        </div>
+      </div>
+      ${c.location ? `<span style="display:inline-block;background:#E3F2FD;color:#1976D2;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-top:8px">📍 ${c.location}</span>` : ''}
+      <button onclick="closeListingsModal(); goLookup('${(c.chassis||'').replace(/'/g,'')}')" style="float:right;margin-top:6px;padding:5px 12px;border:none;background:#E53935;color:#fff;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">View →</button>
+      <div style="clear:both"></div>
+    </div>
+  `).join('');
+
+  const m = document.getElementById('phListingsModal');
+  m.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeListingsModal() {
+  document.getElementById('phListingsModal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+</script>
+
 </body>
 </html>
