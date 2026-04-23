@@ -5481,9 +5481,37 @@ async def main():
     except Exception as e:
         logger.error(f"set_my_commands error: {e}")
 
+    # ── Startup Notification to Admins ───────────────────
+    startup_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    startup_msg = (
+        f"🟢 *Bot ပြန်စတင်ပြီ*\n\n"
+        f"⏰ {startup_time}\n"
+        f"🤖 Model: `{GEMINI_MODEL}`\n"
+        f"📦 Cars in memory: {len(CARS)}\n"
+        f"👑 Admin IDs: {len(ADMIN_IDS)}"
+    )
+    for admin_id in ADMIN_IDS:
+        try:
+            await app.bot.send_message(
+                chat_id=admin_id,
+                text=startup_msg,
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.warning(f"Startup notify {admin_id} failed: {e}")
+
     await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
     logger.info("Bot polling!")
     await asyncio.Event().wait()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user (Ctrl+C)")
+    except Exception as e:
+        # Catastrophic crash — log with full traceback for Railway logs
+        import traceback
+        logger.error(f"FATAL CRASH: {e}")
+        logger.error(traceback.format_exc())
+        # Re-raise so Railway detects failure and triggers auto-restart
+        raise
