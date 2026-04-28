@@ -2839,7 +2839,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         info['price'], user_name, info.get('image_url',''), info.get('loc', LOC_MAESOT))
         await query.message.reply_text(
             f"✅ *Save ပြီး!*\n\n🚗 {info['model']} ({ys(info.get('year',0))})\n"
-            f"🔑 `{info['chassis']}`\n📍 {info.get('loc', LOC_MAESOT)}\n💰 ฿{info['price']:,}\n\n"
+            f"🔑 `{info['chassis']}`\n🎨 {info.get('color','')}\n📍 {info.get('loc', LOC_MAESOT)}\n💰 ฿{info['price']:,}\n\n"
             f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)",
             parse_mode='Markdown')
         await post_to_channel(context, info['chassis'], info['model'], info['color'],
