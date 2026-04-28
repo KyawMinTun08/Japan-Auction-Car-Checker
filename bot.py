@@ -2692,6 +2692,39 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⏳ 1 Month Temp Ban ချမှတ်ပြီ")
         return
 
+    # ── ✅ Customer T&C Agree / Disagree ──
+    if data.startswith("cust_tc_agree_"):
+        user_id_str = data.replace("cust_tc_agree_", "")
+        if str(query.from_user.id) != user_id_str:
+            await query.answer("❌ သင့် button မဟုတ်ဘူး", show_alert=True)
+            return
+        user_id_int = int(user_id_str)
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🏆 လေလံဆွဲရန်", callback_data=f"reqtype_auction_{user_id_int}"),
+            InlineKeyboardButton("🔍 ကားရှာရန်",   callback_data=f"reqtype_search_{user_id_int}"),
+        ]])
+        await query.edit_message_text(
+            "✅ *သဘောတူပြီ!*\n\n"
+            "🚗 *ကားဝန်ဆောင်မှု*\n\n"
+            "🏆 *လေလံဆွဲရန်* — Auction ကားဝယ်ယူရန် (Deposit ฿20,000 လိုအပ်)\n"
+            "🔍 *ကားရှာရန်* — ကားရှာဖွေပေးမည်\n\n"
+            "ဝန်ဆောင်မှု ရွေးချယ်ပါ 👇",
+            parse_mode='Markdown',
+            reply_markup=kb)
+        return
+
+    if data.startswith("cust_tc_disagree_"):
+        user_id_str = data.replace("cust_tc_disagree_", "")
+        if str(query.from_user.id) != user_id_str:
+            await query.answer("❌ သင့် button မဟုတ်ဘူး", show_alert=True)
+            return
+        await query.edit_message_text(
+            "❌ *သဘောမတူဘူး*\n\n"
+            "Customer T&C သဘောမတူသောကြောင့် ကားရှာ Service ဆက်လုပ်၍ မရပါ\n\n"
+            "သဘောပြောင်းပါက /carrequest ထပ်နှိပ်ပါ",
+            parse_mode='Markdown')
+        return
+
     # ── ✅ T&C Agree / Disagree ──
     if data.startswith("tc_agree_"):
         user_id = data.replace("tc_agree_", "")
@@ -2742,8 +2775,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"② Bot ထဲမှာပဲ ဆက်သွယ်ရမည်\n"
             f"③ Condition Report မှန်ကန်စွာ ပေးရမည်\n"
             f"④ Photo အနည်းဆုံး ၁၀ ပုံ ပေးရမည်\n"
-            f"⑤ Platform ပြင်ပ Deal = Lifetime Ban\n"
-            f"⑥ Rating 1 × 3 = Permanent Ban\n\n"
+            f"⑤ ကားနဲ့ ပတ်သက်ပြီး အမှားအယွင်း မဖြစ်အောင် လုပ်ဆောင်ပေးရမည်\n"
+            f"⑥ အမှားအယွင်း ဖြစ်ပေါ်ပါက Admin စိစစ်၍ Admin ၏ အဆုံးအဖြတ်ကို လိုက်နာရမည်\n"
+            f"⑦ Platform ပြင်ပ Deal = Lifetime Ban\n"
+            f"⑧ Rating 1 × 3 = Permanent Ban\n\n"
             f"သဘောတူမတူ အောက်က Button နှိပ်ပါ 👇"
         )
         kb = InlineKeyboardMarkup([[
@@ -4122,8 +4157,10 @@ async def brokerstart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"② Bot ထဲမှာပဲ ဆက်သွယ်ရမည်\n"
         f"③ Condition Report မှန်ကန်စွာ ပေးရမည်\n"
         f"④ Photo အနည်းဆုံး ၁၀ ပုံ ပေးရမည်\n"
-        f"⑤ Platform ပြင်ပ Deal = Lifetime Ban\n"
-        f"⑥ Rating 1 × 3 = Permanent Ban\n\n"
+        f"⑤ ကားနဲ့ ပတ်သက်ပြီး အမှားအယွင်း မဖြစ်အောင် လုပ်ဆောင်ပေးရမည်\n"
+        f"⑥ အမှားအယွင်း ဖြစ်ပေါ်ပါက Admin စိစစ်၍ Admin ၏ အဆုံးအဖြတ်ကို လိုက်နာရမည်\n"
+        f"⑦ Platform ပြင်ပ Deal = Lifetime Ban\n"
+        f"⑧ Rating 1 × 3 = Permanent Ban\n\n"
         f"သဘောတူမတူ အောက်က Button နှိပ်ပါ 👇"
     )
     kb = InlineKeyboardMarkup([[
@@ -4216,14 +4253,22 @@ async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🏆 လေလံဆွဲရန်", callback_data=f"reqtype_auction_{user_id}"),
-        InlineKeyboardButton("🔍 ကားရှာရန်",   callback_data=f"reqtype_search_{user_id}"),
+        InlineKeyboardButton("✅ သဘောတူပါတယ်", callback_data=f"cust_tc_agree_{user_id}"),
+        InlineKeyboardButton("❌ သဘောမတူပါ",    callback_data=f"cust_tc_disagree_{user_id}"),
     ]])
     await update.message.reply_text(
-        "🚗 *ကားဝန်ဆောင်မှု*\n\n"
-        "🏆 *လေလံဆွဲရန်* — Auction ကားဝယ်ယူရန် (Deposit ฿20,000 လိုအပ်)\n"
-        "🔍 *ကားရှာရန်* — ကားရှာဖွေပေးမည်\n\n"
-        "ဝန်ဆောင်မှု ရွေးချယ်ပါ 👇",
+        "📜 *Japan Auction Car Checker*\n"
+        "*— Customer စည်းကမ်းချက်များ —*\n\n"
+        "① Customer အနေဖြင့် ကားဝယ်ယူရန် သေချာမှသာ "
+        "*ကားရှာမည်* ကို နှိပ်ပေးပါ\n\n"
+        "② Customer အနေဖြင့် မိမိ၏ လိုအပ်ချက်များကို "
+        "Broker အား အသေးစိတ် ပြောပြပေးပါ\n\n"
+        "③ ကားယူပြီး *Cancel မလုပ်ဖို့* မေတ္တာရပ်ခံပါသည်\n\n"
+        "④ ဆက်သွယ်ရာတွင် *စာသား* ဖြင့် အဓိက ဆက်သွယ်ပေးစေချင်ပါသည် — "
+        "အမှားအယွင်း ဖြစ်ပါက သက်သေအဖြစ် ပြသနိုင်ရန်\n\n"
+        "⑤ ကားဝယ်ယူရာတွင် အမှားအယွင်း ဖြစ်ပေါ်လာပါက "
+        "Admin ၏ စိစစ်ချက်ကို လက်ခံပေးရမည် ဖြစ်ပါသည်\n\n"
+        "သဘောတူမတူ အောက်က Button နှိပ်ပါ 👇",
         parse_mode='Markdown',
         reply_markup=kb)
 
