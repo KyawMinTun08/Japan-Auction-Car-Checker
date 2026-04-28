@@ -5626,6 +5626,7 @@ async def main():
             except Exception as e:
                 logger.warning(f"Admin scope set failed for {admin_id}: {e}")
         brokers = await get_brokers()
+        broker_ids = {int(b.get("telegramId", 0)) for b in brokers if b.get("telegramId")}
         for b in brokers:
             try:
                 tg_id = int(b.get("telegramId", 0))
@@ -5633,6 +5634,25 @@ async def main():
                     await app.bot.set_my_commands(broker_commands, scope=BotCommandScopeChat(chat_id=tg_id))
             except Exception as e:
                 logger.warning(f"Broker scope set failed: {e}")
+
+        # ── Non-broker members ရဲ့ chat-specific scope ဖြုတ်ပြီး global သို့ reset ──
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await client.post(SHEET_WEBHOOK, json={"action": "getMembers"}, timeout=15)
+            all_members = resp.json().get("members", [])
+            for m in all_members:
+                try:
+                    uid_str = str(m.get("userId", "")).strip()
+                    if not uid_str or not uid_str.isdigit():
+                        continue
+                    uid = int(uid_str)
+                    if uid and uid not in broker_ids and uid not in ADMIN_IDS:
+                        await app.bot.delete_my_commands(scope=BotCommandScopeChat(chat_id=uid))
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"Startup member cmd reset: {e}")
+
         logger.info("Command scopes set successfully")
     except Exception as e:
         logger.error(f"set_my_commands error: {e}")
