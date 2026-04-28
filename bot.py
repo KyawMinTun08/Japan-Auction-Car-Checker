@@ -1629,7 +1629,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ok:
             await update.message.reply_text(
                 f"✅ *{info.get('label','')} QR Saved!*\n\n"
-                f"📋 file_id: `{file_id[:20]}...`\n"
+                f"📋 ID: `{file_id[:20]}...`\n"
                 f"👤 By: {admin_name}\n\n"
                 f"➡️ နောက် method ထည့်ဖို့ /setqr ထပ်နှိပ်ပါ",
                 parse_mode='Markdown')
@@ -3043,8 +3043,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info = PAYMENT_METHOD_INFO.get(action, {})
         await query.edit_message_text(
             f"✅ *{info.get('label','')}* ရွေးပြီ\n\n"
-            f"📤 {info.get('label','')} QR ပုံကို ဒီနေရာမှာ ပို့ပါ\n"
-            f"_(Telegram file_id auto-save ဖြစ်မယ်)_",
+            f"📤 {info.get('label','')} QR ပုံကို ဒီနေရာမှာ ပို့ပါ\n\n"
+            f"(file ID auto-save ဖြစ်မယ်)",
             parse_mode='Markdown')
 
     # ── Slip Confirm (Admin) ──
