@@ -1957,7 +1957,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             admin_kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"💬 {name} ကို Message ပို့", url=f"tg://user?id={user_id}")],
-                [InlineKeyboardButton("✅ Confirm", callback_data=f"slip_ok_{user_id}"),
+                [InlineKeyboardButton("✅ Confirm", callback_data=f"slip_confirm_{user_id}"),
                  InlineKeyboardButton("❌ Reject",  callback_data=f"slip_no_{user_id}")],
             ])
             await notify_admins(context, admin_text, reply_markup=admin_kb)
@@ -2842,7 +2842,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         info['price'], user_name, info.get('image_url',''), info.get('loc', LOC_MAESOT))
         await query.message.reply_text(
             f"✅ *Save ပြီး!*\n\n🚗 {info['model']} ({ys(info.get('year',0))})\n"
-            f"🔑 `{info['chassis']}`\n📍 {info.get('loc', LOC_MAESOT)}\n💰 ฿{info['price']:,}\n\n"
+            f"🔑 `{info['chassis']}`\n🎨 {info.get('color','')}\n📍 {info.get('loc', LOC_MAESOT)}\n💰 ฿{info['price']:,}\n\n"
             f"🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)",
             parse_mode='Markdown')
         await post_to_channel(context, info['chassis'], info['model'], info['color'],
@@ -3086,6 +3086,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown')
 
     # ── Slip Confirm (Admin) ──
+    elif data.startswith("slip_confirm_"):
+        if query.from_user.id not in ADMIN_IDS:
+            await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
+            return
+        member_id = int(data.replace("slip_confirm_",""))
+        pay_data  = pending_payment.get(member_id, {})
+        if not pay_data:
+            await query.answer("❌ Data ကုန်သွားပြီ", show_alert=True)
+            return
+        name   = pay_data.get("name", "Unknown")
+        pkg    = PLAN_NAMES.get(pay_data.get("package","CH"), "Unknown")
+        months = pay_data.get("months", 1)
+        amount = pay_data.get("amount", 0)
+        confirm_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Yes — Approve", callback_data=f"slip_ok_{member_id}"),
+            InlineKeyboardButton("❌ Cancel",        callback_data=f"slip_okcancel_{member_id}"),
+        ]])
+        await query.message.reply_text(
+            f"⚠️ *Approve အတည်ပြုချက်*\n\n"
+            f"👤 {name}\n"
+            f"📦 {pkg} — {months} လ\n"
+            f"💵 {amount:,} ks\n\n"
+            f"Channel link + Password ပေးမည် — သေချာပါသလား?",
+            parse_mode='Markdown',
+            reply_markup=confirm_kb)
+
+    elif data.startswith("slip_okcancel_"):
+        if query.from_user.id not in ADMIN_IDS:
+            await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
+            return
+        await query.message.reply_text("❌ Approve Cancel လုပ်ပြီး")
+
     elif data.startswith("slip_ok_"):
         if query.from_user.id not in ADMIN_IDS:
             await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
