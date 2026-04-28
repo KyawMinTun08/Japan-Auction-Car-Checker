@@ -1056,7 +1056,7 @@ select:focus, .input:focus {
       <a href="https://t.me/JapanAuctionCar_Bot" target="_blank" rel="noopener" class="login-promo-card">
         <div class="login-promo-icon">🚗</div>
         <div class="login-promo-text">
-          <div class="login-promo-title">JACC Bot</div>
+          <div class="login-promo-title">JAN Telegram Bot</div>
           <div class="login-promo-sub">/start နှိပ်၍ Membership ဝယ်ပါ</div>
           <div class="login-promo-cta">ဆက်လုပ်ရန် →</div>
         </div>
@@ -1090,7 +1090,7 @@ select:focus, .input:focus {
   </div>
   <div class="side-section">
     <div class="side-label">Tools</div>
-    <div class="nav-item" onclick="exportCSV()"><span class="icon">📤</span>Export CSV</div>
+    <div class="nav-item" id="exportCsvNav" onclick="exportCSV()" style="display:none"><span class="icon">📤</span>Export CSV</div>
     <div class="nav-item" onclick="refreshData()"><span class="icon">🔄</span>Refresh</div>
   </div>
   <div class="side-footer" id="sideFooter"></div>
@@ -1110,7 +1110,7 @@ select:focus, .input:focus {
     </div>
     <div class="header-actions">
       <span class="live-pill"><span class="live-dot"></span>Live</span>
-      <button class="btn btn-outline btn-sm desktop-only" onclick="exportCSV()">↓ CSV</button>
+      <button id="exportCsvBtn" class="btn btn-outline btn-sm desktop-only" onclick="exportCSV()" style="display:none">↓ CSV</button>
       <button class="btn btn-dark btn-sm" onclick="refreshData()">🔄 <span class="desktop-only">Refresh</span></button>
     </div>
   </header>
@@ -1648,6 +1648,12 @@ function showApp() {
 
 function updateUserBar() {
   if (!SESSION) return;
+  const ADMIN_IDS = ['404738571'];
+  const isAdmin = ADMIN_IDS.includes(String(SESSION.userId));
+  const exportNav = document.getElementById('exportCsvNav');
+  if (exportNav) exportNav.style.display = isAdmin ? 'flex' : 'none';
+  const exportBtn = document.getElementById('exportCsvBtn');
+  if (exportBtn) exportBtn.style.display = isAdmin ? 'inline-flex' : 'none';
   const pkg = (SESSION.package === 'WEB' || SESSION.package === 'WEB-PROMO') ? 'CH+Web' : 'CH Only';
   const username = esc(SESSION.username || '');
   const initial = esc((SESSION.username || '?').charAt(0).toUpperCase());
@@ -2873,6 +2879,11 @@ function renderPriceHistory() {
 
 /* ── EXPORT / REFRESH / TABS ── */
 function exportCSV() {
+  const ADMIN_IDS = ['404738571'];
+  if (!SESSION || !ADMIN_IDS.includes(String(SESSION.userId))) {
+    alert('❌ Admin သာ Export CSV လုပ်နိုင်တယ်');
+    return;
+  }
   const h=['Date','Chassis','Model','Color','Year','Price','Location','AddedBy'];
   const rows=allCars.map(c=>[c.date,c.chassis,c.model,c.color,c.year,c.price,c.location,c.addedBy]);
   const csv=[h,...rows].map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
