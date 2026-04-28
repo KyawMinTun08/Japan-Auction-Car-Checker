@@ -4069,6 +4069,33 @@ async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"addbroker DM: {e}")
 
+            # ── Broker command scope ချက်ချင်း set ──
+            try:
+                _broker_cmds = [
+                    BotCommand("start",          "🚗 Bot စတင်ရန်"),
+                    BotCommand("carrequest",     "🚙 ကားလိုအပ်ပါက ဒီနေရာနှိပ်ပါ"),
+                    BotCommand("mystatus",       "📋 Request Status စစ်ရန်"),
+                    BotCommand("find",           "🔍 Chassis ဖြင့်ရှာရန်"),
+                    BotCommand("model",          "🔎 Model အမည်ဖြင့်ရှာရန်"),
+                    BotCommand("history",        "📈 ဈေးနှုန်း မှတ်တမ်းကြည့်ရန်"),
+                    BotCommand("list",           "📊 ကားစာရင်း အားလုံးကြည့်ရန်"),
+                    BotCommand("web",            "🌐 Web App link ကြည့်ရန်"),
+                    BotCommand("renew",          "🔄 Membership သက်တမ်းတိုး"),
+                    BotCommand("mypassword",     "🔑 Password ပြန်ယူရန်"),
+                    BotCommand("redeem",         "🎁 Promo Code သုံးရန်"),
+                    BotCommand("brokerstart",    "👷 Broker စတင်ရန်"),
+                    BotCommand("available",      "🟢 Available ဖြစ်ကြောင်း"),
+                    BotCommand("busy",           "🔴 Busy ဖြစ်ကြောင်း"),
+                    BotCommand("accept",         "✅ Request လက်ခံရန်"),
+                    BotCommand("endchat",        "🔚 Session ပိတ်ရန်"),
+                    BotCommand("depositrequest", "💰 Customer ကို Deposit တောင်းရန်"),
+                ]
+                await context.bot.set_my_commands(
+                    _broker_cmds,
+                    scope=BotCommandScopeChat(chat_id=int(tg_id)))
+            except Exception as e:
+                logger.warning(f"addbroker set_commands: {e}")
+
             await update.message.reply_text(
                 f"✅ *Broker ထည့်ပြီ*\n\n"
                 f"👤 @{username}\n"
