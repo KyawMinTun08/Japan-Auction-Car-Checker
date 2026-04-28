@@ -280,6 +280,8 @@ fasttrack_pending = {}       # str_uid -> {"waiting_slip": True, "slip_info": {}
 warned_3days   = set()
 promo_used     = {}
 rate_limit     = {}
+pending_setqr    = {}  # admin_id -> "kpay" / "wave" / "cb"
+payment_qr_cache = {}  # method -> {"file_id": str, "ts": datetime}
 
 # ── Rate Limiting ──────────────────────────────────────
 def check_rate_limit(user_id: int, max_req: int = 10, window: int = 60) -> bool:
@@ -667,11 +669,15 @@ HOW TO IDENTIFY:
     * "Transfer To" = the person who RECEIVED the money (e.g. admin name)
     * Sender name NOT shown on this slip type
 
+- CB Bank slip = GREEN background, "CB Bank" or "CB Pay" logo
+    * Shows "Transaction Date" + "Transaction No." + "Receiver" + "Amount"
+
 Extract these fields:
-TYPE: (Wave or KPay or Other)
+TYPE: (Wave or KPay or CB or Other)
 TRANSACTION_NO:
   - Wave: number next to "Transaction ID" (e.g. 894983741)
   - KPay: full number next to "Transaction No." (e.g. 01004089020139330692) — ALL digits
+  - CB: number next to "Transaction No." or "Reference No."
 AMOUNT: (positive number only, no commas, no Ks, no minus/plus — from top large amount, e.g. 1000000)
 DATE: (dd/mm/yyyy — from "Date & Time" for Wave, "Transaction Time" for KPay)
 TIME: (HH:MM 24hr — convert PM/AM, e.g. 02:55 PM = 14:55)
@@ -699,6 +705,74 @@ Return EXACTLY in this format with no extra text. Write UNKNOWN if not found."""
     except Exception as e:
         logger.error(f"Gemini slip: {e}")
         return {}
+
+# ── Payment QR Helpers ────────────────────────────────
+PAYMENT_METHOD_INFO = {
+    "kpay": {
+        "label":  "🔵 KPay",
+        "name":   "KPay",
+        "number": "09973625985",
+        "owner":  "Kyaw Min Tun",
+    },
+    "wave": {
+        "label":  "🟣 Wave",
+        "name":   "Wave",
+        "number": "09799959537",
+        "owner":  "Kyaw Min Tun",
+    },
+    "cb": {
+        "label":  "🟢 CB Bank",
+        "name":   "CB Bank MMQR",
+        "number": "(QR Scan)",
+        "owner":  "Kyaw Min Tun (Merchant)",
+    },
+}
+
+async def get_payment_qr(method: str) -> str:
+    """Sheet ကနေ file_id ဆွဲ (10 min cache)"""
+    method = method.lower().strip()
+    cached = payment_qr_cache.get(method)
+    if cached:
+        age = (datetime.now() - cached["ts"]).total_seconds()
+        if age < 600:  # 10 min
+            return cached["file_id"]
+    if not SHEET_WEBHOOK:
+        return ""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action": "getPaymentQR",
+                "method": method,
+            }, timeout=10)
+        data = resp.json()
+        if data.get("ok") and data.get("fileId"):
+            file_id = data["fileId"]
+            payment_qr_cache[method] = {"file_id": file_id, "ts": datetime.now()}
+            return file_id
+    except Exception as e:
+        logger.error(f"get_payment_qr {method}: {e}")
+    return ""
+
+async def set_payment_qr(method: str, file_id: str, admin_name: str) -> bool:
+    """Sheet မှာ file_id သိမ်း + cache ဖျက်"""
+    method = method.lower().strip()
+    if not SHEET_WEBHOOK:
+        return False
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action":    "setPaymentQR",
+                "method":    method,
+                "fileId":    file_id,
+                "adminName": admin_name,
+            }, timeout=10)
+        result = resp.json()
+        if result.get("ok"):
+            payment_qr_cache.pop(method, None)  # cache invalidate
+            return True
+    except Exception as e:
+        logger.error(f"set_payment_qr {method}: {e}")
+    return False
 
 # ── Save Member with Password ─────────────────────────
 async def save_member_to_sheet(user_id: str, username: str, days: int,
@@ -812,6 +886,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🚫 `/kick @user` → Member kick\n"
             "🔑 `/resetpass @user` → Password reset\n"
             "🆔 `/updateid @user newID` → ID update\n"
+            "💳 `/setqr` → Payment QR ထည့်/ပြောင်း\n"
             "💾 `/backup` → CSV backup\n"
         )
     else:
@@ -838,6 +913,7 @@ async def find_car(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ တစ်မိနစ်အတွင်း Request များသွားတယ် — ခဏစောင့်ပါ")
         return
     user_id  = update.effective_user.id
+    str_uid  = str(user_id)
     if not await is_active_member(user_id):
         # 10 Day Promo eligibility check
         promo_info = await check_promo10d_eligibility(str_uid)
@@ -1104,6 +1180,14 @@ def build_period_keyboard(user_id: int, package: str):
             [InlineKeyboardButton("◀️ နောက်သို့",             callback_data=f"pkg_back_{user_id}")],
         ])
 
+def build_paymethod_keyboard(user_id: int):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔵 KPay",    callback_data=f"paymethod_kpay_{user_id}"),
+         InlineKeyboardButton("🟣 Wave",    callback_data=f"paymethod_wave_{user_id}"),
+         InlineKeyboardButton("🟢 CB Bank", callback_data=f"paymethod_cb_{user_id}")],
+        [InlineKeyboardButton("❌ Cancel",  callback_data=f"pkg_cancel_{user_id}")],
+    ])
+
 async def renew_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
     user_id = user.id
@@ -1256,6 +1340,34 @@ async def updateid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔴 ဟောင်း ID: `{old_id}` ✅ စစ်မှန်ပြီ\n"
         f"🟢 အသစ် ID: `{new_id}`\n\n"
         f"အတည်ပြုရန် 👇",
+        parse_mode='Markdown',
+        reply_markup=kb)
+
+# ── /setqr — Admin Payment QR Setup ──────────────────
+async def setqr_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+
+    # Show current state
+    status_lines = []
+    for method, info in PAYMENT_METHOD_INFO.items():
+        file_id = await get_payment_qr(method)
+        mark    = "✅" if file_id else "⚪"
+        status_lines.append(f"{mark} {info['label']}")
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔵 KPay",    callback_data=f"setqr_kpay_{user_id}"),
+         InlineKeyboardButton("🟣 Wave",    callback_data=f"setqr_wave_{user_id}"),
+         InlineKeyboardButton("🟢 CB Bank", callback_data=f"setqr_cb_{user_id}")],
+        [InlineKeyboardButton("❌ Cancel",  callback_data=f"setqr_cancel_{user_id}")],
+    ])
+    await update.message.reply_text(
+        f"💳 *Payment QR Setup*\n\n"
+        f"လက်ရှိ အခြေအနေ:\n"
+        + "\n".join(status_lines)
+        + "\n\nဘယ် method အတွက် QR ထည့်/ပြောင်းမလဲ? 👇",
         parse_mode='Markdown',
         reply_markup=kb)
 
@@ -1507,6 +1619,24 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ တစ်မိနစ်အတွင်း ပုံများသွားတယ် — ခဏစောင့်ပါ")
         return
 
+    # ── Admin /setqr Mode ──
+    if user_id in ADMIN_IDS and user_id in pending_setqr:
+        method     = pending_setqr.pop(user_id)
+        file_id    = photo.file_id
+        admin_name = update.effective_user.first_name or "admin"
+        ok         = await set_payment_qr(method, file_id, admin_name)
+        info       = PAYMENT_METHOD_INFO.get(method, {})
+        if ok:
+            await update.message.reply_text(
+                f"✅ *{info.get('label','')} QR Saved!*\n\n"
+                f"📋 file_id: `{file_id[:20]}...`\n"
+                f"👤 By: {admin_name}\n\n"
+                f"➡️ နောက် method ထည့်ဖို့ /setqr ထပ်နှိပ်ပါ",
+                parse_mode='Markdown')
+        else:
+            await update.message.reply_text("❌ Save မရဘူး — Sheet စစ်ဆေးပါ")
+        return
+
     # ── Broadcast Photo Mode ──
     if user_id in pending_broadcast and pending_broadcast[user_id].get("waiting_photo"):
         bc      = pending_broadcast.pop(user_id)
@@ -1569,7 +1699,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown")
         return
 
-    # ── Deposit Slip Mode ──
     # ── Fast Track Deposit Slip ──
     if str(user_id) in fasttrack_pending and fasttrack_pending[str(user_id)].get("waiting_slip"):
         await update.message.reply_text("🔍 Deposit Slip ဖတ်နေတယ်... ⏳")
@@ -1684,14 +1813,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if cust_session_photo or broker_session_photo:
-        # Auction car + deposit မပေသေး (customer side) → silently drop
         if cust_session_photo:
             _sid_chk, _sess_chk = cust_session_photo
             _rid_chk = _sess_chk.get("reqId", "")
             if _rid_chk.startswith("A") and not _sess_chk.get("deposit_paid", False):
                 return
 
-        # Caption filter — phone/link စစ်
         if caption:
             blocked, reason = proxy_filter(caption)
             if blocked:
@@ -1710,7 +1837,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ ပုံ download မရဘူး")
             return
 
-        # Cloudinary သိမ်း (Admin history အတွက်)
         relay_image_url = ""
         if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
             session_id = cust_session_photo[0] if cust_session_photo else broker_session_photo[0]
@@ -1807,6 +1933,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             months    = pay_data.get("months", 1)
             name      = pay_data.get("name", "Unknown")
             username  = pay_data.get("username", str(user_id))
+            chosen_method = pay_data.get("method", "")
+            method_label  = PAYMENT_METHOD_INFO.get(chosen_method, {}).get("label", chosen_method.upper() if chosen_method else "—")
 
             txn_label = "Transaction ID" if pay_type == "Wave" else "Transaction No"
             admin_text = (
@@ -1814,6 +1942,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"👤 {name} ({username})\n"
                 f"🆔 ID: `{user_id}`\n"
                 f"📦 Package: {pkg_name} — {months} လ\n"
+                f"🎯 ရွေးခဲ့သော method: {method_label}\n"
                 f"💵 Expected: {expected:,} ks\n\n"
                 f"📋 *Slip အချက်အလက်:*\n"
                 f"🏦 Type: {pay_type}\n"
@@ -2103,29 +2232,23 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Proxy Chat Filter ─────────────────────────────────
 def proxy_filter(text: str):
-    # မြန်မာဂဏန်း → English ဂဏန်း ပြောင်း
     mm_digits = str.maketrans('၀၁၂၃၄၅၆၇၈၉', '0123456789')
     normalized = text.translate(mm_digits)
-    # Space/dash ဖြုတ်ပြီး digit တွေ ဆက်စစ်
     digits_only = re.sub(r'[\s\-\.]', '', normalized)
     if re.search(r'\+?0?[6-9]\d{7,11}', digits_only):
         return True, "ဖုန်းနံပါတ် ပေးပို့ခြင်း တားမြစ်ထားသည်"
-    # Space ပါတဲ့ ဖုန်းနံပါတ် (09 123 456 789)
     if re.search(r'0\s*9[\d\s]{8,}', normalized):
         return True, "ဖုန်းနံပါတ် ပေးပို့ခြင်း တားမြစ်ထားသည်"
     if re.search(r'@[a-zA-Z0-9_]{4,}', text):
         return True, "Telegram Username ပေးပို့ခြင်း တားမြစ်ထားသည်"
     if re.search(r'(https?://|www\.|t\.me/|wa\.me/|line\.me/)', text, re.IGNORECASE):
         return True, "Link ပေးပို့ခြင်း တားမြစ်ထားသည်"
-    # Social media platforms
     if re.search(r'facebook\.com|fb\.com|fb\.me|instagram\.com|tiktok\.com', text, re.IGNORECASE):
         return True, "Social Media link ပေးပို့ခြင်း တားမြစ်ထားသည်"
     if re.search(r'\b(line\s?id|viber|whatsapp|zalo)\b', text, re.IGNORECASE):
         return True, "Contact info ပေးပို့ခြင်း တားမြစ်ထားသည်"
-    # Myanmar address keywords
     if re.search(r'တိုက်နံပါတ်|အခန်းနံပါတ်|ရပ်ကွက်|မြို့နယ်|တိုင်းဒေသ|ပြည်နယ်|နေရပ်လိပ်စာ|နေထိုင်ရာ', text):
         return True, "လိပ်စာ ပေးပို့ခြင်း တားမြစ်ထားသည်"
-    # English address keywords
     if re.search(r'\b(street|road|lane|avenue|st\.|address|district|township|quarter)\b', text, re.IGNORECASE):
         return True, "လိပ်စာ ပေးပို့ခြင်း တားမြစ်ထားသည်"
     return False, ""
@@ -2137,7 +2260,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     str_uid = str(user_id)
 
-    # ── Broker T&C Acceptance ──
     if "JAN Broker T&C သဘောတူပါသည်" in text:
         brokers = await get_brokers()
         broker  = next((b for b in brokers if b.get("telegramId") == str_uid), None)
@@ -2179,7 +2301,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         broker_tg_id = session.get("brokerId")
         req_id_c = session.get("reqId", "")
 
-        # Auction car + deposit မပေသေး → silently drop
         if req_id_c.startswith("A") and not session.get("deposit_paid", False):
             return
 
@@ -2382,7 +2503,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id_int = int(uid_str)
         username    = query.from_user.username or query.from_user.first_name or "Unknown"
 
-        # Double-check eligibility
         promo_info = await check_promo10d_eligibility(uid_str)
         if not promo_info.get("eligible") or promo_info.get("active"):
             await query.answer("❌ Promo မရနိုင်ပါ", show_alert=True)
@@ -2395,7 +2515,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         expire_date = (datetime.now() + timedelta(days=10)).strftime("%d/%m/%Y")
 
-        # Channel invite
         try:
             invite = await context.bot.create_chat_invite_link(
                 chat_id=int(CHANNEL_ID),
@@ -2429,7 +2548,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── 🔚 Close Chat Button ──
     if data.startswith("closechat_"):
-        parts    = data.split("_")   # closechat_R123456_customer or _broker
+        parts    = data.split("_")
         req_id   = parts[1]
         who      = parts[2] if len(parts) > 2 else "unknown"
         session  = proxy_sessions.get(req_id)
@@ -2443,7 +2562,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         broker_id_val = broker_obj.get("brokerId", "?")
         closer_id     = str(query.from_user.id)
 
-        # Session ပိတ်
         proxy_sessions.pop(req_id, None)
         new_broker_status = recalc_broker_status(broker_tg_id)
         await update_broker(broker_tg_id, status=new_broker_status)
@@ -2462,7 +2580,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔚 *Chat ပိတ်ပြီ*\n\n🆔 `{req_id}`\n{who_label} မှ ပိတ်လိုက်သည်",
             parse_mode='Markdown')
 
-        # တဖက်ကို notify
         try:
             if who == "customer" and broker_tg_id:
                 await context.bot.send_message(
@@ -2477,7 +2594,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"closechat notify: {e}")
 
-        # Customer ဆီ Rating ပို့
         if customer_id:
             try:
                 rating_kb = InlineKeyboardMarkup([
@@ -2506,11 +2622,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── 📋 Report Form ──
     if data.startswith("report_"):
         parts      = data.split("_")
-        report_type = parts[1]   # ok / incomplete / wrongcar / nosearch
+        report_type = parts[1]
         req_id     = "_".join(parts[2:])
         rater_id   = str(query.from_user.id)
 
-        # pending_rating မှာ broker info ရှိနေသေးလားစစ် (မရှိလည်း ဆက်လုပ်နိုင်)
         rate_info = pending_rating.get(rater_id, {})
         broker_tg_id  = rate_info.get("brokerTgId", "")
         broker_id_val = rate_info.get("brokerId", "?")
@@ -2523,7 +2638,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown')
             return
 
-        # Report တင်ရင် → Broker 1 Month Temp Ban
         report_labels = {
             "incomplete": "⚠️ လုပ်ငန်းမပြီးစုံ",
             "wrongcar":   "🚗 ကားမမှန်ကန်",
@@ -2538,7 +2652,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Broker ကို 1 Month Temporary Ban ချမှတ်ပြီ",
             parse_mode='Markdown')
 
-        # Broker Temp Ban (1 Month)
         if broker_tg_id:
             ban_until = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
             await update_broker(broker_tg_id, status="BANNED")
@@ -2553,7 +2666,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"report temp ban: {e}")
 
-            # Broker ဆီ notify + Appeal msg
             try:
                 await context.bot.send_message(
                     chat_id=int(broker_tg_id),
@@ -2572,7 +2684,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"report broker notify: {e}")
 
-        # Admin ဆီ notify
         await notify_admins(context,
             f"🚨 *Broker Report တင်ခံရပြီ*\n\n"
             f"🆔 Request: `{req_id}`\n"
@@ -2645,10 +2756,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── 📦 Tracking Status Update ──
     if data.startswith("track_"):
-        parts    = data.split("_")          # track_A_searching_R123456
-        svc_t    = parts[1]                 # A or R
-        status   = parts[2]                 # searching / checking / etc
-        req_id   = "_".join(parts[3:])      # R123456
+        parts    = data.split("_")
+        svc_t    = parts[1]
+        status   = parts[2]
+        req_id   = "_".join(parts[3:])
         session  = proxy_sessions.get(req_id)
         if not session:
             await query.answer("❌ Session မတွေ့ပါ — ပြီးသွားပြီ ဖြစ်နိုင်တယ်", show_alert=True)
@@ -2659,7 +2770,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ သင့် Session မဟုတ်ဘူး", show_alert=True)
             return
         noti_text = TRACKING_NOTI.get(status, status)
-        # Customer ဆီ notify
         if customer_id:
             try:
                 await context.bot.send_message(
@@ -2671,7 +2781,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode='Markdown')
             except Exception as e:
                 logger.error(f"tracking noti: {e}")
-        # Broker ဆီ confirm + buttons refresh
         svc_type_full = "auction" if svc_t == "A" else "search"
         svc_label     = "🏆 Auction" if svc_t == "A" else "🔍 ကားရှာ"
         await query.edit_message_text(
@@ -2701,7 +2810,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await post_to_channel(context, info['chassis'], info['model'], info['color'],
                              info['year'], info['price'], info.get('image_url',''), info.get('loc', LOC_MAESOT))
 
-    # ── ❌ Cancel ──
     elif data.startswith("cc_"):
         uid = int(data.replace("cc_",""))
         pending_photo.pop(uid, None)
@@ -2710,7 +2818,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`/price [chassis] [ဈေး]`\nဥပမာ: `/price GP1-1049821 58000`",
             parse_mode='Markdown')
 
-    # ── 📍 Location Select ──
     elif data.startswith("setloc_"):
         parts      = data.split("_")
         target_uid = int(parts[1])
@@ -2746,7 +2853,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup([loc_row]))
 
-    # ── Edit Car ──
     elif data.startswith("editcar_"):
         if query.from_user.id not in ADMIN_IDS:
             await query.answer("❌ Admin only", show_alert=True)
@@ -2785,7 +2891,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         await query.message.reply_text(prompts[field], parse_mode='Markdown')
 
-    # ── Fill Missing Field ──
     elif data.startswith("fill_"):
         parts  = data.split("_", 2)
         uid    = int(parts[1])
@@ -2802,7 +2907,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(prompts.get(field,"ထည့်ပါ:"), parse_mode='Markdown')
         await query.answer()
 
-    # ── Add Price ──
     elif data.startswith("addprice_"):
         chassis = data.replace("addprice_","")
         car     = find_by_chassis(chassis)
@@ -2815,7 +2919,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             f"💰 `{chassis}` ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`", parse_mode='Markdown')
 
-    # ── Join / Renew ──
     elif data.startswith("join_start"):
         user_id = query.from_user.id
         await query.message.reply_text(
@@ -2850,6 +2953,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown',
             reply_markup=build_period_keyboard(user_id, package))
 
+    # ── 🆕 Period → Method ရွေးခိုင်း ──
     elif data.startswith("period_"):
         parts   = data.split("_")
         package = parts[1]
@@ -2861,18 +2965,86 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id not in pending_payment:
             pending_payment[user_id] = {}
         pending_payment[user_id].update({
-            "package":      package,
-            "months":       months,
-            "amount":       amount,
-            "waiting_slip": True,
+            "package": package,
+            "months":  months,
+            "amount":  amount,
         })
 
         await query.message.reply_text(
             f"✅ Package: *{pkg_name}*\n"
             f"📅 Period: *{months} လ*\n"
             f"💵 ပေးရမည်: *{amount:,} ks*\n\n"
-            f"💳 *Payment Info:*\n{PAYMENT_INFO}\n\n"
-            f"⬇️ Payment Slip ကို ဤနေရာမှာ တိုက်ရိုက်ပို့ပါ",
+            f"💳 *Payment Method ရွေးပါ* 👇",
+            parse_mode='Markdown',
+            reply_markup=build_paymethod_keyboard(user_id))
+
+    # ── 🆕 Method ရွေးပြီး QR ပြ ──
+    elif data.startswith("paymethod_"):
+        parts   = data.split("_")
+        method  = parts[1]
+        user_id = int(parts[2])
+        if query.from_user.id != user_id:
+            await query.answer("❌ သင့် button မဟုတ်ဘူး", show_alert=True); return
+        if user_id not in pending_payment:
+            await query.answer("❌ Session ကုန်ပြီ — /renew ပြန်စပါ", show_alert=True); return
+
+        info     = PAYMENT_METHOD_INFO.get(method, {})
+        amount   = pending_payment[user_id].get("amount", 0)
+        package  = pending_payment[user_id].get("package", "CH")
+        months   = pending_payment[user_id].get("months", 1)
+        pkg_name = PLAN_NAMES.get(package, "")
+        file_id  = await get_payment_qr(method)
+
+        pending_payment[user_id]["method"]       = method
+        pending_payment[user_id]["waiting_slip"] = True
+
+        caption = (
+            f"{info.get('label','')} *Payment*\n\n"
+            f"💵 *Amount:* {amount:,} ks\n"
+            f"📦 {pkg_name} — {months} လ\n"
+            f"📱 *Number:* {info.get('number','')}\n"
+            f"👤 *Name:* {info.get('owner','')}\n\n"
+            f"⬇️ QR ကို *long-press* → Save Photo\n"
+            f"📲 ဒါမှမဟုတ် App နဲ့ Scan\n\n"
+            f"💸 ပြီးရင် *Payment Slip* ဒီနေရာမှာ ပို့ပါ"
+        )
+
+        if file_id:
+            try:
+                await context.bot.send_photo(
+                    chat_id=user_id, photo=file_id,
+                    caption=caption, parse_mode='Markdown')
+            except Exception as e:
+                logger.error(f"send QR photo: {e}")
+                await query.message.reply_text(
+                    f"⚠️ QR ပုံ ပြလို့မရဘူး — Admin ကို ဆက်သွယ်ပါ\n\n{caption}",
+                    parse_mode='Markdown')
+        else:
+            await query.message.reply_text(
+                f"⚠️ {info.get('label','')} QR မထည့်ရသေးပါ — Admin ကို ဆက်သွယ်ပါ\n\n{caption}",
+                parse_mode='Markdown')
+
+    # ── 🆕 Admin /setqr Method ရွေး ──
+    elif data.startswith("setqr_"):
+        parts = data.split("_", 2)
+        if len(parts) < 3:
+            return
+        action  = parts[1]
+        user_id = int(parts[2])
+        if query.from_user.id != user_id or user_id not in ADMIN_IDS:
+            await query.answer("❌ Admin only", show_alert=True); return
+        if action == "cancel":
+            pending_setqr.pop(user_id, None)
+            await query.edit_message_text("❌ Cancel လုပ်ပြီး")
+            return
+        if action not in ("kpay","wave","cb"):
+            return
+        pending_setqr[user_id] = action
+        info = PAYMENT_METHOD_INFO.get(action, {})
+        await query.edit_message_text(
+            f"✅ *{info.get('label','')}* ရွေးပြီ\n\n"
+            f"📤 {info.get('label','')} QR ပုံကို ဒီနေရာမှာ ပို့ပါ\n"
+            f"_(Telegram file_id auto-save ဖြစ်မယ်)_",
             parse_mode='Markdown')
 
     # ── Slip Confirm (Admin) ──
@@ -2894,6 +3066,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await save_member_to_sheet(str(member_id), username.replace("@",""), months * 30, password, package)
 
         slip_info = pay_data.get("slip_info", {})
+        chosen_method = pay_data.get("method", "")
         try:
             async with httpx.AsyncClient() as client:
                 await client.post(SHEET_WEBHOOK, json={
@@ -2907,6 +3080,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "months":        months,
                         "amount":        slip_info.get("AMOUNT", pay_data.get("amount","")),
                         "payType":       slip_info.get("TYPE", ""),
+                        "method":        chosen_method.upper() if chosen_method else "",
                         "transactionNo": slip_info.get("TRANSACTION_NO", slip_info.get("REFERENCE","")),
                         "receiver":      slip_info.get("RECEIVER", ""),
                         "sender":        slip_info.get("SENDER", ""),
@@ -2929,7 +3103,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Member ကို DM ပို့ပြီးပြီ ✅",
             parse_mode='Markdown')
 
-    # ── Slip Reject (Admin) ──
     elif data.startswith("slip_no_"):
         if query.from_user.id not in ADMIN_IDS:
             await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
@@ -2948,7 +3121,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Reject DM: {e}")
         await query.message.reply_text(f"❌ Rejected — Member ကို notify ပြီးပြီ")
 
-    # ── UpdateID Confirm ──
     elif data.startswith("uid_ok_"):
         admin_id  = int(data.replace("uid_ok_",""))
         info      = pending_updateid.pop(admin_id, None)
@@ -2996,7 +3168,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_updateid.pop(admin_id, None)
         await query.message.reply_text("❌ Cancel လုပ်ပြီး")
 
-    # ── Quick Approve ──
     elif data.startswith("qa_"):
         parts     = data.split("_")
         target_id = int(parts[1])
@@ -3018,7 +3189,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⏰ ကုန်ဆုံး: `{expire_date}`\n🔑 Password: `{password}`",
             parse_mode='Markdown')
 
-    # ── Car Request — Budget ──
     elif data.startswith("req_budget_"):
         user_id = query.from_user.id
         if user_id not in pending_request: return
@@ -3036,7 +3206,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⭐ *Condition ရွေးပါ*\n\n⭐ = ဈေးသက်သာ\n⭐⭐⭐ = ပုံမှန်\n⭐⭐⭐⭐⭐ = အကောင်းဆုံး",
             parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
 
-    # ── Car Request — Condition ──
     elif data.startswith("req_cond_"):
         user_id = query.from_user.id
         if user_id not in pending_request: return
@@ -3053,7 +3222,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⏳ *Timeline ရွေးပါ*",
             parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
 
-    # ── Car Request — Timeline ──
     elif data.startswith("req_time_"):
         user_id = query.from_user.id
         if user_id not in pending_request: return
@@ -3067,20 +3235,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_request[user_id]["step"] = 6
         await finish_request(query, context, user_id)
 
-    # ── Car Request — Confirm ──
     elif data == "req_confirm":
         user_id  = query.from_user.id
         username = query.from_user.username or query.from_user.first_name or str(user_id)
         await query.edit_message_text("⏳ Request တင်နေတယ်...")
         await submit_request(context, user_id, username)
 
-    # ── Car Request — Cancel ──
     elif data == "req_cancel":
         user_id = query.from_user.id
         pending_request.pop(user_id, None)
         await query.edit_message_text("❌ Request ပယ်ဖျက်ပြီ\nပြန်တင်ရန်: /carrequest")
 
-    # ── Deposit Start (Customer နှိပ်တာ) ──
     elif data.startswith("dep_start_"):
         parts        = data.split("_", 3)
         req_id       = parts[2]
@@ -3101,7 +3266,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⬇️ Slip ကို ဒီ bot ထဲမှာ တိုက်ရိုက် ပို့ပါ",
             parse_mode='Markdown')
 
-    # ── Deposit Confirm (Admin) ──
     elif data.startswith("dep_ok_"):
         if query.from_user.id not in ADMIN_IDS:
             await query.answer("❌ Admin only", show_alert=True); return
@@ -3166,14 +3330,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📅 Rate: {mmk_rate} ks/฿",
             parse_mode='Markdown')
 
-        # Proxy session — chat relay unlock
         if req_id in proxy_sessions:
             proxy_sessions[req_id]["deposit_paid"] = True
 
-        # 48hr deposit timer cancel
         cancel_auction_dep_timer(req_id)
 
-    # ── Deposit Reject (Admin) ──
     elif data.startswith("dep_no_"):
         if query.from_user.id not in ADMIN_IDS:
             await query.answer("❌ Admin only", show_alert=True); return
@@ -3187,7 +3348,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         await query.message.reply_text("❌ Deposit ပယ်ချပြီ")
 
-    # ── Auction Fast Track Deposit ──
     elif data.startswith("auction_fasttrack_"):
         target_uid = int(data.replace("auction_fasttrack_", ""))
         if query.from_user.id != target_uid:
@@ -3214,7 +3374,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mmk_amount = thb_amount * mmk_rate
         now_str    = datetime.now().strftime("%d/%m/%Y")
 
-        # ── Sheet save ──
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 await client.post(SHEET_WEBHOOK, json={
@@ -3262,10 +3421,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"ftdep_no notify: {e}")
 
-    # ── Car Request Service Type ──
     elif data.startswith("reqtype_"):
         parts       = data.split("_")
-        svc_type    = parts[1]          # "auction" or "search"
+        svc_type    = parts[1]
         target_uid  = int(parts[2])
 
         if query.from_user.id != target_uid:
@@ -3274,7 +3432,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = target_uid
         str_uid = str(user_id)
 
-        # Active session / pending စစ်
         existing_session = next(
             ((sid, s) for sid, s in proxy_sessions.items()
              if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
@@ -3288,7 +3445,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_request[user_id] = {"step": 0, "data": {"service_type": svc_type}}
 
         if svc_type == "auction":
-            # Auction ban check
             ban_count  = 0
             ban_status = ""
             ban_expire = ""
@@ -3329,7 +3485,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception as e:
                         logger.error(f"ban expire parse: {e}")
 
-            # Outside car completed >= 2 gate check
             completed_outside = 0
             try:
                 async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -3371,7 +3526,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Cancel လုပ်ရန်: /cancelrequest",
                 parse_mode='Markdown')
 
-    # ── Endchat Confirm ──
     elif data.startswith("endchat_yes_"):
         req_id  = data.replace("endchat_yes_", "")
         user_id = str(query.from_user.id)
@@ -3383,7 +3537,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session = proxy_sessions.pop(req_id, None)
         cancel_request_timer(req_id)
         cancel_auction_dep_timer(req_id)
-        # session pop ပြီးမှ recalc လုပ်
         new_broker_status = recalc_broker_status(user_id)
         await update_broker(user_id, status=new_broker_status)
 
@@ -3444,7 +3597,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💬 Chat ဆက်လုပ်နိုင်ပါသည်",
             parse_mode='Markdown')
 
-    # ── Broker Request Accept/Decline buttons ──
     elif data.startswith("breq_accept_"):
         req_id  = data.replace("breq_accept_", "")
         user_id = str(query.from_user.id)
@@ -3455,7 +3607,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if broker.get("status") == "BUSY":
             await query.answer("❌ BUSY ဖြစ်နေတယ် — /available နှိပ်ပြီးမှ လက်ခံပါ", show_alert=True); return
 
-        # getRequest
         customer_id = None; customer_username = ""; req_data = {}
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -3525,7 +3676,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             broker_tg_id=user_id, broker_id=broker["brokerId"],
             customer_id=str(customer_id) if customer_id else "")
 
-        # Auction request ဆိုရင် 48hr deposit timer စတင်
         if req_id.startswith("A"):
             start_auction_dep_timer(
                 context,
@@ -3542,7 +3692,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"❌ *Request ငြင်းပယ်ပြီ*\n\n🆔 `{req_id}`\n\nRequest အသစ် ထပ်လာရင် notify ပေးမည် 🔔",
             parse_mode='Markdown')
 
-    # ── Rating ── ← NEW
     elif data.startswith("rate_"):
         parts      = data.split("_")
         stars      = int(parts[1])
@@ -3575,7 +3724,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"saveRating: {e}")
 
         star_display = "⭐" * stars
-        # Rating ပြီးရင် Report Form ပေါ်မယ်
         report_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ လုပ်ငန်းပြီဆုံး၊ အဆင်ပြေပါတယ်", callback_data=f"report_ok_{req_id}")],
             [InlineKeyboardButton("⚠️ လုပ်ငန်းမပြီးစုံ",               callback_data=f"report_incomplete_{req_id}")],
@@ -3589,7 +3737,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown',
             reply_markup=report_kb)
 
-        # Broker ကို notify
         try:
             await context.bot.send_message(
                 chat_id=int(broker_tg_id),
@@ -3598,7 +3745,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"rating notify broker: {e}")
 
-        # Ban logic
         if ban:
             await update_broker(broker_tg_id, status="BANNED")
             await notify_admins(context,
@@ -3617,1043 +3763,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⭐ *Rating တင်ပြီ*\n\n🆔 `{req_id}`\n"
             f"👷 Broker: #{broker_id}\n{star_display} ({stars}/5)\n"
             + (f"📊 Average: {float(new_rating):.1f}" if new_rating else ""))
-
-# ── Membership Commands ────────────────────────────────
-async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
-    if len(context.args) < 2:
-        await update.message.reply_text("❌ Format: `/approve @username 1` သို့မဟုတ် `/approve 123456789 3`",
-                                        parse_mode='Markdown'); return
-    username_or_id = context.args[0].replace('@','')
-    try:
-        months = int(context.args[1])
-    except:
-        await update.message.reply_text("❌ လ ဂဏန်းထည့်ပါ", parse_mode='Markdown'); return
-    package = "WEB" if len(context.args) > 2 and context.args[2].upper() == "WEB" else "CH"
-    days = months * 30
-    try:
-        member_id       = int(username_or_id)
-        member_username = username_or_id
-    except ValueError:
-        member_id       = None
-        member_username = username_or_id
-    if member_id:
-        try:
-            chat = await context.bot.get_chat(member_id)
-            member_username = chat.username or chat.first_name or str(member_id)
-        except Exception as e:
-            logger.error(f"get_chat: {e}")
-
-    password   = generate_password()
-    await save_member_to_sheet(
-        str(member_id) if member_id else username_or_id,
-        member_username, days, password, package)
-    invite_url = await create_invite_link(context, days)
-    if member_id:
-        await send_approval_dm(context, member_id, months, password, invite_url)
-
-    expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
-    txt = (f"✅ <b>Membership Approved!</b>\n\n"
-           f"👤 @{member_username}\n"
-           f"🆔 <code>{member_id or 'N/A'}</code>\n"
-           f"📦 Package: {PLAN_NAMES.get(package,'')}\n"
-           f"📅 <b>{months} လ</b>\n"
-           f"⏰ ကုန်ဆုံး: <code>{expire_date}</code>\n"
-           f"🔑 Password: <code>{password}</code>\n")
-    if invite_url: txt += f"\n🔗 {invite_url}"
-    await update.message.reply_text(txt, parse_mode='HTML')
-
-async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
-    try:
-        async with httpx.AsyncClient() as client:
-            resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers"}, timeout=10, follow_redirects=True)
-            members = resp.json().get("members",[])
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}"); return
-    if not members:
-        await update.message.reply_text("👥 Member မရှိသေးဘူး"); return
-    active  = [m for m in members if m.get('status') == 'ACTIVE']
-    expired = [m for m in members if m.get('status') == 'EXPIRED']
-    kicked  = [m for m in members if m.get('status') == 'KICKED']
-
-    def pkg_label(pkg):
-        if pkg == 'WEB':      return '💎 WEB'
-        if pkg == 'CH-PROMO': return '🎁 PROMO'
-        return '📱 CH'
-
-    txt = f"👥 *Members*\n✅ Active: {len(active)} | ❌ Expired: {len(expired)} | 🚫 Kicked: {len(kicked)}\n\n"
-    txt += "⚠️ _Member ဖယ်ရှားရန် `/kick ID` သာ သုံးပါ — Sheet တိုက်ရိုက် မဖျက်ရ_\n\n"
-    txt += "*✅ Active:*\n"
-    for m in active:
-        label = pkg_label(m.get('package','CH'))
-        txt += f"• @{m['username']} {label} — ကုန်: `{m.get('expireDate','?')}`\n"
-    if expired:
-        txt += "\n*❌ Expired:*\n"
-        for m in expired[:5]:
-            label = pkg_label(m.get('package','CH'))
-            txt += f"• @{m['username']} {label} — `{m.get('expireDate','?')}`\n"
-    if kicked:
-        txt += "\n*🚫 Kicked:*\n"
-        for m in kicked[:3]:
-            txt += f"• @{m['username']} — `{m.get('expireDate','?')}`\n"
-    await update.message.reply_text(txt, parse_mode='Markdown')
-
-async def kick_member_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
-    if not context.args:
-        await update.message.reply_text("❌ Format: `/kick 123456789`", parse_mode='Markdown'); return
-    try:
-        target_id = int(context.args[0])
-        sheet_ok = False
-        if SHEET_WEBHOOK:
-            try:
-                async with httpx.AsyncClient(follow_redirects=True) as client:
-                    resp = await client.post(SHEET_WEBHOOK, json={
-                        "action": "updateStatus",
-                        "userId": str(target_id),
-                        "status": "KICKED"
-                    }, timeout=10)
-                sheet_ok = resp.json().get("status") == "ok"
-            except Exception as e:
-                logger.error(f"kick sheet: {e}")
-
-        ch_ok = await kick_with_retry(context, target_id)
-
-        if ch_ok and sheet_ok:
-            await update.message.reply_text(
-                f"✅ *Kick အောင်မြင်ပြီ*\n\n🆔 `{target_id}`\n📋 Sheet ထဲကပါ ဖျက်ပြီ ✅\n📢 Channel ကပါ ထုတ်ပြီ ✅",
-                parse_mode='Markdown')
-        elif ch_ok and not sheet_ok:
-            await update.message.reply_text(
-                f"⚠️ Channel ကထုတ်ပြီ ✅\n❌ Sheet ထဲကပါ ဖျက်မရ — ကိုယ်တိုင် ဖျက်ပါ",
-                parse_mode='Markdown')
-        elif sheet_ok and not ch_ok:
-            await update.message.reply_text(
-                f"⚠️ Sheet ထဲကဖျက်ပြီ ✅\n❌ Channel ကထုတ်မရ — Member ကိုယ်တိုင် ထွက်ပြီးသားဖြစ်နိုင်",
-                parse_mode='Markdown')
-        else:
-            await update.message.reply_text(f"❌ Kick မအောင်မြင်ပါ — စစ်ဆေးပါ")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
-
-# ── Broker Helper ─────────────────────────────────────
-def gen_broker_id() -> str:
-    chars = string.ascii_uppercase + string.digits
-    return 'B' + ''.join(random.choices(chars, k=4))
-
-async def get_sheet_car_count() -> int:
-    if not SHEET_WEBHOOK: return len(CARS)
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK,
-                json={"action": "getCarsCount"}, timeout=8)
-        return resp.json().get("count", len(CARS))
-    except Exception:
-        return len(CARS)
-
-async def get_brokers() -> list:
-    if not SHEET_WEBHOOK: return []
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={"action":"getBrokers"}, timeout=10)
-        return resp.json().get("brokers", [])
-    except Exception as e:
-        logger.error(f"getBrokers: {e}")
-        return []
-
-def get_broker_session_types(broker_tg_id: str) -> set:
-    """Broker ရဲ့ active sessions မှာ ဘယ် type တွေ ရှိလဲ စစ်"""
-    types = set()
-    for sid, s in proxy_sessions.items():
-        if str(s.get("brokerId","")) == broker_tg_id and s.get("status") == "ACTIVE":
-            svc = s.get("serviceType", "search")
-            types.add(svc)
-    return types
-
-def recalc_broker_status(broker_tg_id: str) -> str:
-    """Active sessions အပေါ်မူတည်ပြီး broker status တွက်"""
-    types = get_broker_session_types(broker_tg_id)
-    if not types:
-        return "FREE"
-    if "auction" in types and "search" in types:
-        return "FULL"
-    if "auction" in types:
-        return "HAS_AUCTION"
-    if "search" in types:
-        return "HAS_SEARCH"
-    return "FREE"
-
-async def update_broker(telegram_id: str, **kwargs) -> bool:
-    if not SHEET_WEBHOOK: return False
-    try:
-        payload = {"action": "updateBroker", "telegramId": telegram_id}
-        payload.update(kwargs)
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json=payload, timeout=10)
-        return resp.json().get("status") == "ok"
-    except Exception as e:
-        logger.error(f"updateBroker: {e}")
-        return False
-
-async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
-    if not context.args:
-        await update.message.reply_text(
-            "❌ Format: `/addbroker @username 123456789`\n"
-            "ဥပမာ: `/addbroker @Ko_Aung 987654321`",
-            parse_mode='Markdown'); return
-    try:
-        username  = context.args[0].replace("@","").strip()
-        tg_id     = context.args[1].strip() if len(context.args) > 1 else ""
-        if not tg_id.isdigit():
-            await update.message.reply_text("❌ Telegram ID ဂဏန်းဖြစ်ရမည်"); return
-
-        broker_id = gen_broker_id()
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={
-                "action":     "addBroker",
-                "brokerId":   broker_id,
-                "telegramId": tg_id,
-                "username":   username,
-            }, timeout=10)
-        if resp.json().get("status") == "ok":
-            try:
-                await context.bot.send_message(
-                    chat_id=int(tg_id),
-                    text=(f"🎉 *Japan Auction Car Checker*\n\n"
-                          f"✅ Broker အဖြစ် ထည့်သွင်းပြီ!\n\n"
-                          f"🆔 Broker ID: `{broker_id}`\n\n"
-                          f"အောက်က Button နှိပ်ပြီး စတင်ပါ 👇"),
-                    parse_mode='Markdown',
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("👷 Broker စတင်ရန်", callback_data=f"brokerstart_{tg_id}")
-                    ]]))
-            except Exception as e:
-                logger.error(f"addbroker DM: {e}")
-
-            await update.message.reply_text(
-                f"✅ *Broker ထည့်ပြီ*\n\n"
-                f"👤 @{username}\n"
-                f"🆔 ID: `{broker_id}`\n"
-                f"📨 DM ပို့ပြီ — `/brokerstart` နှိပ်ဖို့ ပြောပြီ",
-                parse_mode='Markdown')
-        else:
-            await update.message.reply_text("❌ Sheet error — ထပ်ကြိုးစားပါ")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
-
-async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
-    if not context.args:
-        await update.message.reply_text(
-            "❌ Format: `/kickbroker 123456789`\n"
-            "ဥပမာ: `/kickbroker 987654321`",
-            parse_mode='Markdown'); return
-    try:
-        tg_id = context.args[0].strip()
-        if not tg_id.isdigit():
-            await update.message.reply_text("❌ Telegram ID ဂဏန်းဖြစ်ရမည်"); return
-
-        # Check broker exists first
-        brokers = await get_brokers()
-        broker = next((b for b in brokers if str(b.get("telegramId","")) == tg_id), None)
-        if not broker:
-            await update.message.reply_text(f"❌ Broker ID `{tg_id}` မရှိဘူး", parse_mode='Markdown'); return
-
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={
-                "action":     "removeBroker",
-                "telegramId": tg_id,
-            }, timeout=10)
-
-        if resp.json().get("status") == "ok":
-            # Notify the kicked broker
-            try:
-                await context.bot.send_message(
-                    chat_id=int(tg_id),
-                    text="🚫 *Japan Auction Car Checker*\n\nသင်၏ Broker အကောင့် ပိတ်သိမ်းလိုက်ပါပြီ။\nAdmin ကို ဆက်သွယ်ပါ။",
-                    parse_mode='Markdown')
-            except Exception as e:
-                logger.error(f"kickbroker DM: {e}")
-
-            await update.message.reply_text(
-                f"✅ *Broker ဖြတ်ပြီ*\n\n"
-                f"👤 @{broker.get('username','?')}\n"
-                f"🆔 TG ID: `{tg_id}`",
-                parse_mode='Markdown')
-        else:
-            await update.message.reply_text("❌ Sheet error — ထပ်ကြိုးစားပါ")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
-
-async def brokers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
-
-    brokers = await get_brokers()
-    if not brokers:
-        await update.message.reply_text("👷 Broker မရှိသေးဘူး — `/addbroker` နဲ့ ထည့်ပါ", parse_mode='Markdown'); return
-
-    free      = [b for b in brokers if b.get("status") == "FREE"]
-    has_auc   = [b for b in brokers if b.get("status") == "HAS_AUCTION"]
-    has_srch  = [b for b in brokers if b.get("status") == "HAS_SEARCH"]
-    full      = [b for b in brokers if b.get("status") == "FULL"]
-    other     = [b for b in brokers if b.get("status") not in ("FREE","HAS_AUCTION","HAS_SEARCH","FULL")]
-
-    def badge(b):
-        deals  = b.get("deals", 0)
-        rating = b.get("rating", 0)
-        if deals >= 20 and rating >= 4.5: return "🥇"
-        if deals >= 10 and rating >= 3.5: return "🥈"
-        return "🥉"
-
-    def rating_stars(r):
-        r = float(r) if r else 0
-        return f"⭐{r:.1f}" if r > 0 else "🆕 New"
-
-    txt = f"👷 *Broker List ({len(brokers)} ယောက်)*\n\n"
-    if free:
-        txt += "🟢 *FREE (ရနိုင်):*\n"
-        for b in free:
-            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])} | Deals: {b.get('deals',0)}\n"
-    if has_auc:
-        txt += "\n🏆 *HAS AUCTION (ကားရှာ slot ရနိုင်):*\n"
-        for b in has_auc:
-            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])}\n"
-    if has_srch:
-        txt += "\n🔍 *HAS SEARCH (Auction slot ရနိုင်):*\n"
-        for b in has_srch:
-            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])}\n"
-    if full:
-        txt += "\n🔴 *FULL (နှစ်ခုပြည့်):*\n"
-        for b in full:
-            txt += f"  {badge(b)} #{b['brokerId']} @{b['username']} {rating_stars(b['rating'])}\n"
-    if other:
-        txt += "\n⚫ *Others:*\n"
-        for b in other:
-            txt += f"  #{b['brokerId']} @{b['username']} — {b.get('status','?')}\n"
-
-    await update.message.reply_text(txt, parse_mode='Markdown')
-
-async def brokerstart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user    = update.effective_user
-    user_id = str(user.id)
-
-    brokers = await get_brokers()
-    broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
-    if not broker:
-        await update.message.reply_text(
-            "❌ Broker အဖြစ် မှတ်ပုံမတင်ရသေးဘူး\nAdmin ကို ဆက်သွယ်ပါ"); return
-
-    broker_id = broker['brokerId']
-    tc_text = (
-        f"🤝 *Japan Auction Car Checker T&C*\n\n"
-        f"🆔 Broker ID: `{broker_id}`\n\n"
-        f"အောက်ပါ စည်ကမ်းများကို သဘောတူကြောင်း confirm လုပ်ပါ:\n\n"
-        f"① တစ်ချိန်တည်း Customer ၁ ယောက်သာ\n"
-        f"② Bot ထဲမှာပဲ ဆက်သွယ်ရမည်\n"
-        f"③ Condition Report မှန်ကန်စွာ ပေးရမည်\n"
-        f"④ Photo အနည်းဆုံး ၁၀ ပုံ ပေးရမည်\n"
-        f"⑤ Platform ပြင်ပ Deal = Lifetime Ban\n"
-        f"⑥ Rating 1 × 3 = Permanent Ban\n\n"
-        f"သဘောတူမတူ အောက်က Button နှိပ်ပါ 👇"
-    )
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ သဘောတူပါတယ်",  callback_data=f"tc_agree_{user_id}"),
-        InlineKeyboardButton("❌ သဘောမတူပါ",     callback_data=f"tc_disagree_{user_id}"),
-    ]])
-    await update.message.reply_text(tc_text, parse_mode='Markdown', reply_markup=kb)
-
-async def available_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    brokers = await get_brokers()
-    broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
-    if not broker:
-        await update.message.reply_text("❌ Broker မဟုတ်ဘူး"); return
-
-    ok = await update_broker(user_id, status="FREE")
-    if ok:
-        await update.message.reply_text(
-            f"🟢 *Available ဖြစ်ပြီ*\n\n🆔 #{broker['brokerId']}\nRequest လက်ခံနိုင်ပြီ ✅",
-            parse_mode='Markdown')
-    else:
-        await update.message.reply_text("❌ Update မအောင်မြင်ပါ")
-
-async def busy_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    brokers = await get_brokers()
-    broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
-    if not broker:
-        await update.message.reply_text("❌ Broker မဟုတ်ဘူး"); return
-
-    ok = await update_broker(user_id, status="BUSY")
-    if ok:
-        await update.message.reply_text(
-            f"🔴 *Busy ဖြစ်ပြီ*\n\n🆔 #{broker['brokerId']}\nRequest အသစ် လက်မခံနိုင်တော့ဘူး",
-            parse_mode='Markdown')
-    else:
-        await update.message.reply_text("❌ Update မအောင်မြင်ပါ")
-
-# ── /carrequest ─────────────────────────────────────
-REQ_STEPS = ["car_name","year","grade","budget","condition","timeline"]
-REQ_LABELS = {
-    "car_name":  "🚗 ကားအမည်",
-    "year":      "📅 ထုတ်လုပ်သည့် နှစ်",
-    "grade":     "🔧 Grade / Features",
-    "budget":    "💰 Budget",
-    "condition": "⭐ Condition",
-    "timeline":  "⏳ Timeline",
-}
-
-async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user    = update.effective_user
-    user_id = user.id
-    str_uid = str(user_id)
-
-    if not await is_active_member(user_id):
-        await update.message.reply_text(
-            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
-            parse_mode='Markdown')
-        return
-
-    # PROMO10D — /carrequest 2ကြိမ်သာ limit
-    pkg = await get_member_package(user_id)
-    if pkg == "PROMO10D" or (await check_promo10d_eligibility(str_uid)).get("active"):
-        cancel_count = await get_cancel_count(str_uid)
-        if cancel_count >= 2:
-            await update.message.reply_text(
-                "❌ *10 Day Promo — Request ကုန်သွားပြီ*\n\n"
-                "Cancel ၂ ကြိမ် ပြည့်သောကြောင့် ထပ်မတင်နိုင်ပါ\n"
-                "Membership ဝယ်ရန်: /start",
-                parse_mode='Markdown')
-            return
-
-    # Active session ရှိနေပြီဆိုရင် ဆက်မတင်နိုင်
-    existing_session = next(
-        ((sid, s) for sid, s in proxy_sessions.items()
-         if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
-        None
-    )
-    if existing_session:
-        _, sess = existing_session
-        await update.message.reply_text(
-            f"⚠️ *Request တင်ပြီးသားရှိနေတယ်*\n\n"
-            f"🆔 `{sess.get('reqId','')}`\n\n"
-            f"Status စစ်ရန်: /mystatus\n"
-            f"Cancel လုပ်ရန်: /cancelrequest",
-            parse_mode='Markdown')
-        return
-
-    # Q&A ဖြည်နေဆဲ
-    if user_id in pending_request:
-        await update.message.reply_text(
-            "⚠️ Request ဖြည်နေဆဲရှိတယ် — ဆက်ဖြည့်ပါ\nCancel လုပ်ရန်: /cancelrequest")
-        return
-
-    # ── Service Type ရွေးချယ်မှု ──
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🏆 လေလံဆွဲရန်", callback_data=f"reqtype_auction_{user_id}"),
-        InlineKeyboardButton("🔍 ကားရှာရန်",   callback_data=f"reqtype_search_{user_id}"),
-    ]])
-    await update.message.reply_text(
-        "🚗 *ကားဝန်ဆောင်မှု*\n\n"
-        "🏆 *လေလံဆွဲရန်* — Auction ကားဝယ်ယူရန် (Deposit ฿20,000 လိုအပ်)\n"
-        "🔍 *ကားရှာရန်* — ကားရှာဖွေပေးမည်\n\n"
-        "ဝန်ဆောင်မှု ရွေးချယ်ပါ 👇",
-        parse_mode='Markdown',
-        reply_markup=kb)
-
-async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user    = update.effective_user
-    user_id = update.effective_user.id
-    str_uid = str(user_id)
-
-    # ── Q&A stage cancel (Broker accept မဖြစ်ခင်) — count မတက်ဘူး ──
-    if user_id in pending_request:
-        pending_request.pop(user_id)
-        await update.message.reply_text("❌ Request ပယ်ဖျက်ပြီ")
-        return
-
-    # ── Active proxy session ရှိမရှိ စစ် ──
-    session_data = next(
-        ((sid, s) for sid, s in proxy_sessions.items()
-         if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
-        None
-    )
-
-    if not session_data:
-        await update.message.reply_text(
-            "❌ Active request မရှိဘူး\n\n"
-            "ကားတောင်းဆိုရန်: /carrequest")
-        return
-
-    sid, session = session_data
-    req_id       = session.get("reqId", sid)
-
-    # ── Deposit ပေးပြီးပြီဆိုရင် cancel ဆိုခွင့် မရ ──
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            dep_resp = await client.post(SHEET_WEBHOOK, json={
-                "action": "getDeposit",
-                "reqId":  req_id,
-            }, timeout=10)
-        dep = dep_resp.json()
-        if dep.get("status") == "ok" and dep.get("depositStatus") in ("HOLD","WON"):
-            await update.message.reply_text(
-                f"🚫 *Cancel မလုပ်နိုင်ပါ*\n\n"
-                f"🆔 `{req_id}`\n\n"
-                f"Deposit ฿20,000 ပေးပြီးသောကြောင့်\n"
-                f"Cancel လုပ်ခွင့် မရှိတော့ပါ\n\n"
-                f"ပြဿနာရှိရင် Admin ကို ဆက်သွယ်ပါ",
-                parse_mode='Markdown')
-            return
-    except Exception as e:
-        logger.error(f"cancelrequest deposit check: {e}")
-
-    # ── Cancel count ဆွဲ ──
-    cancel_count = 0
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            count_resp = await client.post(SHEET_WEBHOOK, json={
-                "action": "getCancelCount",
-                "userId": str_uid,
-            }, timeout=10)
-        cancel_count = count_resp.json().get("cancelCount", 0)
-    except Exception as e:
-        logger.error(f"getCancelCount: {e}")
-
-    new_count = cancel_count + 1
-
-    # ── Session ပိတ် ──
-    proxy_sessions.pop(sid, None)
-    cancel_request_timer(req_id)
-    cancel_auction_dep_timer(req_id)
-    broker_tg_id = session.get("brokerId","")
-    broker_obj   = session.get("brokerObj", {})
-    broker_id    = broker_obj.get("brokerId","B???")
-
-    # Broker FREE
-    if broker_tg_id:
-        await update_broker(broker_tg_id, status="FREE")
-
-    # Sheet — cancel count update + request status
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            await client.post(SHEET_WEBHOOK, json={
-                "action":      "saveCancelCount",
-                "userId":      str_uid,
-                "cancelCount": new_count,
-                "reqId":       req_id,
-            }, timeout=10)
-            await client.post(SHEET_WEBHOOK, json={
-                "action": "updateRequest",
-                "reqId":  req_id,
-                "status": "CANCELLED_BY_CUSTOMER",
-            }, timeout=10)
-    except Exception as e:
-        logger.error(f"saveCancelCount: {e}")
-
-    # ── Ban logic ──
-    if new_count >= 3:
-        # 30-day Temp Ban
-        ban_expire = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
-        try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                await client.post(SHEET_WEBHOOK, json={
-                    "action":    "banCustomer",
-                    "userId":    str_uid,
-                    "banExpire": ban_expire,
-                }, timeout=10)
-        except Exception as e:
-            logger.error(f"banCustomer: {e}")
-
-        await update.message.reply_text(
-            f"🚨 *Account ယာယီ Ban ဖြစ်ပြီ*\n\n"
-            f"Cancel {new_count} ကြိမ် ရောက်သောကြောင့်\n"
-            f"🗓 Ban ကုန်ဆုံးရက်: `{ban_expire}`\n\n"
-            f"Admin ကို ဆက်သွယ်ပါ",
-            parse_mode='Markdown')
-
-        await notify_admins(context,
-            f"🚨 *Customer Temp Ban (Cancel 3x)*\n\n"
-            f"👤 {user.first_name} (`{user_id}`)\n"
-            f"🆔 Request: `{req_id}`\n"
-            f"📊 Cancel count: {new_count}\n"
-            f"🗓 Ban ကုန်ဆုံး: `{ban_expire}`")
-
-    elif new_count == 2:
-        await update.message.reply_text(
-            f"⚠️ *Cancel ၂ ကြိမ် ပြည့်ပြီ*\n\n"
-            f"🆔 `{req_id}` Cancel လုပ်ပြီ\n\n"
-            f"⚠️ တစ်ကြိမ်ထပ် cancel ရင် **30 ရက် Ban** ဖြစ်မည်\n\n"
-            f"/carrequest နှိပ်ပြီး ပြန်တင်နိုင်သည်",
-            parse_mode='Markdown')
-
-        await notify_admins(context,
-            f"⚠️ *Customer Cancel Warning (2/3)*\n\n"
-            f"👤 {user.first_name} (`{user_id}`)\n"
-            f"🆔 `{req_id}`\n"
-            f"📊 Cancel count: {new_count}/3")
-
-    else:
-        await update.message.reply_text(
-            f"❌ *Request Cancel ပြီ*\n\n"
-            f"🆔 `{req_id}`\n\n"
-            f"📊 Cancel မှတ်တမ်း: {new_count}/3\n\n"
-            f"ပြန်တင်ရန်: /carrequest",
-            parse_mode='Markdown')
-
-    # Broker notify
-    if broker_tg_id:
-        try:
-            await context.bot.send_message(
-                chat_id=int(broker_tg_id),
-                text=(f"❌ *Customer Cancel လုပ်ပြီ*\n\n"
-                      f"🆔 `{req_id}`\n"
-                      f"🟢 FREE ဖြစ်ပြီ — Request အသစ် လက်ခံနိုင်ပြီ"),
-                parse_mode='Markdown')
-        except Exception as e:
-            logger.error(f"cancel broker notify: {e}")
-
-
-async def handle_request_qa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    user    = update.effective_user
-    user_id = user.id
-    if user_id not in pending_request: return False
-
-    text = update.message.text.strip()
-    req  = pending_request[user_id]
-    step = req["step"]
-
-    if step == 3 and not req["data"].get("budget"):
-        return False
-
-    req["data"][REQ_STEPS[step]] = text
-    step += 1
-    req["step"] = step
-
-    if step == 1:
-        await update.message.reply_text(
-            "📅 *ထုတ်လုပ်သည့် နှစ်*\n\nFormat: `2014` သို့ `2018-2022`\nမသိရင်: `any` ရိုက်ပါ",
-            parse_mode='Markdown')
-    elif step == 2:
-        await update.message.reply_text(
-            "🔧 *Grade / Features*\n\nဥပမာ: `20X, Alloy, DVD, ထိုင်ခုံ ၇`\nမသတ်မှတ်ရင်: `any` ရိုက်ပါ",
-            parse_mode='Markdown')
-    elif step == 3:
-        kb = [
-            [InlineKeyboardButton("฿50,000",  callback_data="req_budget_50000"),
-             InlineKeyboardButton("฿100,000", callback_data="req_budget_100000")],
-            [InlineKeyboardButton("฿150,000", callback_data="req_budget_150000"),
-             InlineKeyboardButton("฿200,000", callback_data="req_budget_200000")],
-            [InlineKeyboardButton("฿250,000", callback_data="req_budget_250000"),
-             InlineKeyboardButton("฿300,000", callback_data="req_budget_300000")],
-        ]
-        await update.message.reply_text(
-            "💰 *Budget ရွေးပါ*", parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(kb))
-    elif step == 4:
-        kb = [
-            [InlineKeyboardButton("⭐",        callback_data="req_cond_1"),
-             InlineKeyboardButton("⭐⭐",       callback_data="req_cond_2"),
-             InlineKeyboardButton("⭐⭐⭐",      callback_data="req_cond_3")],
-            [InlineKeyboardButton("⭐⭐⭐⭐",     callback_data="req_cond_4"),
-             InlineKeyboardButton("⭐⭐⭐⭐⭐",    callback_data="req_cond_5")],
-        ]
-        await update.message.reply_text(
-            "⭐ *Condition ရွေးပါ*\n\n⭐ = ဈေးသက်သာ\n⭐⭐⭐ = ပုံမှန်\n⭐⭐⭐⭐⭐ = အကောင်းဆုံး",
-            parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
-    elif step == 5:
-        kb = [
-            [InlineKeyboardButton("🔥 ၃ ရက်",    callback_data="req_time_3days"),
-             InlineKeyboardButton("📅 ၁ ပတ်",   callback_data="req_time_1week")],
-            [InlineKeyboardButton("🗓 ၁ လ",     callback_data="req_time_1month"),
-             InlineKeyboardButton("⏳ ရမှပြောမည်", callback_data="req_time_open")],
-        ]
-        await update.message.reply_text(
-            "⏳ *Timeline ရွေးပါ*", parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(kb))
-
-    return True
-
-async def finish_request(update_or_query, context, user_id: int):
-    req  = pending_request.get(user_id)
-    if not req: return
-    d    = req["data"]
-    txt  = (
-        f"📋 *Request Summary*\n"
-        f"{'─'*24}\n"
-        f"🚗 ကား: *{d.get('car_name','—')}*\n"
-        f"📅 နှစ်: {d.get('year','—')}\n"
-        f"🔧 Grade: {d.get('grade','—')}\n"
-        f"💰 Budget: {d.get('budget','—')}\n"
-        f"⭐ Condition: {d.get('condition','—')}\n"
-        f"⏳ Timeline: {d.get('timeline','—')}\n"
-        f"{'─'*24}\n\n"
-        f"အတည်ပြုမည်လား?"
-    )
-    kb = [[
-        InlineKeyboardButton("✅ အတည်ပြု", callback_data="req_confirm"),
-        InlineKeyboardButton("✏️ ပြင်မည်",  callback_data="req_cancel"),
-    ]]
-    if hasattr(update_or_query, 'message'):
-        await update_or_query.message.reply_text(txt, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
-    else:
-        await update_or_query.edit_message_text(txt, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
-
-async def submit_request(context, user_id: int, username: str):
-    req = pending_request.pop(user_id, None)
-    if not req: return
-
-    d      = req["data"]
-    svc_prefix = 'A' if d.get("service_type") == "auction" else 'R'
-    req_id = svc_prefix + ''.join(random.choices(string.digits, k=6))
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            await client.post(SHEET_WEBHOOK, json={
-                "action":     "addRequest",
-                "reqId":      req_id,
-                "customerId": str(user_id),
-                "username":   username,
-                "carType":    "Auction" if d.get("service_type") == "auction" else "Search",
-                "budget":     d.get("budget",""),
-                "year":       d.get("year",""),
-                "grade":      d.get("grade",""),
-                "condition":  d.get("condition",""),
-                "timeline":   d.get("timeline",""),
-            }, timeout=10)
-    except Exception as e:
-        logger.error(f"submit_request: {e}")
-
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=(f"✅ *Request တင်ပြီ!*\n\n"
-              f"🆔 Request ID: `{req_id}`\n"
-              f"🚗 {d.get('car_name','')}\n"
-              f"💰 {d.get('budget','')}\n\n"
-              f"Broker က ရှာပေးမည် ⏳\n"
-              f"Status စစ်ရန်: `/mystatus`"),
-        parse_mode='Markdown')
-
-    brokers    = await get_brokers()
-    svc_type   = d.get("service_type", "search")
-    svc_label  = "🏆 လေလံဆွဲရန်" if svc_type == "auction" else "🔍 ကားရှာရန်"
-
-    # FULL မဟုတ်တဲ့ + ဒီ type slot ရှိတဲ့ broker တွေကိုသာ notify
-    eligible_brokers = []
-    for b in brokers:
-        if b.get("status") in ("BANNED", "KICKED"): continue
-        tg_id       = str(b.get("telegramId",""))
-        active_types = get_broker_session_types(tg_id)
-        if svc_type in active_types: continue      # ဒီ type ရှိပြီးသား
-        if len(active_types) >= 2:   continue      # FULL
-        eligible_brokers.append(b)
-
-    for b in eligible_brokers:
-        try:
-            btn_label = "🏆 Auction Order လက်ခံမည်" if svc_type == "auction" else "🔍 ကားရှာ Order လက်ခံမည်"
-            req_kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton(btn_label,    callback_data=f"breq_accept_{req_id}"),
-                InlineKeyboardButton("❌ ငြင်းမည်", callback_data=f"breq_decline_{req_id}"),
-            ]])
-            svc_header = (
-                "🏆 *AUCTION CAR ORDER*\n"
-                "━━━━━━━━━━━━━━\n"
-                "⚠️ ဒီ Order ဟာ လေလံကားဝယ်ယူရန် ဖြစ်သည်\n"
-                "Deposit ฿20,000 လိုအပ်မည်\n"
-                "━━━━━━━━━━━━━━"
-                if svc_type == "auction" else
-                "🔍 *ကားရှာ ORDER*\n"
-                "━━━━━━━━━━━━━━\n"
-                "ဒီ Order ဟာ အပြင်ကား ရှာပေးရန် ဖြစ်သည်\n"
-                "━━━━━━━━━━━━━━"
-            )
-            await context.bot.send_message(
-                chat_id=int(b["telegramId"]),
-                text=(f"🔔 *Order အသစ်တက်လာပြီ!*\n\n"
-                      f"{svc_header}\n\n"
-                      f"🆔 `{req_id}`\n"
-                      f"🚘 *{d.get('car_name','')}*\n"
-                      f"📅 နှစ်: {d.get('year','')}\n"
-                      f"🔧 Grade: {d.get('grade','')}\n"
-                      f"💰 Budget: {d.get('budget','')}\n"
-                      f"⭐ Condition: {d.get('condition','')}\n"
-                      f"⏳ Timeline: {d.get('timeline','')}"),
-                parse_mode='Markdown',
-                reply_markup=req_kb)
-        except Exception as e:
-            logger.error(f"notify broker {b['brokerId']}: {e}")
-
-    await notify_admins(context,
-        f"📥 *Request အသစ် တင်ပြီ*\n\n"
-        f"🆔 `{req_id}`\n"
-        f"📌 {'🏆 လေလံဆွဲရန်' if d.get('service_type') == 'auction' else '🔍 ကားရှာရန်'}\n"
-        f"👤 @{username} (ID: `{user_id}`)\n"
-        f"🚘 {d.get('car_name','')}\n"
-        f"📅 {d.get('year','')}\n"
-        f"💰 {d.get('budget','')}\n"
-        f"⭐ {d.get('condition','')}\n"
-        f"⏳ {d.get('timeline','')}")
-
-async def mystatus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    str_uid = str(user_id)
-
-    if not await is_active_member(user_id):
-        await update.message.reply_text(
-            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
-            parse_mode='Markdown')
-        return
-
-    # Active proxy session ရှိမရှိ စစ်
-    session_data = next(
-        ((sid, s) for sid, s in proxy_sessions.items()
-         if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
-        None
-    )
-
-    if session_data:
-        sid, sess    = session_data
-        req_id       = sess.get("reqId", sid)
-        broker_obj   = sess.get("brokerObj", {})
-        broker_id    = broker_obj.get("brokerId", "?")
-        start_time   = sess.get("startTime", "")
-        await update.message.reply_text(
-            f"📋 *Request Status*\n\n"
-            f"🆔 Request ID: `{req_id}`\n"
-            f"🤝 Status: *MATCHED*\n"
-            f"👷 Broker: #{broker_id}\n\n"
-            f"Broker က ကားရှာပေးနေပြီ ⏳\n\n"
-            f"Cancel လုပ်ရန်: /cancelrequest",
-            parse_mode='Markdown')
-        return
-
-    # pending_request (Q&A အဆင့်)
-    if user_id in pending_request:
-        step = pending_request[user_id].get("step", 0)
-        await update.message.reply_text(
-            f"📋 *Request Status*\n\n"
-            f"🖊 Request ဖြည်နေဆဲ ({step}/{len(REQ_STEPS)} အဆင့်)\n\n"
-            f"Cancel လုပ်ရန်: /cancelrequest")
-        return
-
-    # Sheet မှာ request ရှိမရှိ စစ်
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={
-                "action":     "getMyRequests",
-                "customerId": str_uid,
-            }, timeout=10)
-        data     = resp.json()
-        requests = data.get("requests", [])
-        if requests:
-            latest = requests[0]
-            req_id = latest.get("reqId", "?")
-            status = latest.get("status", "?")
-            status_map = {
-                "PENDING":             "⏳ Broker ရှာနေဆဲ",
-                "MATCHED":             "🤝 Broker ရပြီ",
-                "CLOSED":              "✅ ပြီးဆုံးပြီ",
-                "CANCELLED_BY_CUSTOMER": "❌ Cancel လုပ်ပြီ",
-                "CANCELLED_TIMEOUT":   "⏰ Time Out ဖြစ်ပြီ",
-            }
-            status_label = status_map.get(status, status)
-            await update.message.reply_text(
-                f"📋 *Request မှတ်တမ်း*\n\n"
-                f"🆔 `{req_id}`\n"
-                f"🚗 {latest.get('carType','')}\n"
-                f"💰 {latest.get('budget','')}\n"
-                f"📊 Status: {status_label}\n\n"
-                f"ကားသစ် request တင်ရန်: /carrequest",
-                parse_mode='Markdown')
-            return
-    except Exception as e:
-        logger.error(f"mystatus getMyRequests: {e}")
-
-    await update.message.reply_text(
-        "📋 *Request မရှိသေးဘူး*\n\n"
-        "ကားရှာဖွေမှု request တင်ရန်: /carrequest")
-
-async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user    = update.effective_user
-    user_id = str(user.id)
-
-    brokers = await get_brokers()
-    broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
-    if not broker:
-        await update.message.reply_text("❌ Broker မဟုတ်ဘူး"); return
-
-    if broker.get("status") == "BANNED":
-        await update.message.reply_text("🚫 Account ပိတ်သိမ်းထားပြီ"); return
-
-    if not context.args:
-        await update.message.reply_text("❌ Format: `/accept R123456`", parse_mode='Markdown'); return
-
-    req_id = context.args[0].strip().upper()
-
-    customer_id = None
-    customer_username = ""
-    req_data = {}
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={
-                "action": "getRequest",
-                "reqId":  req_id,
-            }, timeout=10)
-        rdata = resp.json()
-        if rdata.get("status") == "ok":
-            customer_id       = rdata.get("customerId")
-            customer_username = rdata.get("username","")
-            req_data          = rdata
-        else:
-            await update.message.reply_text(f"❌ Request `{req_id}` မတွေ့ဘူး", parse_mode='Markdown')
-            return
-    except Exception as e:
-        logger.error(f"accept getRequest: {e}")
-        await update.message.reply_text("❌ Sheet error — ထပ်ကြိုးစားပါ"); return
-
-    # ── Slot check ──
-    svc_type     = "auction" if req_data.get("carType","").lower() == "auction" else "search"
-    active_types = get_broker_session_types(user_id)
-    if svc_type in active_types:
-        svc_label = "🏆 လေလံ" if svc_type == "auction" else "🔍 ကားရှာ"
-        await update.message.reply_text(
-            f"❌ {svc_label} session တစ်ခု ရှိပြီးသားပါ\n\n"
-            f"တစ်ကြိမ်မှာ ခေါင်းစဉ်တူ request နှစ်ခု မလက်ခံနိုင်ပါ",
-            parse_mode='Markdown')
-        return
-    if len(active_types) >= 2:
-        await update.message.reply_text(
-            "❌ Order ၂ ခု ပြည့်နေပြီ — တစ်ခု ပြီးမှ ထပ်လက်ခံပါ",
-            parse_mode='Markdown')
-        return
-
-    # Status update
-    new_status = recalc_broker_status(user_id)
-    # session ထည့်ပြီးမှ recalc မှ မှန်မည် — မထည့်မီ manually တွက်
-    if "auction" in active_types or svc_type == "auction":
-        if "search" in active_types or svc_type == "search":
-            new_status = "FULL"
-        else:
-            new_status = "HAS_AUCTION" if svc_type == "auction" else "HAS_SEARCH"
-    else:
-        new_status = "HAS_AUCTION" if svc_type == "auction" else "HAS_SEARCH"
-    await update_broker(user_id, status=new_status)
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            await client.post(SHEET_WEBHOOK, json={
-                "action":   "updateRequest",
-                "reqId":    req_id,
-                "status":   "MATCHED",
-                "brokerId": broker["brokerId"],
-            }, timeout=10)
-    except Exception as e:
-        logger.error(f"accept updateRequest: {e}")
-
-    proxy_sessions[req_id] = {
-        "customerId":       customer_id,
-        "customerUsername": customer_username,
-        "brokerId":         user_id,
-        "brokerObj":        broker,
-        "reqId":            req_id,
-        "status":           "ACTIVE",
-        "serviceType":      svc_type,
-        "startTime":        datetime.now().isoformat(),
-    }
-
-    svc_label_accept = "🏆 လေလံ" if svc_type == "auction" else "🔍 ကားရှာ"
-    await update.message.reply_text(
-        f"✅ *Request Accept ပြီ!*\n\n"
-        f"🆔 `{req_id}`\n"
-        f"📌 {svc_label_accept}\n"
-        f"💰 {req_data.get('budget','')}\n\n"
-        f"💬 Customer ကို message ပေးပို့နိုင်ပြီ\n"
-        f"ပြီးရင်: `/endchat {req_id}`",
-        parse_mode='Markdown')
-
-    if customer_id:
-        try:
-            await context.bot.send_message(
-                chat_id=int(customer_id),
-                text=(f"🎉 *Broker ရှာပေးနေပြီ!*\n\n"
-                      f"🆔 Request: `{req_id}`\n"
-                      f"👷 Broker #{broker['brokerId']} က သင့် Request လက်ခံပြီ\n\n"
-                      f"ကားရှာပေးနေတယ် ⏳\n"
-                      f"Status စစ်ရန်: `/mystatus`"),
-                parse_mode='Markdown')
-        except Exception as e:
-            logger.error(f"accept customer notify: {e}")
-
-    await notify_admins(context,
-        f"🤝 *Broker Accept ပြီ*\n\n"
-        f"🆔 Request: `{req_id}`\n"
-        f"👷 Broker: #{broker['brokerId']} @{broker['username']}\n"
-        f"👤 Customer: @{customer_username}")
-
-    # ── Auto Timer စတင် (4hr reminder + 24hr auto-cancel) ──
-    start_request_timer(
-        context,
-        req_id       = req_id,
-        broker_tg_id = user_id,
-        broker_id    = broker["brokerId"],
-        customer_id  = str(customer_id) if customer_id else ""
-    )
-
-    # Auction request ဆိုရင် 48hr deposit timer စတင်
-    if svc_type == "auction":
-        start_auction_dep_timer(
-            context,
-            req_id       = req_id,
-            customer_id  = str(customer_id) if customer_id else "",
-            broker_tg_id = user_id,
-            broker_id    = broker["brokerId"],
-            username     = customer_username,
-        )
-
-    # ── Tracking Buttons ပို့ ──
-    svc_label_track = "🏆 Auction" if svc_type == "auction" else "🔍 ကားရှာ"
-    await update.message.reply_text(
-        f"📦 *Status Tracking — {svc_label_track}*\n\n"
-        f"🆔 `{req_id}`\n\n"
-        f"အောက်က Button နှိပ်ရင် Customer ဆီ Auto Notify ရောက်မည် 👇",
-        parse_mode='Markdown',
-        reply_markup=get_tracking_keyboard(svc_type, req_id)
-    )
-
-# ── /endchat — End Proxy Session ── (Rating System ပါ)
-async def endchat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    brokers = await get_brokers()
-    broker  = next((b for b in brokers if b.get("telegramId") == user_id), None)
-    if not broker:
-        await update.message.reply_text("❌ Broker မဟုတ်ဘူး"); return
-
-    req_id = context.args[0].strip().upper() if context.args else ""
-    if not req_id:
-        await update.message.reply_text(
-            "❌ Format: `/endchat R123456`", parse_mode='Markdown'); return
-
-    # Session ရှိမရှိ စစ်
-    if req_id not in proxy_sessions:
-        await update.message.reply_text(
-            f"❌ `{req_id}` Session မတွေ့ပါ\nပိတ်ပြီးသားဖြစ်နိုင်တယ်",
-            parse_mode='Markdown'); return
-
-    # ── Confirm မမေးသေးဘူး → Warning + Buttons ──
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ ဟုတ်ကဲ့ — ပိတ်မည်",  callback_data=f"endchat_yes_{req_id}"),
         InlineKeyboardButton("❌ မပိတ်သေးဘူး",         callback_data=f"endchat_no_{req_id}"),
@@ -4729,9 +3838,8 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     used       = result.get("used", 0)
     max_uses   = result.get("max", 40)
     remaining  = max_uses - used
-    pkg        = result.get("package", "WEB").upper()  # WEB or CH from sheet
+    pkg        = result.get("package", "WEB").upper()
 
-    # Determine member package suffix and label
     if pkg == "WEB":
         member_pkg = "WEB-PROMO"
         pkg_label  = "🌐 Web + Channel"
@@ -4762,15 +3870,9 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Auto Timer ───────────────────────────────────────
 async def request_timer_task(context, req_id: str, broker_tg_id: str,
                               broker_id: str, customer_id: str):
-    """
-    4hr  → Broker + Admin reminder
-    24hr → Auto cancel + Broker FREE + notify
-    """
     try:
-        # ── 4hr Reminder ──
         await asyncio.sleep(4 * 3600)
 
-        # Check session still active
         if req_id not in proxy_sessions:
             return
 
@@ -4795,20 +3897,16 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
             f"👷 Broker #{broker_id} — 4 နာရီကျော်ပြီ\n"
             f"Session ဆက်ဖွင့်နေဆဲ")
 
-        # ── 24hr Auto Cancel ──
-        await asyncio.sleep(20 * 3600)  # 4hr + 20hr = 24hr
+        await asyncio.sleep(20 * 3600)
 
         if req_id not in proxy_sessions:
             return
 
-        # Session ပိတ်
         proxy_sessions.pop(req_id, None)
         active_timers.pop(req_id, None)
 
-        # Broker FREE
         await update_broker(broker_tg_id, status="FREE")
 
-        # Request cancel → Sheet
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 await client.post(SHEET_WEBHOOK, json={
@@ -4819,7 +3917,6 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
         except Exception as e:
             logger.error(f"timer cancel sheet: {e}")
 
-        # Broker notify
         try:
             await context.bot.send_message(
                 chat_id=int(broker_tg_id),
@@ -4831,7 +3928,6 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
         except Exception as e:
             logger.error(f"timer 24hr broker: {e}")
 
-        # Customer notify
         if customer_id:
             try:
                 await context.bot.send_message(
@@ -4851,7 +3947,6 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
             f"👤 Customer: `{customer_id}`")
 
     except asyncio.CancelledError:
-        # /endchat ကနေ cancel လုပ်ခဲ့တာ — ပုံမှန်
         logger.info(f"Timer cancelled for {req_id}")
     except Exception as e:
         logger.error(f"request_timer_task: {e}")
@@ -4859,8 +3954,6 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
 
 def start_request_timer(context, req_id: str, broker_tg_id: str,
                          broker_id: str, customer_id: str):
-    """Accept လုပ်တဲ့အချိန်မှာ timer စတင်"""
-    # ဟောင်း timer ရှိရင် cancel
     if req_id in active_timers:
         active_timers[req_id].cancel()
 
@@ -4871,7 +3964,6 @@ def start_request_timer(context, req_id: str, broker_tg_id: str,
 
 
 def cancel_request_timer(req_id: str):
-    """endchat မှာ timer cancel လုပ်"""
     task = active_timers.pop(req_id, None)
     if task:
         task.cancel()
@@ -4880,15 +3972,13 @@ def cancel_request_timer(req_id: str):
 # ── Auction Deposit 48hr Timer ────────────────────────
 async def _auction_dep_timer_task(context, req_id: str, customer_id: str,
                                    broker_tg_id: str, broker_id: str, username: str):
-    await asyncio.sleep(48 * 3600)  # 48 hours
+    await asyncio.sleep(48 * 3600)
 
-    # Deposit ပေးပြီးလား စစ်
     session = proxy_sessions.get(req_id)
     if session and session.get("deposit_paid", False):
         auction_dep_timers.pop(req_id, None)
         return
 
-    # Ban count ယူ
     ban_count = 0
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -4914,7 +4004,6 @@ async def _auction_dep_timer_task(context, req_id: str, customer_id: str,
         ban_status = "LIFETIME_BAN"
         ban_label  = "🚫 Lifetime Ban — Auction Car access ထာဝရပိတ်ပြီ"
 
-    # AuctionCancels sheet သိမ်း
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             await client.post(SHEET_WEBHOOK, json={
@@ -4929,12 +4018,10 @@ async def _auction_dep_timer_task(context, req_id: str, customer_id: str,
     except Exception as e:
         logger.error(f"saveAuctionCancel: {e}")
 
-    # Session ပိတ် + broker FREE
     proxy_sessions.pop(req_id, None)
     if broker_tg_id:
         await update_broker(broker_tg_id, status="FREE")
 
-    # Request status update
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             await client.post(SHEET_WEBHOOK, json={
@@ -4945,7 +4032,6 @@ async def _auction_dep_timer_task(context, req_id: str, customer_id: str,
     except Exception as e:
         logger.error(f"auc_dep_timer updateRequest: {e}")
 
-    # Customer notify
     try:
         await context.bot.send_message(
             chat_id=int(customer_id),
@@ -4958,7 +4044,6 @@ async def _auction_dep_timer_task(context, req_id: str, customer_id: str,
     except Exception as e:
         logger.error(f"auc_dep_timer customer notify: {e}")
 
-    # Broker notify
     if broker_tg_id:
         try:
             await context.bot.send_message(
@@ -4971,7 +4056,6 @@ async def _auction_dep_timer_task(context, req_id: str, customer_id: str,
         except Exception as e:
             logger.error(f"auc_dep_timer broker notify: {e}")
 
-    # Admin notify
     await notify_admins(context,
         f"⏰ *Auction Deposit Timeout Auto Cancel*\n\n"
         f"🆔 `{req_id}`\n"
@@ -5126,7 +4210,6 @@ async def auctionwon_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown')
 
 
-# ── /auctionlost (Admin only) ─────────────────────────
 async def auctionlost_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -5211,7 +4294,6 @@ async def auctionlost_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown')
 
 
-# ── /refunddone (Admin only) ──────────────────────────
 async def refunddone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -5307,9 +4389,7 @@ async def check_expired_members(context):
 
                 pkg = str(m.get('package','')).upper()
 
-                # PROMO10D — Order ရှိမရှိ စစ်
                 if pkg == 'PROMO10D':
-                    # Cancel count 0 ဆိုရင် order မတင်ဘူး → KICKED + blacklist
                     cancel_c = await get_cancel_count(uid)
                     has_order = cancel_c > 0
                     kick_status = "KICKED"
@@ -5399,6 +4479,7 @@ async def main():
     app.add_handler(CommandHandler("resetpass",   resetpass_cmd))
     app.add_handler(CommandHandler("updateid",    updateid_cmd))
     app.add_handler(CommandHandler("backup",      backup_cmd))
+    app.add_handler(CommandHandler("setqr",       setqr_cmd))
     app.add_handler(CommandHandler("broadcast",   broadcast_cmd))
     app.add_handler(CommandHandler("upgrade",     upgrade_cmd))
     app.add_handler(CommandHandler("redeem",        redeem_cmd))
@@ -5453,6 +4534,7 @@ async def main():
         BotCommand("kick",          "🚫 Member ထုတ်ရန် (Admin)"),
         BotCommand("resetpass",     "🔑 Password reset (Admin)"),
         BotCommand("updateid",      "🆔 Member ID update (Admin)"),
+        BotCommand("setqr",         "💳 Payment QR setup (Admin)"),
         BotCommand("backup",        "💾 CSV Backup (Admin)"),
         BotCommand("broadcast",     "📢 Broadcast ပို့ရန် (Admin)"),
         BotCommand("addbroker",     "👷 Broker ထည့်ရန် (Admin)"),
@@ -5481,7 +4563,6 @@ async def main():
     except Exception as e:
         logger.error(f"set_my_commands error: {e}")
 
-    # ── Startup Notification to Admins ───────────────────
     startup_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     startup_msg = (
         f"🟢 *Bot ပြန်စတင်ပြီ*\n\n"
@@ -5509,9 +4590,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         logger.info("Bot stopped by user (Ctrl+C)")
     except Exception as e:
-        # Catastrophic crash — log with full traceback for Railway logs
         import traceback
         logger.error(f"FATAL CRASH: {e}")
         logger.error(traceback.format_exc())
-        # Re-raise so Railway detects failure and triggers auto-restart
         raise
