@@ -4140,6 +4140,13 @@ async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"kickbroker DM: {e}")
 
+            # ── Broker commands ဖြုတ်ပြီး member commands သို့ reset ──
+            try:
+                await context.bot.delete_my_commands(
+                    scope=BotCommandScopeChat(chat_id=int(tg_id)))
+            except Exception as e:
+                logger.warning(f"kickbroker delete_commands: {e}")
+
             await update.message.reply_text(
                 f"✅ *Broker ဖြတ်ပြီ*\n\n"
                 f"👤 @{broker.get('username','?')}\n"
@@ -4147,6 +4154,26 @@ async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown')
         else:
             await update.message.reply_text("❌ Sheet error — ထပ်ကြိုးစားပါ")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+
+async def resetcmd_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: /resetcmd 123456789 — user တစ်ယောက်ရဲ့ custom commands ဖြုတ်ပြီး default သို့ပြန်"""
+    user_id = update.effective_user.id
+    if ADMIN_IDS and user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
+    if not context.args:
+        await update.message.reply_text("❌ Format: `/resetcmd 123456789`", parse_mode='Markdown'); return
+    tg_id = context.args[0].strip()
+    if not tg_id.isdigit():
+        await update.message.reply_text("❌ Telegram ID ဂဏန်းဖြစ်ရမည်"); return
+    try:
+        await context.bot.delete_my_commands(
+            scope=BotCommandScopeChat(chat_id=int(tg_id)))
+        await update.message.reply_text(
+            f"✅ `{tg_id}` ရဲ့ custom commands ဖြုတ်ပြီ — default menu ပြန်ရမည်",
+            parse_mode='Markdown')
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
@@ -5531,6 +5558,7 @@ async def main():
     app.add_handler(CommandHandler("redeem",        redeem_cmd))
     app.add_handler(CommandHandler("addbroker",     addbroker_cmd))
     app.add_handler(CommandHandler("kickbroker",    kickbroker_cmd))
+    app.add_handler(CommandHandler("resetcmd",      resetcmd_cmd))
     app.add_handler(CommandHandler("brokers",       brokers_cmd))
     app.add_handler(CommandHandler("brokerstart",   brokerstart_cmd))
     app.add_handler(CommandHandler("available",     available_cmd))
