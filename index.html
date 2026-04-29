@@ -1407,8 +1407,8 @@ select:focus, .input:focus {
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">⚠️ Missing Models</div>
-          <span class="card-meta">၃ လ ရှိ၊ ဒီလ မရှိ</span>
+          <div class="card-title">🚗 Missing Models</div>
+          <span class="card-meta">ပုံမှန်ပါဖူးပြီး ဒီလ ပျောက်သွားတဲ့</span>
         </div>
         <div class="card-body" id="missingModelsContent">
           <div class="empty"><div class="ei">⏳</div><p>Loading...</p></div>
@@ -2366,37 +2366,68 @@ function renderMissingModels() {
     return;
   }
   const currentModels = new Set(Object.keys(monthly[current] || {}));
+
+  // Normalize model name for comparison (lowercase, collapse whitespace)
+  const normalize = s => s.trim().toLowerCase().replace(/\s+/g,' ');
+  const currentNorm = new Set([...currentModels].map(normalize));
+
   const missing = {};
   pastMonths.forEach(m => {
     Object.entries(monthly[m] || {}).forEach(([model, count]) => {
-      if (!currentModels.has(model)) {
-        if (!missing[model]) missing[model] = { months: [], total: 0 };
-        missing[model].months.push({ m, count });
-        missing[model].total += count;
-      }
+      if (currentNorm.has(normalize(model))) return; // present in current month
+      if (!missing[model]) missing[model] = { months: [], total: 0, monthCount: 0 };
+      missing[model].months.push({ m, count });
+      missing[model].total += count;
+      missing[model].monthCount++;
     });
   });
-  const list = Object.entries(missing).sort((a,b)=>b[1].total-a[1].total);
-  const header = '<div style="background:var(--warn-soft);border:1px solid #FCD34D;border-radius:var(--r-sm);padding:12px;margin-bottom:14px">' +
-    '<div style="font-size:12px;color:var(--warn);line-height:1.6;font-weight:500">' +
-      'ပြီးခဲ့တဲ့ <strong>' + pastMonths.length + ' လ (' + esc(pastMonths.map(m=>monthLabel(m).split(' ')[0]).join(', ')) + ')</strong> မှာ ပေါ်ပြီး ' +
-      '<strong>' + esc(monthLabel(current)) + '</strong> မှာ မပေါ်တော့တဲ့ ကားများ' +
-    '</div>' +
-  '</div>';
+
+  // Only show models that appeared in 2+ past months AND total count >= 3
+  // This avoids one-off typos/data-quality entries
+  const MIN_MONTHS = pastMonths.length >= 2 ? 2 : 1;
+  const MIN_TOTAL = 3;
+  const list = Object.entries(missing)
+    .filter(([, d]) => d.monthCount >= MIN_MONTHS && d.total >= MIN_TOTAL)
+    .sort((a,b) => b[1].total - a[1].total);
+
+  const pastLabel = pastMonths.map(m => monthLabel(m).split(' ')[0]).join(', ');
+  const header =
+    '<div style="background:var(--warn-soft);border:1px solid #FCD34D;border-radius:var(--r-sm);padding:12px;margin-bottom:14px">' +
+      '<div style="font-size:12px;color:var(--warn);line-height:1.6;font-weight:500">' +
+        '📅 <strong>' + esc(pastLabel) + '</strong> မှာ ပုံမှန်ပေါ်ပြီး ' +
+        '<strong>' + esc(monthLabel(current)) + '</strong> တွင် မပေါ်တော့တဲ့ ကားများ' +
+        '<br><span style="font-weight:400;opacity:.8">(အနည်းဆုံး ' + MIN_MONTHS + ' လ ဆက်ပေါ်ဖူး · ' + MIN_TOTAL + '+ ကြိမ်)</span>' +
+      '</div>' +
+    '</div>';
+
   if (!list.length) {
-    el.innerHTML = header + '<div class="empty"><div class="ei">✅</div><p>ပျောက်သွားတဲ့ model မရှိပါ</p></div>';
+    el.innerHTML = header + '<div class="empty"><div class="ei">✅</div><p>စစ်မှန်တဲ့ Missing Model မရှိပါ</p></div>';
     return;
   }
-  const rows = list.map(([model, data]) =>
-    '<div style="display:flex;align-items:center;gap:10px;padding:11px;background:var(--surface-2);border-radius:var(--r-sm);margin-bottom:8px;border:1px solid var(--line)">' +
-      '<div style="font-size:18px;flex-shrink:0">⚠️</div>' +
-      '<div style="flex:1;min-width:0">' +
-        '<div style="font-size:13px;font-weight:700;color:var(--ink-1);margin-bottom:3px">' + esc(model) + '</div>' +
-        '<div style="font-size:10px;color:var(--ink-4)">Last seen: ' + esc(data.months.map(mo => monthLabel(mo.m).split(' ')[0]+' ('+mo.count+')').join(' · ')) + '</div>' +
-      '</div>' +
-      '<div style="background:var(--brand);color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;flex-shrink:0;font-family:var(--font-mono)">' + data.total + ' total</div>' +
-    '</div>'
-  ).join('');
+
+  const rows = list.map(([model, data]) => {
+    const consistency = data.monthCount + '/' + pastMonths.length + ' လ';
+    const bar = Math.round((data.monthCount / pastMonths.length) * 100);
+    return (
+      '<div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface-2);border-radius:var(--r-sm);margin-bottom:8px;border:1px solid var(--line)">' +
+        '<div style="flex-shrink:0;width:36px;height:36px;background:var(--warn-soft);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px">🚗</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--ink-1);margin-bottom:2px">' + esc(model) + '</div>' +
+          '<div style="font-size:10px;color:var(--ink-4);margin-bottom:5px">Last seen: ' +
+            esc(data.months.map(mo => monthLabel(mo.m).split(' ')[0] + ' (' + mo.count + ')').join(' · ')) +
+          '</div>' +
+          '<div style="height:3px;background:var(--line);border-radius:2px;overflow:hidden">' +
+            '<div style="height:100%;width:' + bar + '%;background:var(--warn);border-radius:2px"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">' +
+          '<div style="background:var(--brand);color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;font-family:var(--font-mono)">' + data.total + ' cars</div>' +
+          '<div style="font-size:9px;color:var(--ink-4);font-weight:600">' + consistency + '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+
   el.innerHTML = header + rows;
 }
 
