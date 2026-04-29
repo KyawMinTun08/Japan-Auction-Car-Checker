@@ -2256,6 +2256,56 @@ def proxy_filter(text: str):
         return True, "လိပ်စာ ပေးပို့ခြင်း တားမြစ်ထားသည်"
     return False, ""
 
+# ── Chat Log Helper ──────────────────────────────────
+async def log_chat_message(req_id: str, sender_id: str, sender_label: str, msg_type: str, content: str):
+    if not SHEET_WEBHOOK:
+        return
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            await client.post(SHEET_WEBHOOK, json={
+                "action":      "saveChatLog",
+                "reqId":       req_id,
+                "senderId":    sender_id,
+                "senderLabel": sender_label,
+                "msgType":     msg_type,
+                "content":     content[:500],
+                "timestamp":   datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            }, timeout=8)
+    except Exception as e:
+        logger.warning(f"log_chat_message: {e}")
+
+async def chatlog_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if not context.args:
+        await update.message.reply_text("❌ Format: `/chatlog R123456`", parse_mode='Markdown')
+        return
+    req_id = context.args[0].strip().upper()
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(SHEET_WEBHOOK, json={
+                "action": "getChatLog",
+                "reqId":  req_id,
+            }, timeout=10)
+        logs = resp.json().get("logs", [])
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+        return
+    if not logs:
+        await update.message.reply_text(f"📋 `{req_id}` — Chat log မရှိသေးပါ", parse_mode='Markdown')
+        return
+    txt = f"📋 *Chat Log — `{req_id}`*\n({'─'*20})\n\n"
+    for log in logs[-50:]:
+        ts  = log.get("timestamp", "")
+        frm = log.get("senderLabel", log.get("from","?"))
+        msg = log.get("content", log.get("message",""))
+        txt += f"🕐 `{ts}`\n👤 {frm}:\n{msg}\n\n"
+    chunks = [txt[i:i+4000] for i in range(0, len(txt), 4000)]
+    for chunk in chunks:
+        await update.message.reply_text(chunk, parse_mode='Markdown')
+
 # ── handle_text ──────────────────────────────────────
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -2323,6 +2373,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=int(broker_tg_id),
                     text=f"💬 *Customer #{req_id_c}:*\n\n{text}",
                     parse_mode='Markdown')
+                await log_chat_message(req_id_c, str_uid, "Customer", "text", text)
                 await update.message.reply_text(
                     "✅ ပို့ပြီ",
                     reply_markup=close_kb)
@@ -2352,6 +2403,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=int(customer_id),
                     text=f"💬 *Broker #{broker_id}:*\n\n{text}",
                     parse_mode='Markdown')
+                await log_chat_message(req_id_b, str_uid, f"Broker#{broker_id}", "text", text)
                 await update.message.reply_text(
                     "✅ ပို့ပြီ",
                     reply_markup=close_kb_b)
@@ -4069,33 +4121,6 @@ async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"addbroker DM: {e}")
 
-            # ── Broker command scope ချက်ချင်း set ──
-            try:
-                _broker_cmds = [
-                    BotCommand("start",          "🚗 Bot စတင်ရန်"),
-                    BotCommand("carrequest",     "🚙 ကားလိုအပ်ပါက ဒီနေရာနှိပ်ပါ"),
-                    BotCommand("mystatus",       "📋 Request Status စစ်ရန်"),
-                    BotCommand("find",           "🔍 Chassis ဖြင့်ရှာရန်"),
-                    BotCommand("model",          "🔎 Model အမည်ဖြင့်ရှာရန်"),
-                    BotCommand("history",        "📈 ဈေးနှုန်း မှတ်တမ်းကြည့်ရန်"),
-                    BotCommand("list",           "📊 ကားစာရင်း အားလုံးကြည့်ရန်"),
-                    BotCommand("web",            "🌐 Web App link ကြည့်ရန်"),
-                    BotCommand("renew",          "🔄 Membership သက်တမ်းတိုး"),
-                    BotCommand("mypassword",     "🔑 Password ပြန်ယူရန်"),
-                    BotCommand("redeem",         "🎁 Promo Code သုံးရန်"),
-                    BotCommand("brokerstart",    "👷 Broker စတင်ရန်"),
-                    BotCommand("available",      "🟢 Available ဖြစ်ကြောင်း"),
-                    BotCommand("busy",           "🔴 Busy ဖြစ်ကြောင်း"),
-                    BotCommand("accept",         "✅ Request လက်ခံရန်"),
-                    BotCommand("endchat",        "🔚 Session ပိတ်ရန်"),
-                    BotCommand("depositrequest", "💰 Customer ကို Deposit တောင်းရန်"),
-                ]
-                await context.bot.set_my_commands(
-                    _broker_cmds,
-                    scope=BotCommandScopeChat(chat_id=int(tg_id)))
-            except Exception as e:
-                logger.warning(f"addbroker set_commands: {e}")
-
             await update.message.reply_text(
                 f"✅ *Broker ထည့်ပြီ*\n\n"
                 f"👤 @{username}\n"
@@ -4140,13 +4165,6 @@ async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"kickbroker DM: {e}")
 
-            # ── Broker commands ဖြုတ်ပြီး member commands သို့ reset ──
-            try:
-                await context.bot.delete_my_commands(
-                    scope=BotCommandScopeChat(chat_id=int(tg_id)))
-            except Exception as e:
-                logger.warning(f"kickbroker delete_commands: {e}")
-
             await update.message.reply_text(
                 f"✅ *Broker ဖြတ်ပြီ*\n\n"
                 f"👤 @{broker.get('username','?')}\n"
@@ -4154,26 +4172,6 @@ async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown')
         else:
             await update.message.reply_text("❌ Sheet error — ထပ်ကြိုးစားပါ")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
-
-
-async def resetcmd_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin: /resetcmd 123456789 — user တစ်ယောက်ရဲ့ custom commands ဖြုတ်ပြီး default သို့ပြန်"""
-    user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
-    if not context.args:
-        await update.message.reply_text("❌ Format: `/resetcmd 123456789`", parse_mode='Markdown'); return
-    tg_id = context.args[0].strip()
-    if not tg_id.isdigit():
-        await update.message.reply_text("❌ Telegram ID ဂဏန်းဖြစ်ရမည်"); return
-    try:
-        await context.bot.delete_my_commands(
-            scope=BotCommandScopeChat(chat_id=int(tg_id)))
-        await update.message.reply_text(
-            f"✅ `{tg_id}` ရဲ့ custom commands ဖြုတ်ပြီ — default menu ပြန်ရမည်",
-            parse_mode='Markdown')
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
@@ -5558,7 +5556,6 @@ async def main():
     app.add_handler(CommandHandler("redeem",        redeem_cmd))
     app.add_handler(CommandHandler("addbroker",     addbroker_cmd))
     app.add_handler(CommandHandler("kickbroker",    kickbroker_cmd))
-    app.add_handler(CommandHandler("resetcmd",      resetcmd_cmd))
     app.add_handler(CommandHandler("brokers",       brokers_cmd))
     app.add_handler(CommandHandler("brokerstart",   brokerstart_cmd))
     app.add_handler(CommandHandler("available",     available_cmd))
@@ -5572,6 +5569,7 @@ async def main():
     app.add_handler(CommandHandler("auctionwon",     auctionwon_cmd))
     app.add_handler(CommandHandler("auctionlost",    auctionlost_cmd))
     app.add_handler(CommandHandler("refunddone",     refunddone_cmd))
+    app.add_handler(CommandHandler("chatlog",        chatlog_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
@@ -5617,6 +5615,7 @@ async def main():
         BotCommand("auctionwon",    "🏆 ကားရပြီ (Admin)"),
         BotCommand("auctionlost",   "❌ ကားမရဘူး (Admin)"),
         BotCommand("refunddone",    "💸 Refund ပြီး (Admin)"),
+        BotCommand("chatlog",       "📋 Chat log ကြည့်ရန် (Admin)"),
     ]
     try:
         await app.bot.set_my_commands(member_commands, scope=BotCommandScopeAllPrivateChats())
@@ -5626,7 +5625,6 @@ async def main():
             except Exception as e:
                 logger.warning(f"Admin scope set failed for {admin_id}: {e}")
         brokers = await get_brokers()
-        broker_ids = {int(b.get("telegramId", 0)) for b in brokers if b.get("telegramId")}
         for b in brokers:
             try:
                 tg_id = int(b.get("telegramId", 0))
@@ -5634,25 +5632,6 @@ async def main():
                     await app.bot.set_my_commands(broker_commands, scope=BotCommandScopeChat(chat_id=tg_id))
             except Exception as e:
                 logger.warning(f"Broker scope set failed: {e}")
-
-        # ── Non-broker members ရဲ့ chat-specific scope ဖြုတ်ပြီး global သို့ reset ──
-        try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                resp = await client.post(SHEET_WEBHOOK, json={"action": "getMembers"}, timeout=15)
-            all_members = resp.json().get("members", [])
-            for m in all_members:
-                try:
-                    uid_str = str(m.get("userId", "")).strip()
-                    if not uid_str or not uid_str.isdigit():
-                        continue
-                    uid = int(uid_str)
-                    if uid and uid not in broker_ids and uid not in ADMIN_IDS:
-                        await app.bot.delete_my_commands(scope=BotCommandScopeChat(chat_id=uid))
-                except Exception:
-                    pass
-        except Exception as e:
-            logger.warning(f"Startup member cmd reset: {e}")
-
         logger.info("Command scopes set successfully")
     except Exception as e:
         logger.error(f"set_my_commands error: {e}")
