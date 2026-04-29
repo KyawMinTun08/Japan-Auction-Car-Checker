@@ -2351,6 +2351,42 @@ function renderMonthlyBestSellerContent() {
   el.innerHTML = statsHtml + rankHtml;
 }
 
+// Extra brand rules not covered by the existing BRAND_MAP
+const EXTRA_BRAND_RULES = [
+  { brand:'FUSO',      color:'#1D4ED8', keywords:['FUSO','CANTER','ROSA','FIGHTER','SUPER GREAT'] },
+  { brand:'HINO',      color:'#B45309', keywords:['HINO','DUTRO','RANGER','PROFIA','LIESSE','MELPHA','RAINBOW','PONCHO'] },
+  { brand:'ISUZU',     color:'#15803D', keywords:['ISUZU','ELF','FORWARD','GIGA','D-MAX','MU-X','TROOPER'] },
+  { brand:'UD TRUCKS', color:'#6D28D9', keywords:['UD QUON','UD CONDOR','QUON','CONDOR'] },
+];
+
+function getBrandFromModel(model) {
+  const up = model.toUpperCase().trim();
+  // Check extra brands first (trucks etc not in main BRAND_MAP)
+  for (const rule of EXTRA_BRAND_RULES) {
+    if (rule.keywords.some(k => up === k || up.startsWith(k + ' ') || up.startsWith(k))) {
+      return { brand: rule.brand, color: rule.color };
+    }
+  }
+  // Check existing BRAND_MAP (object keyed by brand name)
+  for (const [brand, info] of Object.entries(BRAND_MAP)) {
+    if (info.models.some(m => {
+      const mu = m.toUpperCase();
+      return up === mu || up.startsWith(mu + ' ') || up.includes(' ' + mu);
+    })) {
+      return { brand, color: info.color };
+    }
+  }
+  // Fallback: first word might be brand
+  const first = up.split(' ')[0];
+  const knownBrands = Object.keys(BRAND_MAP).map(b => b.toUpperCase());
+  const matched = knownBrands.find(b => b === first);
+  if (matched) {
+    const key = Object.keys(BRAND_MAP).find(k => k.toUpperCase() === matched);
+    return { brand: key, color: BRAND_MAP[key].color };
+  }
+  return { brand: 'Other', color: '#888888' };
+}
+
 function renderMissingModels() {
   const el = document.getElementById('missingModelsContent');
   const sel = document.getElementById('mbsMonth');
@@ -2366,15 +2402,13 @@ function renderMissingModels() {
     return;
   }
   const currentModels = new Set(Object.keys(monthly[current] || {}));
-
-  // Normalize model name for comparison (lowercase, collapse whitespace)
   const normalize = s => s.trim().toLowerCase().replace(/\s+/g,' ');
   const currentNorm = new Set([...currentModels].map(normalize));
 
   const missing = {};
   pastMonths.forEach(m => {
     Object.entries(monthly[m] || {}).forEach(([model, count]) => {
-      if (currentNorm.has(normalize(model))) return; // present in current month
+      if (currentNorm.has(normalize(model))) return;
       if (!missing[model]) missing[model] = { months: [], total: 0, monthCount: 0 };
       missing[model].months.push({ m, count });
       missing[model].total += count;
@@ -2382,8 +2416,6 @@ function renderMissingModels() {
     });
   });
 
-  // Only show models that appeared in 2+ past months AND total count >= 3
-  // This avoids one-off typos/data-quality entries
   const MIN_MONTHS = pastMonths.length >= 2 ? 2 : 1;
   const MIN_TOTAL = 3;
   const list = Object.entries(missing)
@@ -2396,39 +2428,63 @@ function renderMissingModels() {
       '<div style="font-size:12px;color:var(--warn);line-height:1.6;font-weight:500">' +
         '📅 <strong>' + esc(pastLabel) + '</strong> မှာ ပုံမှန်ပေါ်ပြီး ' +
         '<strong>' + esc(monthLabel(current)) + '</strong> တွင် မပေါ်တော့တဲ့ ကားများ' +
-        '<br><span style="font-weight:400;opacity:.8">(အနည်းဆုံး ' + MIN_MONTHS + ' လ ဆက်ပေါ်ဖူး · ' + MIN_TOTAL + '+ ကြိမ်)</span>' +
       '</div>' +
     '</div>';
 
   if (!list.length) {
-    el.innerHTML = header + '<div class="empty"><div class="ei">✅</div><p>စစ်မှန်တဲ့ Missing Model မရှိပါ</p></div>';
+    el.innerHTML = header + '<div class="empty"><div class="ei">✅</div><p>Missing Model မရှိပါ</p></div>';
     return;
   }
 
-  const rows = list.map(([model, data]) => {
-    const consistency = data.monthCount + '/' + pastMonths.length + ' လ';
-    const bar = Math.round((data.monthCount / pastMonths.length) * 100);
-    return (
-      '<div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface-2);border-radius:var(--r-sm);margin-bottom:8px;border:1px solid var(--line)">' +
-        '<div style="flex-shrink:0;width:36px;height:36px;background:var(--warn-soft);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px">🚗</div>' +
-        '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:13px;font-weight:700;color:var(--ink-1);margin-bottom:2px">' + esc(model) + '</div>' +
-          '<div style="font-size:10px;color:var(--ink-4);margin-bottom:5px">Last seen: ' +
-            esc(data.months.map(mo => monthLabel(mo.m).split(' ')[0] + ' (' + mo.count + ')').join(' · ')) +
-          '</div>' +
-          '<div style="height:3px;background:var(--line);border-radius:2px;overflow:hidden">' +
-            '<div style="height:100%;width:' + bar + '%;background:var(--warn);border-radius:2px"></div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">' +
-          '<div style="background:var(--brand);color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;font-family:var(--font-mono)">' + data.total + ' cars</div>' +
-          '<div style="font-size:9px;color:var(--ink-4);font-weight:600">' + consistency + '</div>' +
-        '</div>' +
-      '</div>'
-    );
-  }).join('');
+  // Group by brand
+  const brands = {};
+  list.forEach(([model, data]) => {
+    const { brand, color } = getBrandFromModel(model);
+    if (!brands[brand]) brands[brand] = { color, models: [], total: 0 };
+    brands[brand].models.push([model, data]);
+    brands[brand].total += data.total;
+  });
 
-  el.innerHTML = header + rows;
+  const brandEntries = Object.entries(brands).sort((a,b) => b[1].total - a[1].total);
+  const totalMissing = list.length;
+
+  let html = header;
+  html += '<div style="font-size:11px;color:var(--ink-4);margin-bottom:10px;font-weight:600">' +
+    totalMissing + ' models · ' + brandEntries.length + ' brands · Brand နှိပ်ရင် ကားတွေ မြင်ရမည်' +
+  '</div>';
+
+  brandEntries.forEach(([brand, bdata], bi) => {
+    const uid = 'mmb_' + bi;
+    const modelCount = bdata.models.length;
+    html +=
+      '<div style="margin-bottom:8px;border:1px solid ' + bdata.color + '33;border-radius:var(--r-sm);overflow:hidden">' +
+        // Brand header (clickable)
+        '<div onclick="(function(el){el.style.display=el.style.display===\'none\'?\'block\':\'none\'})(document.getElementById(\'' + uid + '\'))" ' +
+          'style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:' + bdata.color + '11;cursor:pointer;user-select:none">' +
+          '<div style="width:10px;height:10px;border-radius:50%;background:' + bdata.color + ';flex-shrink:0"></div>' +
+          '<div style="flex:1;font-size:13px;font-weight:800;color:var(--ink-1);letter-spacing:.3px">' + esc(brand) + '</div>' +
+          '<div style="font-size:11px;color:var(--ink-3);font-weight:600;margin-right:6px">' + modelCount + ' models</div>' +
+          '<div style="background:' + bdata.color + ';color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;font-family:var(--font-mono)">' + bdata.total + '</div>' +
+          '<div style="font-size:14px;color:var(--ink-4);margin-left:4px">▾</div>' +
+        '</div>' +
+        // Models list (hidden by default)
+        '<div id="' + uid + '" style="display:none;background:var(--surface-2);padding:8px 10px">' +
+          bdata.models.map(([model, data]) =>
+            '<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;margin-bottom:4px;border-left:3px solid ' + bdata.color + '">' +
+              '<div style="flex:1;min-width:0">' +
+                '<div style="font-size:12px;font-weight:700;color:var(--ink-1)">' + esc(model) + '</div>' +
+                '<div style="font-size:10px;color:var(--ink-4);margin-top:2px">' +
+                  data.months.map(mo => monthLabel(mo.m).split(' ')[0] + ' (' + mo.count + ')').join(' · ') +
+                '</div>' +
+              '</div>' +
+              '<div style="font-size:10px;font-weight:700;color:' + bdata.color + ';font-family:var(--font-mono);flex-shrink:0">' + data.total + 'x</div>' +
+            '</div>'
+          ).join('') +
+        '</div>' +
+      '</div>';
+  });
+
+  el.innerHTML = html;
 }
 
 function renderLocationActivity() {
