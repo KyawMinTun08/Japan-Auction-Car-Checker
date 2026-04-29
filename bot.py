@@ -285,6 +285,7 @@ promo_used     = {}
 rate_limit     = {}
 pending_setqr    = {}  # admin_id -> "kpay" / "wave" / "cb"
 payment_qr_cache = {}  # method -> {"file_id": str, "ts": datetime}
+chat_histories   = {}  # req_id -> [{"time", "senderType", "senderId", "senderLabel", "text", "msgType"}]
 
 # ── Rate Limiting ──────────────────────────────────────
 def check_rate_limit(user_id: int, max_req: int = 10, window: int = 60) -> bool:
@@ -1860,6 +1861,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         photo=bio,
                         caption=cap_text,
                         parse_mode='Markdown')
+                    hist_text = f"[ပုံ]{': ' + caption if caption else ''}"
+                    if relay_image_url:
+                        hist_text += f" {relay_image_url}"
+                    append_chat_history(req_id, "customer", str_uid,
+                                        session.get("customerUsername") or str_uid,
+                                        hist_text, "photo")
                     await update.message.reply_text("✅ ပုံ ပို့ပြီ")
                 except Exception as e:
                     logger.error(f"photo relay C→B: {e}")
@@ -1881,6 +1888,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         photo=bio,
                         caption=cap_text,
                         parse_mode='Markdown')
+                    hist_text = f"[ပုံ]{': ' + caption if caption else ''}"
+                    if relay_image_url:
+                        hist_text += f" {relay_image_url}"
+                    append_chat_history(req_id, "broker", str_uid,
+                                        f"Broker#{broker_id}",
+                                        hist_text, "photo")
                     await update.message.reply_text("✅ ပုံ ပို့ပြီ")
                 except Exception as e:
                     logger.error(f"photo relay B→C: {e}")
@@ -2256,6 +2269,20 @@ def proxy_filter(text: str):
         return True, "လိပ်စာ ပေးပို့ခြင်း တားမြစ်ထားသည်"
     return False, ""
 
+# ── Chat History ──────────────────────────────────────
+def append_chat_history(req_id: str, sender_type: str, sender_id: str,
+                        sender_label: str, text: str, msg_type: str = "text"):
+    if req_id not in chat_histories:
+        chat_histories[req_id] = []
+    chat_histories[req_id].append({
+        "time":        datetime.now().isoformat(timespec="seconds"),
+        "senderType":  sender_type,
+        "senderId":    sender_id,
+        "senderLabel": sender_label,
+        "text":        text,
+        "msgType":     msg_type,
+    })
+
 # ── handle_text ──────────────────────────────────────
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -2323,6 +2350,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=int(broker_tg_id),
                     text=f"💬 *Customer #{req_id_c}:*\n\n{text}",
                     parse_mode='Markdown')
+                append_chat_history(req_id_c, "customer", str_uid,
+                                    session.get("customerUsername") or str_uid, text)
                 await update.message.reply_text(
                     "✅ ပို့ပြီ",
                     reply_markup=close_kb)
@@ -2352,6 +2381,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=int(customer_id),
                     text=f"💬 *Broker #{broker_id}:*\n\n{text}",
                     parse_mode='Markdown')
+                append_chat_history(req_id_b, "broker", str_uid,
+                                    f"Broker#{broker_id}", text)
                 await update.message.reply_text(
                     "✅ ပို့ပြီ",
                     reply_markup=close_kb_b)
@@ -2565,6 +2596,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         broker_id_val = broker_obj.get("brokerId", "?")
         closer_id     = str(query.from_user.id)
 
+        history = chat_histories.pop(req_id, [])
         proxy_sessions.pop(req_id, None)
         new_broker_status = recalc_broker_status(broker_tg_id)
         await update_broker(broker_tg_id, status=new_broker_status)
@@ -2575,6 +2607,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "reqId":  req_id,
                     "status": "CLOSED",
                 }, timeout=10)
+                if history and SHEET_WEBHOOK:
+                    await client.post(SHEET_WEBHOOK, json={
+                        "action":      "saveChatHistory",
+                        "reqId":       req_id,
+                        "brokerId":    broker_obj.get("brokerId", ""),
+                        "brokerTgId":  broker_tg_id or "",
+                        "customerId":  customer_id or "",
+                        "startTime":   session.get("startTime", ""),
+                        "endTime":     datetime.now().isoformat(timespec="seconds"),
+                        "messages":    history,
+                    }, timeout=15)
         except Exception as e:
             logger.error(f"closechat updateRequest: {e}")
 
@@ -3611,6 +3654,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update_broker(user_id, status=new_broker_status)
 
         if session:
+            history = chat_histories.pop(req_id, [])
             try:
                 async with httpx.AsyncClient(follow_redirects=True) as client:
                     await client.post(SHEET_WEBHOOK, json={
@@ -3618,6 +3662,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "reqId":  req_id,
                         "status": "CLOSED",
                     }, timeout=10)
+                    if history and SHEET_WEBHOOK:
+                        await client.post(SHEET_WEBHOOK, json={
+                            "action":      "saveChatHistory",
+                            "reqId":       req_id,
+                            "brokerId":    broker.get("brokerId", ""),
+                            "brokerTgId":  user_id,
+                            "customerId":  session.get("customerId", ""),
+                            "startTime":   session.get("startTime", ""),
+                            "endTime":     datetime.now().isoformat(timespec="seconds"),
+                            "messages":    history,
+                        }, timeout=15)
             except Exception as e:
                 logger.error(f"endchat confirm: {e}")
 
@@ -4975,6 +5030,7 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
         if req_id not in proxy_sessions:
             return
 
+        history = chat_histories.pop(req_id, [])
         proxy_sessions.pop(req_id, None)
         active_timers.pop(req_id, None)
 
@@ -4987,6 +5043,16 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
                     "reqId":  req_id,
                     "status": "CANCELLED_TIMEOUT",
                 }, timeout=10)
+                if history and SHEET_WEBHOOK:
+                    await client.post(SHEET_WEBHOOK, json={
+                        "action":      "saveChatHistory",
+                        "reqId":       req_id,
+                        "brokerId":    broker_id,
+                        "brokerTgId":  broker_tg_id,
+                        "customerId":  customer_id,
+                        "endTime":     datetime.now().isoformat(timespec="seconds"),
+                        "messages":    history,
+                    }, timeout=15)
         except Exception as e:
             logger.error(f"timer cancel sheet: {e}")
 
@@ -5415,6 +5481,70 @@ async def refunddone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown')
 
 
+# ── Chat History Command (Admin) ──────────────────────
+async def chathistory_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Format: `/chathistory R123456`", parse_mode='Markdown')
+        return
+
+    req_id = context.args[0].strip().upper()
+
+    # Check in-memory first (active session)
+    history = chat_histories.get(req_id)
+    source  = "active"
+
+    # If not found in memory, query sheet
+    if history is None and SHEET_WEBHOOK:
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await client.post(SHEET_WEBHOOK, json={
+                    "action": "getChatHistory",
+                    "reqId":  req_id,
+                }, timeout=10)
+            data = resp.json()
+            if data.get("status") == "ok":
+                history = data.get("messages", [])
+                source  = "closed"
+            else:
+                history = []
+        except Exception as e:
+            logger.error(f"getChatHistory: {e}")
+            history = []
+
+    if not history:
+        await update.message.reply_text(
+            f"📭 *Chat History မတွေ့ပါ*\n\n🆔 `{req_id}`\n\n"
+            f"Session မစတင်ရသေးဘူး (သို့) Message မပါဘူး",
+            parse_mode='Markdown')
+        return
+
+    # Format history into chunks (Telegram 4096 char limit)
+    status_label = "🟢 ACTIVE" if source == "active" else "🔒 CLOSED"
+    lines = [f"📋 *Chat History — {req_id}*\n{status_label}\n{'─' * 30}"]
+    for entry in history:
+        time_str    = entry.get("time", "")[:19].replace("T", " ")
+        sender_type = entry.get("senderType", "")
+        label       = entry.get("senderLabel", sender_type)
+        msg_type    = entry.get("msgType", "text")
+        text        = entry.get("text", "")
+        icon = "👤" if sender_type == "customer" else "👷"
+        type_tag = " 📷" if msg_type == "photo" else ""
+        lines.append(f"\n`{time_str}`{type_tag}\n{icon} *{label}:*\n{text}")
+
+    full_text = "\n".join(lines)
+
+    # Send in chunks if needed
+    chunk_size = 3800
+    chunks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
+    for chunk in chunks:
+        await update.message.reply_text(chunk, parse_mode='Markdown')
+
+
 # ── Auto Expire Check ─────────────────────────────────
 async def check_expired_members(context):
     global warned_3days
@@ -5572,6 +5702,7 @@ async def main():
     app.add_handler(CommandHandler("auctionwon",     auctionwon_cmd))
     app.add_handler(CommandHandler("auctionlost",    auctionlost_cmd))
     app.add_handler(CommandHandler("refunddone",     refunddone_cmd))
+    app.add_handler(CommandHandler("chathistory",    chathistory_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
@@ -5617,6 +5748,7 @@ async def main():
         BotCommand("auctionwon",    "🏆 ကားရပြီ (Admin)"),
         BotCommand("auctionlost",   "❌ ကားမရဘူး (Admin)"),
         BotCommand("refunddone",    "💸 Refund ပြီး (Admin)"),
+        BotCommand("chathistory",   "💬 Broker Chat History ကြည့်ရန် (Admin)"),
     ]
     try:
         await app.bot.set_my_commands(member_commands, scope=BotCommandScopeAllPrivateChats())
