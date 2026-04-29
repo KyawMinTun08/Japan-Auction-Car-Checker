@@ -280,7 +280,8 @@ active_timers    = {}  # req_id -> asyncio.Task
 auction_dep_timers = {}  # req_id -> asyncio.Task (48hr deposit timeout)
 fasttrack_paid    = set()   # str_uid — fast track deposit ပေးပြီးသူများ
 fasttrack_pending = {}       # str_uid -> {"waiting_slip": True, "slip_info": {}}
-warned_3days   = set()
+warned_3days   = {}  # uid -> "YYYY-MM-DD" (sent date)
+notified_kicked = {}  # uid -> "YYYY-MM-DD" (sent date)
 promo_used     = {}
 rate_limit     = {}
 pending_setqr    = {}  # admin_id -> "kpay" / "wave" / "cb"
@@ -5547,12 +5548,14 @@ async def chathistory_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Auto Expire Check ─────────────────────────────────
 async def check_expired_members(context):
-    global warned_3days
+    global warned_3days, notified_kicked
     try:
         async with httpx.AsyncClient() as client:
             resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers"}, timeout=10, follow_redirects=True)
             members = resp.json().get("members",[])
-        now = datetime.now(); kicked = []; kick_failed = []; expiring = []
+        now   = datetime.now()
+        today = now.strftime("%Y-%m-%d")
+        kicked = []; kick_failed = []; expiring = []
         for m in members:
             uid = str(m.get('userId',''))
             if not uid: continue
@@ -5561,8 +5564,10 @@ async def check_expired_members(context):
             except: continue
             days_left = (expire_date - now).days
 
-            if 0 <= days_left <= 3 and uid not in warned_3days:
-                expiring.append(m); warned_3days.add(uid)
+            # Warn member — once per calendar day only
+            if 0 <= days_left <= 3 and warned_3days.get(uid) != today:
+                expiring.append(m)
+                warned_3days[uid] = today
                 if uid.isdigit():
                     try:
                         pw_resp = await (httpx.AsyncClient()).post(SHEET_WEBHOOK, json={
@@ -5590,12 +5595,15 @@ async def check_expired_members(context):
                     logger.warning(f"Skipping kick for admin ID {uid}")
                     continue
 
+                # Skip if already kicked and admin was notified today
+                if notified_kicked.get(uid) == today:
+                    continue
+
                 pkg = str(m.get('package','')).upper()
 
                 if pkg == 'PROMO10D':
                     cancel_c = await get_cancel_count(uid)
                     has_order = cancel_c > 0
-                    kick_status = "KICKED"
                     try:
                         await context.bot.send_message(
                             chat_id=int(uid),
@@ -5610,6 +5618,7 @@ async def check_expired_members(context):
 
                 success = await kick_with_retry(context, int(uid))
                 if success:
+                    notified_kicked[uid] = today
                     kicked.append(m)
                     if SHEET_WEBHOOK:
                         try:
