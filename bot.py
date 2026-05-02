@@ -1586,27 +1586,37 @@ YEAR: 2017"""},
             async with httpx.AsyncClient() as client:
                 resp = await client.post(url, json=payload, timeout=60)
             data = resp.json()
-            if "candidates" in data:
-                text    = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                chassis = ""; model = ""; color = ""; year = 0
-                for line in text.upper().split("\n"):
-                    line = line.strip()
-                    if line.startswith("CHASSIS:"):
-                        raw = line.replace("CHASSIS:","").strip()
-                        for pat in [r'[A-Z]{1,5}\d{1,4}[A-Z]{0,2}\d{0,2}-\d{4,7}',
-                                    r'[A-Z]{2,6}\d{2,4}-\d{4,7}',
-                                    r'[A-Z0-9]{4,20}-\d{4,7}']:
-                            m = re.search(pat, raw)
-                            if m: chassis = m.group().replace(' ','-'); break
-                    elif line.startswith("MODEL:"): model = line.replace("MODEL:","").strip()
-                    elif line.startswith("COLOR:"): color = line.replace("COLOR:","").strip()
-                    elif line.startswith("YEAR:"):
-                        try: year = int(re.search(r'\d{4}', line).group())
-                        except: year = 0
-                if chassis:
-                    return {"chassis":chassis,"model":model,"color":color,"year":year}
+            logger.info(f"Gemini chassis raw: {data}")
+            if "candidates" in data and data["candidates"]:
+                cand = data["candidates"][0]
+                if "content" not in cand:
+                    logger.warning(f"Gemini no content: finishReason={cand.get('finishReason','?')}")
+                else:
+                    text    = cand["content"]["parts"][0]["text"].strip().upper()
+                    chassis = ""; model = ""; color = ""; year = 0
+                    for line in text.split("\n"):
+                        line = line.strip()
+                        if line.startswith("CHASSIS:"):
+                            raw = line.replace("CHASSIS:","").strip()
+                            for pat in [
+                                r'[A-Z]{1,5}\d{1,4}[A-Z]{0,2}\d{0,2}[-\s]\d{4,7}',
+                                r'[A-Z]{2,6}\d{2,4}[-\s]\d{4,7}',
+                                r'[A-Z0-9]{4,20}[-\s]\d{4,7}',
+                                r'[A-Z0-9]{6,25}',
+                            ]:
+                                m = re.search(pat, raw)
+                                if m:
+                                    chassis = m.group().replace(' ', '-').strip()
+                                    break
+                        elif line.startswith("MODEL:"): model = line.replace("MODEL:","").strip()
+                        elif line.startswith("COLOR:"): color = line.replace("COLOR:","").strip()
+                        elif line.startswith("YEAR:"):
+                            try: year = int(re.search(r'\d{4}', line).group())
+                            except: year = 0
+                    if chassis:
+                        return {"chassis":chassis,"model":model,"color":color,"year":year}
         except Exception as e:
-            logger.error(f"Gemini OCR: {e}")
+            logger.error(f"Gemini OCR error: {e}")
     chassis = tesseract_ocr_chassis(file_bytes)
     return {"chassis":chassis,"model":"","color":"","year":0}
 
