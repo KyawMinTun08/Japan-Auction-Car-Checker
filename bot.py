@@ -5003,11 +5003,11 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
                 chat_id=int(broker_tg_id),
                 text=(f"⚠️ *Request Auto Cancel ဖြစ်ပြီ*\n\n"
                       f"🆔 `{req_id}`\n"
-                      f"24 နာရီ အတွင်း မပြီးဆုံးတဲ့အတွက် ပိတ်လိုက်ပြီ\n\n"
+                      f"48 နာရီ အတွင်း မပြီးဆုံးတဲ့အတွက် ပိတ်လိုက်ပြီ\n\n"
                       f"🟢 Status: FREE ဖြစ်ပြီ"),
                 parse_mode='Markdown')
         except Exception as e:
-            logger.error(f"timer 24hr broker: {e}")
+            logger.error(f"timer 48hr broker: {e}")
 
         if customer_id:
             try:
@@ -5015,14 +5015,14 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
                     chat_id=int(customer_id),
                     text=(f"⚠️ *Request ပိတ်သွားပြီ*\n\n"
                           f"🆔 `{req_id}`\n"
-                          f"24 နာရီ အတွင်း ကားမရသောကြောင့် Request ပိတ်ပြီ\n\n"
+                          f"48 နာရီ အတွင်း ကားမရသောကြောင့် Request ပိတ်ပြီ\n\n"
                           f"ပြန်တင်ရန်: /carrequest 🙏"),
                     parse_mode='Markdown')
             except Exception as e:
-                logger.error(f"timer 24hr customer: {e}")
+                logger.error(f"timer 48hr customer: {e}")
 
         await notify_admins(context,
-            f"🚨 *Request Auto Cancel (24hr timeout)*\n\n"
+            f"🚨 *Request Auto Cancel (48hr timeout)*\n\n"
             f"🆔 `{req_id}`\n"
             f"👷 Broker #{broker_id} → FREE\n"
             f"👤 Customer: `{customer_id}`")
