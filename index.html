@@ -1721,7 +1721,7 @@ const BRAND_MAP = {
   'Nissan':    { color:'#1D4ED8', models:['X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE TRUCK','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA'] },
   'Honda':     { color:'#B45309', models:['FIT HYBRID','FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','HR-V','GRACE','SHUTTLE','STREAM'] },
   'Daihatsu':  { color:'#15803D', models:['HIJET TRUCK','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI'] },
-  'Mitsubishi':{ color:'#6D28D9', models:['PAJERO','OUTLANDER','DELICA','ECLIPSE CROSS','GALANT','TRITON','COLT','ASX'] },
+  'Mitsubishi':{ color:'#6D28D9', models:['PAJERO','OUTLANDER','DELICA','ECLIPSE CROSS','GALANT','TRITON','COLT','ASX','RVR'] },
   'Subaru':    { color:'#0E7490', models:['IMPREZA','SAMBAR TRUCK','FORESTER','LEGACY','OUTBACK','XV','WRX','BRZ','EXIGA'] },
   'Mazda':     { color:'#BE185D', models:['BONGO TRUCK','ATENZA','DEMIO','CX-5','CX-3','AXELA','FAMILIA','BIANTE','PREMACY'] },
   'Suzuki':    { color:'#525252', models:['ALTO','EVERY','CARRY','JIMNY','SWIFT','SOLIO','SPACIA','WAGON R','HUSTLER','IGNIS'] },
@@ -2681,13 +2681,15 @@ function renderMembers() {
 /* ── PRICE HISTORY ── */
 const PH_MODELS = {
   Honda: [
-    { label: 'FIT HYBRID GP1', modelKey: 'FIT HYBRID', chassis: 'GP1' },
-    { label: 'FIT HYBRID GP5', modelKey: 'FIT HYBRID', chassis: 'GP5' },
-    { label: 'FIT HYBRID GP6', modelKey: 'FIT HYBRID', chassis: 'GP6' },
+    { label: 'FIT GP1',        modelKey: 'FIT', chassis: 'GP1' },
+    { label: 'FIT GP2',        modelKey: 'FIT', chassis: 'GP2' },
+    { label: 'FIT GB3',        modelKey: 'FIT', chassis: 'GB3' },
+    { label: 'FIT GP5',        modelKey: 'FIT', chassis: 'GP5' },
+    { label: 'FIT GP7',        modelKey: 'FIT', chassis: 'GP7' },
+    { label: 'Fit (All)',      modelKey: ['FIT','FIT HYBRID','HONDA FIT','HONDA FIT HYBRID'] },
     { label: 'Freed',          modelKey: ['FREED','HONDA FREED'] },
     { label: 'Insight',        modelKey: ['INSIGHT','HONDA INSIGHT'] },
     { label: 'CR-V',           modelKey: ['CR-V','HONDA CR-V'] },
-    { label: 'Fit',            modelKey: ['HONDA FIT','HONDA FIT HYBRID'] },
   ],
   Toyota: [
     { label: 'Alphard',        modelKey: ['ALPHARD'] },
@@ -2716,6 +2718,9 @@ const PH_MODELS = {
     { label: 'Pajero',         modelKey: ['PAJERO'] },
     { label: 'Delica',         modelKey: ['DELICA'] },
     { label: 'Outlander',      modelKey: ['OUTLANDER'] },
+    { label: 'RVR GA3W (2WD)', modelKey: ['RVR','MITSUBISHI RVR'], chassis: 'GA3W' },
+    { label: 'RVR GA4W (4WD)', modelKey: ['RVR','MITSUBISHI RVR'], chassis: 'GA4W' },
+    { label: 'RVR (All)',      modelKey: ['RVR','MITSUBISHI RVR'] },
   ],
 };
 let phView = 'month';
