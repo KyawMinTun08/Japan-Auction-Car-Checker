@@ -2345,6 +2345,28 @@ function renderMonthlyBestSellerContent() {
   el.innerHTML = statsHtml + rankHtml;
 }
 
+function getMissingModelBrand(model) {
+  const mu = model.toUpperCase();
+  const brandRules = [
+    { brand:'Toyota',     color:'#C8102E', models:['CROWN','WISH','ALPHARD','VOXY','HIACE','SUCCEED','PROBOX','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','RAV4','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X','KLUGER','HILUX','LEXUS'] },
+    { brand:'Nissan',     color:'#1D4ED8', models:['X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA'] },
+    { brand:'Honda',      color:'#B45309', models:['FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','HR-V','GRACE','SHUTTLE','STREAM','CRV','CR-V'] },
+    { brand:'Mazda',      color:'#BE185D', models:['BONGO','ATENZA','DEMIO','CX-5','CX-3','AXELA','FAMILIA','BIANTE','PREMACY'] },
+    { brand:'Daihatsu',   color:'#15803D', models:['HIJET','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI','PIXIS'] },
+    { brand:'Subaru',     color:'#0E7490', models:['IMPREZA','SAMBAR','FORESTER','LEGACY','OUTBACK','XV','WRX','BRZ','EXIGA'] },
+    { brand:'Mitsubishi', color:'#6D28D9', models:['PAJERO','OUTLANDER','DELICA','ECLIPSE','GALANT','TRITON','COLT','ASX','RVR'] },
+    { brand:'Suzuki',     color:'#525252', models:['ALTO','EVERY','CARRY','JIMNY','SWIFT','SOLIO','SPACIA','WAGON R','HUSTLER','IGNIS'] },
+    { brand:'Isuzu/Hino', color:'#44403C', models:['DUTRO','ELF','FORWARD'] },
+    { brand:'Mitsubishi Fuso', color:'#7C3AED', models:['CANTER','FIGHTER','FUSO'] },
+    { brand:'UD/Nissan Truck', color:'#0369A1', models:['CONDOR','QUON','UD','BIG THUMB'] },
+    { brand:'Hino',       color:'#9A3412', models:['RANGER','PROFIA','DUTRO'] },
+  ];
+  for (const r of brandRules) {
+    if (r.models.some(m => mu.includes(m))) return { brand: r.brand, color: r.color };
+  }
+  return { brand: 'Other', color: '#78716C' };
+}
+
 function renderMissingModels() {
   const el = document.getElementById('missingModelsContent');
   const sel = document.getElementById('mbsMonth');
@@ -2359,39 +2381,90 @@ function renderMissingModels() {
     el.innerHTML = '<div class="empty"><div class="ei">📭</div><p>ပြီးခဲ့တဲ့လ data မရှိ</p></div>';
     return;
   }
+
   const currentModels = new Set(Object.keys(monthly[current] || {}));
   const missing = {};
   pastMonths.forEach(m => {
     Object.entries(monthly[m] || {}).forEach(([model, count]) => {
       if (!currentModels.has(model)) {
-        if (!missing[model]) missing[model] = { months: [], total: 0 };
+        if (!missing[model]) missing[model] = { months: [], total: 0, years: {} };
         missing[model].months.push({ m, count });
         missing[model].total += count;
+        // Collect years from allCars
+        allCars.filter(c => c.model === model && c.year > 0).forEach(c => {
+          missing[model].years[c.year] = (missing[model].years[c.year] || 0) + 1;
+        });
       }
     });
   });
+
   const list = Object.entries(missing).sort((a,b)=>b[1].total-a[1].total);
+
+  // Group by brand
+  const brandGroups = {};
+  list.forEach(([model, data]) => {
+    const { brand, color } = getMissingModelBrand(model);
+    if (!brandGroups[brand]) brandGroups[brand] = { color, models: [] };
+    brandGroups[brand].models.push([model, data]);
+  });
+
   const header = '<div style="background:var(--warn-soft);border:1px solid #FCD34D;border-radius:var(--r-sm);padding:12px;margin-bottom:14px">' +
     '<div style="font-size:12px;color:var(--warn);line-height:1.6;font-weight:500">' +
       'ပြီးခဲ့တဲ့ <strong>' + pastMonths.length + ' လ (' + esc(pastMonths.map(m=>monthLabel(m).split(' ')[0]).join(', ')) + ')</strong> မှာ ပေါ်ပြီး ' +
-      '<strong>' + esc(monthLabel(current)) + '</strong> မှာ မပေါ်တော့တဲ့ ကားများ' +
+      '<strong>' + esc(monthLabel(current)) + '</strong> မှာ မပေါ်တော့တဲ့ ကားများ — ' +
+      '<strong>' + list.length + ' models</strong>' +
     '</div>' +
   '</div>';
+
   if (!list.length) {
     el.innerHTML = header + '<div class="empty"><div class="ei">✅</div><p>ပျောက်သွားတဲ့ model မရှိပါ</p></div>';
     return;
   }
-  const rows = list.map(([model, data]) =>
-    '<div style="display:flex;align-items:center;gap:10px;padding:11px;background:var(--surface-2);border-radius:var(--r-sm);margin-bottom:8px;border:1px solid var(--line)">' +
-      '<div style="font-size:18px;flex-shrink:0">⚠️</div>' +
-      '<div style="flex:1;min-width:0">' +
-        '<div style="font-size:13px;font-weight:700;color:var(--ink-1);margin-bottom:3px">' + esc(model) + '</div>' +
-        '<div style="font-size:10px;color:var(--ink-4)">Last seen: ' + esc(data.months.map(mo => monthLabel(mo.m).split(' ')[0]+' ('+mo.count+')').join(' · ')) + '</div>' +
-      '</div>' +
-      '<div style="background:var(--brand);color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;flex-shrink:0;font-family:var(--font-mono)">' + data.total + ' total</div>' +
-    '</div>'
-  ).join('');
-  el.innerHTML = header + rows;
+
+  let brandHtml = '';
+  Object.entries(brandGroups).forEach(([brand, grp], gi) => {
+    const gid = 'mmg_' + gi;
+    const total = grp.models.reduce((s,[,d])=>s+d.total,0);
+    const modelRows = grp.models.map(([model, data]) => {
+      const yearsSorted = Object.entries(data.years).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+      const yearsHtml = yearsSorted.length
+        ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">' +
+            yearsSorted.map(([yr,cnt]) =>
+              '<span style="background:' + grp.color + '18;color:' + grp.color + ';border:1px solid ' + grp.color + '33;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;font-family:var(--font-mono)">' +
+                yr + (cnt>1?' ×'+cnt:'') +
+              '</span>'
+            ).join('') +
+          '</div>'
+        : '<div style="font-size:10px;color:var(--ink-5);margin-top:4px">Year data မရှိ</div>';
+      return '<div style="padding:10px 12px;border-bottom:1px solid var(--line-soft);background:var(--surface)">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--ink-1)">' + esc(model) + '</div>' +
+          '<span style="background:var(--brand);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;font-family:var(--font-mono)">' + data.total + '</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--ink-4);margin-bottom:3px">Last seen: ' + esc(data.months.map(mo=>monthLabel(mo.m).split(' ')[0]+' ('+mo.count+')').join(' · ')) + '</div>' +
+        yearsHtml +
+      '</div>';
+    }).join('');
+
+    brandHtml +=
+      '<div style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);margin-bottom:10px;overflow:hidden">' +
+        '<div onclick="document.getElementById(\'' + gid + '\').style.display=document.getElementById(\'' + gid + '\').style.display===\'none\'?\'block\':\'none\'" ' +
+          'style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;cursor:pointer;background:' + grp.color + '0F;border-bottom:1px solid ' + grp.color + '22">' +
+          '<div style="display:flex;align-items:center;gap:10px">' +
+            '<div style="width:10px;height:10px;border-radius:50%;background:' + grp.color + ';flex-shrink:0"></div>' +
+            '<div style="font-size:13px;font-weight:800;color:var(--ink-1)">' + esc(brand) + '</div>' +
+            '<span style="background:' + grp.color + ';color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;font-family:var(--font-mono)">' + grp.models.length + ' models</span>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+            '<span style="font-size:11px;color:var(--ink-4);font-family:var(--font-mono)">' + total + ' total</span>' +
+            '<span style="font-size:12px;color:var(--ink-4)">▼</span>' +
+          '</div>' +
+        '</div>' +
+        '<div id="' + gid + '" style="display:block">' + modelRows + '</div>' +
+      '</div>';
+  });
+
+  el.innerHTML = header + brandHtml;
 }
 
 function renderLocationActivity() {
