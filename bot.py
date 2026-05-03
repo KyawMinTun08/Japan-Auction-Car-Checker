@@ -1195,9 +1195,10 @@ async def renew_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
     user_id = user.id
     await update.message.reply_text(
-        "🔄 *Membership သက်တမ်းတိုး*\n\nPackage ရွေးပါ 👇",
-        parse_mode='Markdown',
-        reply_markup=build_package_keyboard(user_id, "renew"))
+        "🔜 *Coming Soon!*\n\n"
+        "Membership သက်တမ်းတိုး Feature ကို ပြင်ဆင်နေဆဲ ဖြစ်ပါသည်\n\n"
+        "💬 Admin ကို တိုက်ရိုက် ဆက်သွယ်နိုင်ပါသည်",
+        parse_mode='Markdown')
 
 async def mypassword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
