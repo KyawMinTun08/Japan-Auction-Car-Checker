@@ -277,9 +277,7 @@ proxy_sessions   = {}  # session_id -> {customerId, brokerId, reqId, status}
 pending_rating   = {}  # customer_id -> {reqId, brokerId, brokerTgId}
 pending_deposit  = {}  # customer_id -> {reqId, brokerTgId, step, slip_info}
 active_timers    = {}  # req_id -> asyncio.Task
-auction_dep_timers = {}  # req_id -> asyncio.Task (48hr deposit timeout)
-fasttrack_paid    = set()   # str_uid — fast track deposit ပေးပြီးသူများ
-fasttrack_pending = {}       # str_uid -> {"waiting_slip": True, "slip_info": {}}
+nodep_pending = {}  # req_id -> {customerId, brokerTgId, brokerId}
 warned_3days   = set()
 promo_used     = {}
 rate_limit     = {}
@@ -1711,50 +1709,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ *Broadcast ပုံ ပြီးပြီ*\n\n✅ အောင်မြင်: {success} ယောက်\n❌ မရောက်: {failed} ယောက်",
             parse_mode="Markdown")
-        return
-
-    # ── Fast Track Deposit Slip ──
-    if str(user_id) in fasttrack_pending and fasttrack_pending[str(user_id)].get("waiting_slip"):
-        await update.message.reply_text("🔍 Deposit Slip ဖတ်နေတယ်... ⏳")
-        try:
-            file       = await photo.get_file()
-            file_bytes = bytes(await file.download_as_bytearray())
-            slip_info  = await gemini_read_slip(file_bytes)
-        except Exception as e:
-            logger.error(f"fasttrack slip: {e}")
-            slip_info = {}
-        amount   = slip_info.get("AMOUNT",         "UNKNOWN")
-        pay_type = slip_info.get("TYPE",            "UNKNOWN")
-        txn_no   = slip_info.get("TRANSACTION_NO", "UNKNOWN")
-        date_str = slip_info.get("DATE",            "UNKNOWN")
-        amount_ok = ""
-        if amount != "UNKNOWN":
-            try:
-                amt_num = int(re.sub(r'[^\d]', '', amount))
-                amount_ok = "✅" if amt_num >= 20000 else "⚠️ မပြည့်မီ (฿20,000 လိုသည်)"
-            except:
-                amount_ok = "⚠️ စစ်မရ"
-        fasttrack_pending[str(user_id)]["slip_info"]    = slip_info
-        fasttrack_pending[str(user_id)]["waiting_slip"] = False
-        name = update.effective_user.first_name or str(user_id)
-        admin_text = (
-            f"⚡ *Fast Track Deposit Slip*\n\n"
-            f"👤 {name} (`{user_id}`)\n"
-            f"🏦 Type: {pay_type}\n"
-            f"🔢 Txn: `{txn_no}`\n"
-            f"💵 Amount: {amount} ฿ {amount_ok}\n"
-            f"📅 Date: {date_str}\n\n"
-            f"Confirm → Auction Q&A စတင်မည်"
-        )
-        admin_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"💬 {name}", url=f"tg://user?id={user_id}")],
-            [InlineKeyboardButton("✅ Confirm", callback_data=f"ftdep_ok_{user_id}"),
-             InlineKeyboardButton("❌ Reject",  callback_data=f"ftdep_no_{user_id}")],
-        ])
-        await notify_admins(context, admin_text, reply_markup=admin_kb)
-        await update.message.reply_text(
-            "✅ *Slip လက်ခံပြီ!*\n\nAdmin စစ်ဆေးနေသည် — ခဏစောင့်ပါ 🙏",
-            parse_mode='Markdown')
         return
 
     if str(user_id) in pending_deposit:
@@ -3447,10 +3401,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     chat_id=int(broker_tg_id),
-                    text=(f"✅ *Customer Deposit ရပြီ*\n\n"
+                    text=(f"✅ *Customer Deposit ရပြီ — ကားရှာပေးနိုင်ပြီ*\n\n"
                           f"🆔 `{req_id}`\n"
                           f"💰 ฿{thb_amount:,} — HOLD ✅\n\n"
-                          f"ကားရှာပေးနိုင်ပြီ"),
+                          f"Admin မှ Deposit အတည်ပြုပြီ\n"
+                          f"ကားရှာပေးနိုင်ပြီ 🚗"),
                     parse_mode='Markdown')
             except Exception as e:
                 logger.error(f"dep_ok broker: {e}")
@@ -3466,7 +3421,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if req_id in proxy_sessions:
             proxy_sessions[req_id]["deposit_paid"] = True
 
-        cancel_auction_dep_timer(req_id)
+        nodep_pending.pop(req_id, None)
 
     elif data.startswith("dep_no_"):
         if query.from_user.id not in ADMIN_IDS:
@@ -3481,78 +3436,108 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         await query.message.reply_text("❌ Deposit ပယ်ချပြီ")
 
-    elif data.startswith("auction_fasttrack_"):
-        target_uid = int(data.replace("auction_fasttrack_", ""))
-        if query.from_user.id != target_uid:
-            await query.answer("❌ သင်၏ request မဟုတ်ဘူး", show_alert=True); return
-        fasttrack_pending[str(target_uid)] = {"waiting_slip": True}
-        await query.edit_message_text(
-            "💰 *Deposit Fast Track — ฿20,000*\n\n"
-            f"{PAYMENT_INFO}\n\n"
-            "Slip screenshot ပို့ပါ 👇\n\n"
-            "⏰ 15 မိနစ်အတွင်း မပို့ရင် cancel ဖြစ်မည်",
-            parse_mode='Markdown')
+    elif data.startswith("nodep_report_"):
+        # Broker က Customer Deposit မလွှဲပါ button နှိပ်တာ → Admin confirm တောင်း
+        req_id      = data.replace("nodep_report_", "")
+        broker_tg   = str(query.from_user.id)
+        brokers     = await get_brokers()
+        broker_obj  = next((b for b in brokers if b.get("telegramId") == broker_tg), None)
+        if not broker_obj:
+            await query.answer("❌ Broker မဟုတ်ဘူး", show_alert=True); return
 
-    elif data.startswith("ftdep_ok_"):
+        session = proxy_sessions.get(req_id)
+        if not session:
+            await query.answer("❌ Session မတွေ့ပါ", show_alert=True); return
+
+        customer_id_nd = session.get("customerId", "")
+        nodep_pending[req_id] = {
+            "customerId":  customer_id_nd,
+            "brokerTgId":  broker_tg,
+            "brokerId":    broker_obj.get("brokerId", ""),
+        }
+
+        admin_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Ban Customer", callback_data=f"nodep_ok_{req_id}"),
+            InlineKeyboardButton("❌ ပယ်ချ",        callback_data=f"nodep_cancel_{req_id}"),
+        ]])
+        await notify_admins(context,
+            f"⚠️ *Broker Report — Deposit မလွှဲပါ*\n\n"
+            f"🆔 Request: `{req_id}`\n"
+            f"👷 Broker #{broker_obj.get('brokerId','')}\n"
+            f"👤 Customer: `{customer_id_nd}`\n\n"
+            f"Customer ကို Ban ချမှတ်မည်လား?",
+            reply_markup=admin_kb)
+        await query.answer("✅ Admin ကို Report ပို့ပြီ", show_alert=True)
+
+    elif data.startswith("nodep_ok_"):
         if query.from_user.id not in ADMIN_IDS:
             await query.answer("❌ Admin only", show_alert=True); return
-        customer_id = int(data.replace("ftdep_ok_", ""))
-        str_cid     = str(customer_id)
-        ft_data     = fasttrack_pending.pop(str_cid, {})
-        slip_info   = ft_data.get("slip_info", {})
-        fasttrack_paid.add(str_cid)
+        req_id     = data.replace("nodep_ok_", "")
+        nd_data    = nodep_pending.pop(req_id, {})
+        customer_id_nd = nd_data.get("customerId", "")
+        broker_tg_nd   = nd_data.get("brokerTgId", "")
 
-        mmk_rate   = int(os.environ.get("MMK_RATE", "3800"))
-        thb_amount = 20000
-        mmk_amount = thb_amount * mmk_rate
-        now_str    = datetime.now().strftime("%d/%m/%Y")
+        # Ban count တွက်
+        ban_count_nd = 0
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp_nd = await client.post(SHEET_WEBHOOK, json={
+                    "action":     "getAuctionCancelCount",
+                    "customerId": customer_id_nd,
+                }, timeout=10)
+            ban_count_nd = resp_nd.json().get("banCount", 0)
+        except Exception as e:
+            logger.error(f"nodep_ok banCount: {e}")
+
+        new_ban = ban_count_nd + 1
+        if new_ban == 1:
+            ban_expire_nd = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y")
+            ban_status_nd = "BAN_7D"
+            ban_label_nd  = f"⏳ 7 ရက် Ban (ကုန်ဆုံး: {ban_expire_nd})"
+        elif new_ban == 2:
+            ban_expire_nd = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+            ban_status_nd = "BAN_1M"
+            ban_label_nd  = f"⏳ 1 လ Ban (ကုန်ဆုံး: {ban_expire_nd})"
+        else:
+            ban_expire_nd = "LIFETIME"
+            ban_status_nd = "LIFETIME_BAN"
+            ban_label_nd  = "🚫 Lifetime Ban"
 
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 await client.post(SHEET_WEBHOOK, json={
-                    "action":     "saveDeposit",
-                    "reqId":      "FASTTRACK",
-                    "customerId": str_cid,
-                    "brokerTgId": "",
-                    "thbAmount":  thb_amount,
-                    "mmkAmount":  mmk_amount,
-                    "mmkRate":    mmk_rate,
-                    "date":       now_str,
-                    "txnNo":      slip_info.get("TRANSACTION_NO", ""),
-                    "payType":    slip_info.get("TYPE", ""),
-                    "status":     "FASTTRACK_HOLD",
+                    "action":     "saveAuctionCancel",
+                    "customerId": customer_id_nd,
+                    "username":   proxy_sessions.get(req_id, {}).get("customerUsername", ""),
+                    "reqId":      req_id,
+                    "banCount":   new_ban,
+                    "banStatus":  ban_status_nd,
+                    "banExpire":  ban_expire_nd,
                 }, timeout=10)
         except Exception as e:
-            logger.error(f"ftdep_ok saveDeposit: {e}")
+            logger.error(f"nodep_ok saveAuctionCancel: {e}")
 
-        await query.edit_message_text(f"✅ Fast Track Confirm — `{customer_id}`", parse_mode='Markdown')
-        pending_request[customer_id] = {"step": 0, "data": {"service_type": "auction"}}
         try:
             await context.bot.send_message(
-                chat_id=customer_id,
-                text="✅ *Admin confirm ပြီးပါပြီ — Deposit ฿20,000 ✅*\n\n"
-                     "🏆 *လေလံဆွဲရန် Request*\n\n"
-                     "မေးချင်တဲ့ ကားအမည် ရိုက်ထည့်ပါ:\n"
-                     "ဥပမာ: `ALPHARD`, `X-TRAIL`, `HIACE VAN`\n\n"
-                     "Cancel လုပ်ရန်: /cancelrequest",
+                chat_id=int(customer_id_nd),
+                text=(f"🚫 *Auction Ban*\n\n"
+                      f"🆔 `{req_id}`\n\n"
+                      f"Deposit မပေဘဲ Cancel လုပ်ခဲ့သောကြောင့်:\n"
+                      f"{ban_label_nd}"),
                 parse_mode='Markdown')
         except Exception as e:
-            logger.error(f"ftdep_ok notify: {e}")
+            logger.error(f"nodep_ok customer notify: {e}")
 
-    elif data.startswith("ftdep_no_"):
+        await query.edit_message_text(
+            f"✅ Ban ချမှတ်ပြီ\n\n🆔 `{req_id}`\n👤 `{customer_id_nd}`\n{ban_label_nd}",
+            parse_mode='Markdown')
+
+    elif data.startswith("nodep_cancel_"):
         if query.from_user.id not in ADMIN_IDS:
             await query.answer("❌ Admin only", show_alert=True); return
-        customer_id = int(data.replace("ftdep_no_", ""))
-        str_cid     = str(customer_id)
-        fasttrack_pending.pop(str_cid, None)
-        await query.edit_message_text(f"❌ Fast Track Reject — `{customer_id}`", parse_mode='Markdown')
-        try:
-            await context.bot.send_message(
-                chat_id=customer_id,
-                text="❌ *Deposit Slip မအတည်မပြုနိုင်*\n\nSlip မမှန်ကန်ပါ — ပြန်ကြိုးစားရန်: /carrequest",
-                parse_mode='Markdown')
-        except Exception as e:
-            logger.error(f"ftdep_no notify: {e}")
+        req_id = data.replace("nodep_cancel_", "")
+        nodep_pending.pop(req_id, None)
+        await query.edit_message_text("❌ Ban Report ပယ်ချပြီ")
 
     elif data.startswith("reqtype_"):
         parts       = data.split("_")
@@ -3578,6 +3563,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_request[user_id] = {"step": 0, "data": {"service_type": svc_type}}
 
         if svc_type == "auction":
+            # ── Ban check ──
             ban_count  = 0
             ban_status = ""
             ban_expire = ""
@@ -3596,6 +3582,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if ban_count > 0 and ban_status:
                 if ban_status == "LIFETIME_BAN":
+                    pending_request.pop(user_id, None)
                     await query.edit_message_text(
                         "🚫 *Auction Car — Lifetime Ban*\n\n"
                         "Deposit မပေဘဲ Cancel ၃ ကြိမ်ကျော်သောကြောင့်\n"
@@ -3608,6 +3595,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         expire_dt = datetime(int(ep[2]), int(ep[1]), int(ep[0]))
                         if datetime.now() < expire_dt:
                             days_left = (expire_dt - datetime.now()).days + 1
+                            pending_request.pop(user_id, None)
                             await query.edit_message_text(
                                 f"⏳ *Auction Car — Temporary Ban*\n\n"
                                 f"Deposit မပေဘဲ Cancel လုပ်ခဲ့သောကြောင့် Ban ဖြစ်နေသည်\n\n"
@@ -3618,35 +3606,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception as e:
                         logger.error(f"ban expire parse: {e}")
 
-            completed_outside = 0
-            try:
-                async with httpx.AsyncClient(follow_redirects=True) as client:
-                    resp_oc = await client.post(SHEET_WEBHOOK, json={
-                        "action":     "getCompletedOutsideCount",
-                        "customerId": str_uid,
-                    }, timeout=10)
-                completed_outside = resp_oc.json().get("count", 0)
-            except Exception as e:
-                logger.error(f"getCompletedOutsideCount: {e}")
-
-            if completed_outside < 2:
-                pending_request.pop(user_id, None)
-                kb_ft = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⚡ ฿20,000 Deposit ပေးမည်",       callback_data=f"auction_fasttrack_{user_id}"),
-                    InlineKeyboardButton("🔍 အပြင်ကားရှာပေး ဆက်လုပ်မည်", callback_data=f"reqtype_search_{user_id}"),
-                ]])
-                await query.edit_message_text(
-                    "⚠️ *Auction Car — Access မရသေးပါ*\n\n"
-                    "အပြင်ကားရှာပေး × 2 ပြည့်ဖို့ လိုပါတယ်\n\n"
-                    f"သင့် record: {completed_outside}/2 ✅\n\n"
-                    "💡 OR — ฿20,000 Deposit ကြိုပေးပြီး တန်းဝင်နိုင်ပါတယ်",
-                    parse_mode='Markdown',
-                    reply_markup=kb_ft)
-                return
-
             await query.edit_message_text(
                 "🏆 *လေလံဆွဲရန် Request*\n\n"
-                "⚠️ ဒီဝန်ဆောင်မှုမှာ Deposit *฿20,000* လိုအပ်ပါသည်\n\n"
+                "⚠️ မှတ်ချက် — လေလံနီးကပ်မှ Deposit မပေးပါနှင့်\n"
+                "Broker Accept ပြီးမှ Deposit ပေးရမည်\n\n"
                 "မေးချင်တဲ့ ကားအမည် ရိုက်ထည့်ပါ:\n"
                 "ဥပမာ: `ALPHARD`, `X-TRAIL`, `HIACE VAN`\n\n"
                 "Cancel လုပ်ရန်: /cancelrequest",
@@ -3669,7 +3632,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         session = proxy_sessions.pop(req_id, None)
         cancel_request_timer(req_id)
-        cancel_auction_dep_timer(req_id)
         new_broker_status = recalc_broker_status(user_id)
         await update_broker(user_id, status=new_broker_status)
 
@@ -3809,15 +3771,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             broker_tg_id=user_id, broker_id=broker["brokerId"],
             customer_id=str(customer_id) if customer_id else "")
 
-        if req_id.startswith("A"):
-            start_auction_dep_timer(
-                context,
-                req_id       = req_id,
-                customer_id  = str(customer_id) if customer_id else "",
-                broker_tg_id = user_id,
-                broker_id    = broker["brokerId"],
-                username     = customer_username,
-            )
+        if req_id.startswith("A") and customer_id:
+            try:
+                dep_kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        "💰 Deposit ฿20,000 ပေးမည်",
+                        callback_data=f"dep_start_{req_id}_{user_id}")
+                ]])
+                await context.bot.send_message(
+                    chat_id=int(customer_id),
+                    text=(f"🎉 *Broker ရှာပြီ — Deposit လိုအပ်ပါသည်*\n\n"
+                          f"🆔 `{req_id}`\n"
+                          f"👷 Broker #{broker['brokerId']}\n\n"
+                          f"⚠️ မှတ်ချက် — လေလံနီးကပ်မှ Deposit မပေးပါနှင့်\n"
+                          f"လေလံမစခင် 1 နာရီအလိုထိ Deposit ပေးဖို့ အချိန်ရပါသည်\n\n"
+                          f"အောက်ပါ button နှိပ်ပြီး Slip ပို့ပါ 👇"),
+                    parse_mode='Markdown',
+                    reply_markup=dep_kb)
+            except Exception as e:
+                logger.error(f"breq_accept auction dep notify: {e}")
+
+            nodep_kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "⚠️ Customer Deposit မလွှဲပါ",
+                    callback_data=f"nodep_report_{req_id}")
+            ]])
+            await query.message.reply_text(
+                f"ℹ️ *Deposit သတိပေးချက်*\n\n"
+                f"🆔 `{req_id}`\n\n"
+                f"Admin ဆီမှ Deposit Confirm မရသေးရင် Customer ကို သတိပေးပါ\n"
+                f"Customer က Deposit မလွှဲတော့ဘူးဆိုရင် 👇",
+                parse_mode='Markdown',
+                reply_markup=nodep_kb)
 
     elif data.startswith("breq_decline_"):
         req_id = data.replace("breq_decline_", "")
@@ -4428,7 +4413,6 @@ async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     proxy_sessions.pop(sid, None)
     cancel_request_timer(req_id)
-    cancel_auction_dep_timer(req_id)
     broker_tg_id = session.get("brokerId","")
     broker_obj   = session.get("brokerObj", {})
     broker_id    = broker_obj.get("brokerId","B???")
@@ -4807,27 +4791,46 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if customer_id:
         try:
+            dep_kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "💰 Deposit ฿20,000 ပေးမည်",
+                    callback_data=f"dep_start_{req_id}_{user_id}")
+            ]])
             await context.bot.send_message(
                 chat_id=int(customer_id),
-                text=(f"🎉 *Broker ရှာပေးနေပြီ!*\n\n🆔 `{req_id}`\n👷 Broker #{broker['brokerId']}"),
-                parse_mode='Markdown')
+                text=(f"🎉 *Broker ရှာပြီ — Deposit လိုအပ်ပါသည်*\n\n"
+                      f"🆔 `{req_id}`\n"
+                      f"👷 Broker #{broker['brokerId']}\n\n"
+                      f"⚠️ မှတ်ချက် — လေလံနီးကပ်မှ Deposit မပေးပါနှင့်\n"
+                      f"လေလံမစခင် 1 နာရီအလိုထိ Deposit ပေးဖို့ အချိန်ရပါသည်\n\n"
+                      f"အောက်ပါ button နှိပ်ပြီး Slip ပို့ပါ 👇"),
+                parse_mode='Markdown',
+                reply_markup=dep_kb)
         except Exception as e:
             logger.error(f"accept customer notify: {e}")
 
     await notify_admins(context,
         f"🤝 *Broker Accept*\n\n🆔 `{req_id}`\n👷 #{broker['brokerId']}")
 
+    # ── Broker ကို Deposit သတိပေး ──
+    nodep_kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "⚠️ Customer Deposit မလွှဲပါ",
+            callback_data=f"nodep_report_{req_id}")
+    ]])
+    await update.message.reply_text(
+        f"ℹ️ *Deposit သတိပေးချက်*\n\n"
+        f"🆔 `{req_id}`\n\n"
+        f"Customer အနေနဲ့ လေလံမစခင် 1 နာရီအလိုထိ Deposit ปေးနိုင်ပါသည်\n"
+        f"Admin ဆီမှ Deposit Confirm မရသေးရင် Customer ကို သတိပေးပါ\n\n"
+        f"Customer က Deposit မလွှဲတော့ဘူးဆိုရင် 👇",
+        parse_mode='Markdown',
+        reply_markup=nodep_kb)
+
     start_request_timer(
         context, req_id=req_id, broker_tg_id=user_id,
         broker_id=broker["brokerId"],
         customer_id=str(customer_id) if customer_id else "")
-
-    if svc_type == "auction":
-        start_auction_dep_timer(
-            context, req_id=req_id,
-            customer_id=str(customer_id) if customer_id else "",
-            broker_tg_id=user_id, broker_id=broker["brokerId"],
-            username=customer_username)
 
     svc_label_track = "🏆 Auction" if svc_type == "auction" else "🔍 ကားရှာ"
     await update.message.reply_text(
@@ -5047,119 +5050,6 @@ def start_request_timer(context, req_id: str, broker_tg_id: str,
 
 def cancel_request_timer(req_id: str):
     task = active_timers.pop(req_id, None)
-    if task:
-        task.cancel()
-
-
-# ── Auction Deposit 48hr Timer ────────────────────────
-async def _auction_dep_timer_task(context, req_id: str, customer_id: str,
-                                   broker_tg_id: str, broker_id: str, username: str):
-    await asyncio.sleep(48 * 3600)
-
-    session = proxy_sessions.get(req_id)
-    if session and session.get("deposit_paid", False):
-        auction_dep_timers.pop(req_id, None)
-        return
-
-    ban_count = 0
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={
-                "action":     "getAuctionCancelCount",
-                "customerId": customer_id,
-            }, timeout=10)
-        ban_count = resp.json().get("banCount", 0)
-    except Exception as e:
-        logger.error(f"getAuctionCancelCount timer: {e}")
-
-    new_ban_count = ban_count + 1
-    if new_ban_count == 1:
-        ban_expire = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y")
-        ban_status = "BAN_7D"
-        ban_label  = f"⏳ 7 Day Auction Ban\n(ကုန်ဆုံးရက်: {ban_expire})"
-    elif new_ban_count == 2:
-        ban_expire = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
-        ban_status = "BAN_1M"
-        ban_label  = f"⏳ 1 Month Auction Ban\n(ကုန်ဆုံးရက်: {ban_expire})"
-    else:
-        ban_expire = "LIFETIME"
-        ban_status = "LIFETIME_BAN"
-        ban_label  = "🚫 Lifetime Ban — Auction Car access ထာဝရပိတ်ပြီ"
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            await client.post(SHEET_WEBHOOK, json={
-                "action":     "saveAuctionCancel",
-                "customerId": customer_id,
-                "username":   username,
-                "reqId":      req_id,
-                "banCount":   new_ban_count,
-                "banStatus":  ban_status,
-                "banExpire":  ban_expire,
-            }, timeout=10)
-    except Exception as e:
-        logger.error(f"saveAuctionCancel: {e}")
-
-    proxy_sessions.pop(req_id, None)
-    if broker_tg_id:
-        await update_broker(broker_tg_id, status="FREE")
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            await client.post(SHEET_WEBHOOK, json={
-                "action": "updateRequest",
-                "reqId":  req_id,
-                "status": "CANCELLED_NO_DEPOSIT",
-            }, timeout=10)
-    except Exception as e:
-        logger.error(f"auc_dep_timer updateRequest: {e}")
-
-    try:
-        await context.bot.send_message(
-            chat_id=int(customer_id),
-            text=(f"⏰ *Auction Deposit Timeout*\n\n"
-                  f"🆔 `{req_id}`\n\n"
-                  f"Deposit ฿20,000 ၂ ရက်အတွင်း မပေသောကြောင့်\n"
-                  f"Request အလိုအလျောက် Cancel ဖြစ်သွားပြီ\n\n"
-                  f"{ban_label}"),
-            parse_mode='Markdown')
-    except Exception as e:
-        logger.error(f"auc_dep_timer customer notify: {e}")
-
-    if broker_tg_id:
-        try:
-            await context.bot.send_message(
-                chat_id=int(broker_tg_id),
-                text=(f"⏰ *Auction Deposit Timeout*\n\n"
-                      f"🆔 `{req_id}`\n"
-                      f"Customer Deposit မပေဘဲ ၂ ရက် ကြာသောကြောင့် Auto Cancel ဖြစ်ပြီ\n\n"
-                      f"🟢 FREE ဖြစ်ပြီ — Request အသစ် လက်ခံနိုင်ပြီ"),
-                parse_mode='Markdown')
-        except Exception as e:
-            logger.error(f"auc_dep_timer broker notify: {e}")
-
-    await notify_admins(context,
-        f"⏰ *Auction Deposit Timeout Auto Cancel*\n\n"
-        f"🆔 `{req_id}`\n"
-        f"👤 Customer: `{customer_id}`\n"
-        f"📊 Ban Count: {new_ban_count} → {ban_status}\n"
-        f"🗓 {ban_expire}")
-
-    auction_dep_timers.pop(req_id, None)
-
-
-def start_auction_dep_timer(context, req_id: str, customer_id: str,
-                             broker_tg_id: str, broker_id: str, username: str = ""):
-    if req_id in auction_dep_timers:
-        auction_dep_timers[req_id].cancel()
-    task = asyncio.create_task(
-        _auction_dep_timer_task(context, req_id, customer_id, broker_tg_id, broker_id, username)
-    )
-    auction_dep_timers[req_id] = task
-
-
-def cancel_auction_dep_timer(req_id: str):
-    task = auction_dep_timers.pop(req_id, None)
     if task:
         task.cancel()
 
