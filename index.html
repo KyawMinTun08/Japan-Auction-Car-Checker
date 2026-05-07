@@ -1717,13 +1717,13 @@ const BGs = [
 ];
 
 const BRAND_MAP = {
-  'Toyota':    { color:'#C8102E', models:['CROWN','WISH','ALPHARD','VOXY','HIACE VAN','SUCCEED VAN','PROBOX','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','RAV4','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X'] },
-  'Nissan':    { color:'#1D4ED8', models:['X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE TRUCK','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA'] },
-  'Honda':     { color:'#B45309', models:['FIT HYBRID','FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','HR-V','GRACE','SHUTTLE','STREAM'] },
-  'Daihatsu':  { color:'#15803D', models:['HIJET TRUCK','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI'] },
-  'Mitsubishi':{ color:'#6D28D9', models:['PAJERO','OUTLANDER','DELICA','ECLIPSE CROSS','GALANT','TRITON','COLT','ASX','RVR'] },
-  'Subaru':    { color:'#0E7490', models:['IMPREZA','SAMBAR TRUCK','FORESTER','LEGACY','OUTBACK','XV','WRX','BRZ','EXIGA'] },
-  'Mazda':     { color:'#BE185D', models:['BONGO TRUCK','ATENZA','DEMIO','CX-5','CX-3','AXELA','FAMILIA','BIANTE','PREMACY'] },
+  'Toyota':    { color:'#C8102E', models:['CROWN','WISH','ALPHARD','VOXY','HIACE','SUCCEED','PROBOX','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','RAV4','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X'] },
+  'Nissan':    { color:'#1D4ED8', models:['X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA'] },
+  'Honda':     { color:'#B45309', models:['FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','HR-V','GRACE','SHUTTLE','STREAM','CR-V'] },
+  'Daihatsu':  { color:'#15803D', models:['HIJET','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI'] },
+  'Mitsubishi':{ color:'#6D28D9', models:['PAJERO','OUTLANDER','DELICA','ECLIPSE','GALANT','TRITON','COLT','ASX','RVR'] },
+  'Subaru':    { color:'#0E7490', models:['IMPREZA','SAMBAR','FORESTER','LEGACY','OUTBACK','XV','WRX','BRZ','EXIGA'] },
+  'Mazda':     { color:'#BE185D', models:['BONGO','ATENZA','DEMIO','CX-5','CX-3','AXELA','FAMILIA','BIANTE','PREMACY'] },
   'Suzuki':    { color:'#525252', models:['ALTO','EVERY','CARRY','JIMNY','SWIFT','SOLIO','SPACIA','WAGON R','HUSTLER','IGNIS'] },
 };
 
@@ -1744,12 +1744,12 @@ function getBrandLogoUrl(brand) {
 
 const BODY_TYPE_MAP = {
   'Sedan':     { emoji:'🚗', color:'#1D4ED8', models:['CROWN','TEANA','CAMRY','COROLLA','ATENZA','LEGACY','IMPREZA','AXELA','FUGA','GRACE','LAFESTA','WRX'] },
-  'SUV':       { emoji:'🏔️', color:'#15803D', models:['X-TRAIL','PAJERO','OUTLANDER','HARRIER','RAV4','FORESTER','CX-5','CX-3','LAND CRUISER','ROCKY','XV','FORTUNER','ECLIPSE CROSS','RUSH','ASX','VEZEL','HR-V'] },
-  'Van':       { emoji:'🚐', color:'#6D28D9', models:['HIACE VAN','SUCCEED VAN','VANETTE TRUCK','DELICA','EVERY','CARRY','PROBOX','STREAM','ATRAI'] },
-  'Truck':     { emoji:'🛻', color:'#B45309', models:['HIJET TRUCK','SAMBAR TRUCK','BONGO TRUCK','TRITON'] },
+  'SUV':       { emoji:'🏔️', color:'#15803D', models:['X-TRAIL','PAJERO','OUTLANDER','HARRIER','RAV4','FORESTER','CX-5','CX-3','LAND CRUISER','ROCKY','XV','FORTUNER','ECLIPSE','RUSH','ASX','VEZEL','HR-V'] },
+  'Van':       { emoji:'🚐', color:'#6D28D9', models:['HIACE','SUCCEED','VANETTE','DELICA','EVERY','CARRY','PROBOX','STREAM','ATRAI'] },
+  'Truck':     { emoji:'🛻', color:'#B45309', models:['HIJET','SAMBAR','BONGO','TRITON'] },
   'Minivan':   { emoji:'👨‍👩‍👧', color:'#C8102E', models:['ALPHARD','VOXY','SERENA','STEPWGN','FREED','ELGRAND','ODYSSEY','JADE','WISH','NOAH','SIENTA','ESTIMA','EXIGA','BIANTE','PREMACY'] },
-  'Hatchback': { emoji:'🚙', color:'#0E7490', models:['FIT','FIT HYBRID','INSIGHT','JUKE','NOTE','AQUA','YARIS','DEMIO','ALTO','BOON','SWIFT','MARCH','MOVE','TANTO','MIRA','N-BOX','WAKE','CAST','DAYZ','SPACIA','WAGON R','HUSTLER','IGNIS','THOR','SHUTTLE'] },
-  'Hybrid':    { emoji:'⚡', color:'#F97316', models:['FIT HYBRID','INSIGHT','PRIUS','AQUA','GRACE','SHUTTLE','FREED'] },
+  'Hatchback': { emoji:'🚙', color:'#0E7490', models:['FIT','JUKE','NOTE','AQUA','YARIS','DEMIO','ALTO','BOON','SWIFT','MARCH','MOVE','TANTO','MIRA','N-BOX','WAKE','CAST','DAYZ','SPACIA','WAGON R','HUSTLER','IGNIS','THOR','SHUTTLE'] },
+  'Hybrid':    { emoji:'⚡', color:'#F97316', models:['FIT','INSIGHT','PRIUS','AQUA','GRACE','SHUTTLE','FREED'] },
 };
 
 function fixImgUrl(url) {
@@ -1776,6 +1776,56 @@ async function init() {
       for (const p of prefixes) {
         if (model.startsWith(p)) { model = model.slice(p.length); break; }
       }
+      // ── Model normalization (merge duplicates / variants) ──
+      const MODEL_NORM = {
+        // Honda FIT chassis → FIT
+        'GK3':'FIT','GK5':'FIT','GE6':'FIT','GE8':'FIT',
+        // Honda FIT HYBRID chassis
+        'GP1':'FIT HYBRID','GP5':'FIT HYBRID','GP6':'FIT HYBRID',
+        'GP2':'FIT SHUTTLE HYBRID','GP7':'FIT SHUTTLE HYBRID',
+        // Honda FREED chassis
+        'GB3':'FREED','GB4':'FREED',
+        // Nissan X-TRAIL variants
+        'XTRAIL':'X-TRAIL','X TRAIL':'X-TRAIL','NISSAN X-TRAIL':'X-TRAIL','NISSAN XTRAIL':'X-TRAIL',
+        // Alphard variants
+        'TOYOTA ALPHARD':'ALPHARD','ALPHARD HYBRID':'ALPHARD',
+        // Hijet variants → HIJET (single)
+        'HIJET TRUCK':'HIJET','HIJET VAN':'HIJET','PIXIS TRUCK':'HIJET','DAIHATSU HIJET':'HIJET',
+        // Delica variants
+        'DELICA VAN':'DELICA','DELICA TRUCK':'DELICA','DELICA D5':'DELICA','DELICA D:5':'DELICA','MITSUBISHI DELICA':'DELICA',
+        // Hiace variants
+        'HIACE VAN':'HIACE','TOYOTA HIACE':'HIACE','TOYOTA HIACE VAN':'HIACE',
+        // Succeed variants
+        'SUCCEED VAN':'SUCCEED','SUCCEED WAGON':'SUCCEED','TOYOTA SUCCEED':'SUCCEED',
+        // CR-V
+        'CRV':'CR-V','HONDA CRV':'CR-V','HONDA CR-V':'CR-V',
+        // CX-5
+        'CX5':'CX-5','MAZDA CX5':'CX-5','MAZDA CX-5':'CX-5',
+        // Bongo
+        'BONGO TRUCK':'BONGO','MAZDA BONGO':'BONGO',
+        // Sambar
+        'SAMBAR TRUCK':'SAMBAR','SUBARU SAMBAR':'SAMBAR',
+        // Vanette
+        'VANETTE TRUCK':'VANETTE','NISSAN VANETTE':'VANETTE',
+        // Mark X
+        'MARKX':'MARK X','MARK-X':'MARK X',
+        // Eclipse
+        'ECLIPSE CROSS':'ECLIPSE',
+        // Noah Hybrid
+        'NOAH HYBRID':'NOAH',
+        // Voxy Hybrid
+        'VOXY HYBRID':'VOXY',
+        // FIT HYBRID → FIT (consolidate under FIT)
+        'FIT HYBRID':'FIT','FIT SHUTTLE HYBRID':'FIT',
+        // Noah / Voxy (keep as-is, already standard)
+        // Probox
+        'PROBOX VAN':'PROBOX',
+      };
+      const chassis = String(r.chassis||'').trim().toUpperCase();
+      // Apply chassis-based override first
+      if (MODEL_NORM[chassis]) { model = MODEL_NORM[chassis]; }
+      // Apply model name normalization
+      else if (MODEL_NORM[model]) { model = MODEL_NORM[model]; }
       return {
         date:     String(r.date||''),
         chassis:  String(r.chassis||''),
@@ -2350,7 +2400,7 @@ function getMissingModelBrand(model) {
   const brandRules = [
     { brand:'Toyota',     color:'#C8102E', models:['CROWN','WISH','ALPHARD','VOXY','HIACE','SUCCEED','PROBOX','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','RAV4','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X','KLUGER','HILUX','LEXUS'] },
     { brand:'Nissan',     color:'#1D4ED8', models:['X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA'] },
-    { brand:'Honda',      color:'#B45309', models:['FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','HR-V','GRACE','SHUTTLE','STREAM','CRV','CR-V'] },
+    { brand:'Honda',      color:'#B45309', models:['FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','HR-V','GRACE','SHUTTLE','STREAM','CR-V'] },
     { brand:'Mazda',      color:'#BE185D', models:['BONGO','ATENZA','DEMIO','CX-5','CX-3','AXELA','FAMILIA','BIANTE','PREMACY'] },
     { brand:'Daihatsu',   color:'#15803D', models:['HIJET','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI','PIXIS'] },
     { brand:'Subaru',     color:'#0E7490', models:['IMPREZA','SAMBAR','FORESTER','LEGACY','OUTBACK','XV','WRX','BRZ','EXIGA'] },
@@ -2759,44 +2809,44 @@ const PH_MODELS = {
     { label: 'FIT GB3',        modelKey: 'FIT', chassis: 'GB3' },
     { label: 'FIT GP5',        modelKey: 'FIT', chassis: 'GP5' },
     { label: 'FIT GP7',        modelKey: 'FIT', chassis: 'GP7' },
-    { label: 'Fit (All)',      modelKey: ['FIT','FIT HYBRID','HONDA FIT','HONDA FIT HYBRID'] },
-    { label: 'Freed',          modelKey: ['FREED','HONDA FREED'] },
-    { label: 'Insight',        modelKey: ['INSIGHT','HONDA INSIGHT'] },
-    { label: 'CR-V',           modelKey: ['CR-V','HONDA CR-V'] },
+    { label: 'Fit (All)',      modelKey: ['FIT'] },
+    { label: 'Freed',          modelKey: ['FREED'] },
+    { label: 'Insight',        modelKey: ['INSIGHT'] },
+    { label: 'CR-V',           modelKey: ['CR-V'] },
   ],
   Toyota: [
     { label: 'Alphard',        modelKey: ['ALPHARD'] },
-    { label: 'Hijet Truck',    modelKey: ['HIJET TRUCK','HIJET'] },
-    { label: 'Probox',         modelKey: ['PROBOX','PROBOX VAN'] },
+    { label: 'Hijet',          modelKey: ['HIJET'] },
+    { label: 'Probox',         modelKey: ['PROBOX'] },
     { label: 'Wish',           modelKey: ['WISH'] },
     { label: 'Voxy',           modelKey: ['VOXY'] },
     { label: 'Noah',           modelKey: ['NOAH'] },
-    { label: 'Hiace',          modelKey: ['HIACE','HIACE VAN'] },
+    { label: 'Hiace',          modelKey: ['HIACE'] },
     { label: 'Land Cruiser',   modelKey: ['LAND CRUISER'] },
     { label: 'Crown',          modelKey: ['CROWN'] },
-    { label: 'Mark X GRX130', modelKey: ['MARK X','MARKX'], chassis: 'GRX130' },
-    { label: 'Mark X GRX133', modelKey: ['MARK X','MARKX'], chassis: 'GRX133' },
-    { label: 'Mark X (All)',  modelKey: ['MARK X','MARKX'] },
+    { label: 'Mark X GRX130', modelKey: ['MARK X'], chassis: 'GRX130' },
+    { label: 'Mark X GRX133', modelKey: ['MARK X'], chassis: 'GRX133' },
+    { label: 'Mark X (All)',  modelKey: ['MARK X'] },
   ],
   Nissan: [
-    { label: 'X-Trail',        modelKey: ['X-TRAIL','XTRAIL'] },
-    { label: 'Vanette Truck',  modelKey: ['VANETTE TRUCK','VANETTE'] },
-    { label: 'Leaf',           modelKey: ['NISSAN LEAF','LEAF'] },
+    { label: 'X-Trail',        modelKey: ['X-TRAIL'] },
+    { label: 'Vanette',        modelKey: ['VANETTE'] },
+    { label: 'Leaf',           modelKey: ['LEAF'] },
   ],
   Mazda: [
-    { label: 'Bongo Truck',    modelKey: ['BONGO TRUCK','BONGO'] },
+    { label: 'Bongo',          modelKey: ['BONGO'] },
     { label: 'CX-5',           modelKey: ['CX-5'] },
   ],
   Subaru: [
-    { label: 'Sambar Truck',   modelKey: ['SAMBAR TRUCK','SAMBAR'] },
+    { label: 'Sambar',         modelKey: ['SAMBAR'] },
   ],
   Mitsubishi: [
     { label: 'Pajero',         modelKey: ['PAJERO'] },
     { label: 'Delica',         modelKey: ['DELICA'] },
     { label: 'Outlander',      modelKey: ['OUTLANDER'] },
-    { label: 'RVR GA3W (2WD)', modelKey: ['RVR','MITSUBISHI RVR'], chassis: 'GA3W' },
-    { label: 'RVR GA4W (4WD)', modelKey: ['RVR','MITSUBISHI RVR'], chassis: 'GA4W' },
-    { label: 'RVR (All)',      modelKey: ['RVR','MITSUBISHI RVR'] },
+    { label: 'RVR GA3W (2WD)', modelKey: ['RVR'], chassis: 'GA3W' },
+    { label: 'RVR GA4W (4WD)', modelKey: ['RVR'], chassis: 'GA4W' },
+    { label: 'RVR (All)',      modelKey: ['RVR'] },
   ],
 };
 let phView = 'month';
