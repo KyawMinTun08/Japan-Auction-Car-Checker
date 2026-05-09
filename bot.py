@@ -284,6 +284,9 @@ rate_limit     = {}
 pending_setqr    = {}  # admin_id -> "kpay" / "wave" / "cb"
 payment_qr_cache = {}  # method -> {"file_id": str, "ts": datetime}
 
+# ── NEW: Broker pending target (dual-session routing) ──
+pending_broker_target = {}  # broker_tg_id -> {text, is_photo, file_bytes, caption, sessions}
+
 # ── Rate Limiting ──────────────────────────────────────
 def check_rate_limit(user_id: int, max_req: int = 10, window: int = 60) -> bool:
     now = datetime.now()
@@ -1503,6 +1506,31 @@ async def upgrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown',
         reply_markup=build_package_keyboard(user_id, "upgrade"))
 
+# ── NEW: Broker Session Selector ──────────────────────
+async def broker_ask_target(msg_obj, context, broker_tg_id: str,
+                             broker_sessions: list, text: str = "",
+                             is_photo: bool = False, file_bytes: bytes = None,
+                             caption: str = ""):
+    pending_broker_target[broker_tg_id] = {
+        "text": text, "is_photo": is_photo,
+        "file_bytes": file_bytes, "caption": caption,
+        "sessions": broker_sessions,
+    }
+    btns = []
+    for req_id, sess in broker_sessions:
+        svc  = sess.get("serviceType", "search")
+        icon = "🏆" if svc == "auction" else "🔍"
+        cust = sess.get("customerUsername", "Customer")
+        btns.append([InlineKeyboardButton(
+            f"{icon} {req_id} — {cust}",
+            callback_data=f"bsel_{broker_tg_id}_{req_id}")])
+    btns.append([InlineKeyboardButton(
+        "❌ မပို့တော့ဘူး",
+        callback_data=f"bsel_{broker_tg_id}_cancel")])
+    await msg_obj.reply_text(
+        "💬 *Session ၂ ခုရှိတယ် — ဘယ် Customer ကို ပို့မလဲ?*",
+        parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(btns))
+
 # ── OCR ───────────────────────────────────────────────
 def tesseract_ocr_chassis(file_bytes: bytes) -> str:
     if not TESSERACT_AVAILABLE:
@@ -1774,13 +1802,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
          if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
         None
     )
-    broker_session_photo = next(
-        ((sid, s) for sid, s in proxy_sessions.items()
-         if str(s.get("brokerId","")) == str_uid and s.get("status") == "ACTIVE"),
-        None
-    )
+    # FIXED: collect ALL broker sessions
+    broker_sessions_photo = [
+        (sid, s) for sid, s in proxy_sessions.items()
+        if str(s.get("brokerId","")) == str_uid and s.get("status") == "ACTIVE"
+    ]
 
-    if cust_session_photo or broker_session_photo:
+    if cust_session_photo or broker_sessions_photo:
         if cust_session_photo:
             _sid_chk, _sess_chk = cust_session_photo
             _rid_chk = _sess_chk.get("reqId", "")
@@ -1807,7 +1835,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         relay_image_url = ""
         if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
-            session_id = cust_session_photo[0] if cust_session_photo else broker_session_photo[0]
+            session_id = cust_session_photo[0] if cust_session_photo else broker_sessions_photo[0][0]
             relay_image_url = await upload_to_cloudinary(file_bytes, f"relay_{session_id}_{int(datetime.now().timestamp())}")
 
         from io import BytesIO
@@ -1831,25 +1859,31 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text("❌ Broker ကို မပို့နိုင်ဘူး")
             return
 
-        if broker_session_photo:
-            sid, session    = broker_session_photo
-            customer_id     = session.get("customerId")
-            broker_obj      = session.get("brokerObj", {})
-            broker_id       = broker_obj.get("brokerId", "B???")
-            req_id          = session.get("reqId", sid)
-            cap_text        = f"📷 *Broker #{broker_id}:*\n\n{caption}" if caption else f"📷 *Broker #{broker_id}*"
-            if customer_id:
-                try:
-                    bio = BytesIO(file_bytes); bio.name = "photo.jpg"
-                    await context.bot.send_photo(
-                        chat_id=int(customer_id),
-                        photo=bio,
-                        caption=cap_text,
-                        parse_mode='Markdown')
-                    await update.message.reply_text("✅ ပုံ ပို့ပြီ")
-                except Exception as e:
-                    logger.error(f"photo relay B→C: {e}")
-                    await update.message.reply_text("❌ Customer ကို မပို့နိုင်ဘူး")
+        if broker_sessions_photo:
+            if len(broker_sessions_photo) == 1:
+                sid, session    = broker_sessions_photo[0]
+                customer_id     = session.get("customerId")
+                broker_obj      = session.get("brokerObj", {})
+                broker_id       = broker_obj.get("brokerId", "B???")
+                req_id          = session.get("reqId", sid)
+                cap_text        = f"📷 *Broker #{broker_id}:*\n\n{caption}" if caption else f"📷 *Broker #{broker_id}*"
+                if customer_id:
+                    try:
+                        bio = BytesIO(file_bytes); bio.name = "photo.jpg"
+                        await context.bot.send_photo(
+                            chat_id=int(customer_id), photo=bio,
+                            caption=cap_text, parse_mode='Markdown')
+                        await update.message.reply_text("✅ ပုံ ပို့ပြီ")
+                    except Exception as e:
+                        logger.error(f"photo relay B→C: {e}")
+                        await update.message.reply_text("❌ Customer ကို မပို့နိုင်ဘူး")
+            else:
+                await broker_ask_target(
+                    update.message, context,
+                    broker_tg_id=str_uid,
+                    broker_sessions=broker_sessions_photo,
+                    text="", is_photo=True,
+                    file_bytes=file_bytes, caption=caption)
             return
 
     # ── Payment Slip Mode ──
@@ -2308,11 +2342,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
          if str(s.get("customerId","")) == str_uid and s.get("status") == "ACTIVE"),
         None
     )
-    broker_session = next(
-        ((sid, s) for sid, s in proxy_sessions.items()
-         if str(s.get("brokerId","")) == str_uid and s.get("status") == "ACTIVE"),
-        None
-    )
+    # FIXED: collect ALL broker sessions
+    broker_sessions = [
+        (sid, s) for sid, s in proxy_sessions.items()
+        if str(s.get("brokerId","")) == str_uid and s.get("status") == "ACTIVE"
+    ]
 
     if cust_session:
         sid, session = cust_session
@@ -2347,34 +2381,39 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Broker ကို မပို့နိုင်ဘူး")
         return
 
-    if broker_session:
-        sid, session = broker_session
-        customer_id = session.get("customerId")
+    if broker_sessions:
         blocked, reason = proxy_filter(text)
         if blocked:
             await update.message.reply_text(
                 f"⚠️ *Message Block ဖြစ်သွားတယ်*\n\n❌ {reason}\nBot ထဲမှာပဲ ဆက်သွယ်ရမည်",
                 parse_mode='Markdown')
             return
-        if customer_id:
-            try:
-                broker_obj  = session.get("brokerObj", {})
-                broker_id   = broker_obj.get("brokerId", "B???")
-                req_id_b    = session.get("reqId", "")
-                close_kb_b  = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔚 Close Chat", callback_data=f"closechat_{req_id_b}_broker")
-                ]])
-                await context.bot.send_message(
-                    chat_id=int(customer_id),
-                    text=f"💬 *Broker #{broker_id}:*\n\n{text}",
-                    parse_mode='Markdown')
-                await log_chat_message(req_id_b, str_uid, f"Broker#{broker_id}", "text", text)
-                await update.message.reply_text(
-                    "✅ ပို့ပြီ",
-                    reply_markup=close_kb_b)
-            except Exception as e:
-                logger.error(f"proxy relay B→C: {e}")
-                await update.message.reply_text("❌ Customer ကို မပို့နိုင်ဘူး")
+        if len(broker_sessions) == 1:
+            sid, session = broker_sessions[0]
+            customer_id = session.get("customerId")
+            if customer_id:
+                try:
+                    broker_obj  = session.get("brokerObj", {})
+                    broker_id   = broker_obj.get("brokerId", "B???")
+                    req_id_b    = session.get("reqId", "")
+                    close_kb_b  = InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔚 Close Chat", callback_data=f"closechat_{req_id_b}_broker")
+                    ]])
+                    await context.bot.send_message(
+                        chat_id=int(customer_id),
+                        text=f"💬 *Broker #{broker_id}:*\n\n{text}",
+                        parse_mode='Markdown')
+                    await log_chat_message(req_id_b, str_uid, f"Broker#{broker_id}", "text", text)
+                    await update.message.reply_text("✅ ပို့ပြီ", reply_markup=close_kb_b)
+                except Exception as e:
+                    logger.error(f"proxy relay B→C: {e}")
+                    await update.message.reply_text("❌ Customer ကို မပို့နိုင်ဘူး")
+        else:
+            await broker_ask_target(
+                update.message, context,
+                broker_tg_id=str_uid,
+                broker_sessions=broker_sessions,
+                text=text, is_photo=False)
         return
 
     if user_id in pending_request:
@@ -3809,6 +3848,52 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             f"❌ *Request ငြင်းပယ်ပြီ*\n\n🆔 `{req_id}`\n\nRequest အသစ် ထပ်လာရင် notify ပေးမည် 🔔",
             parse_mode='Markdown')
+
+    # ── NEW: Broker session selector callback ──
+    elif data.startswith("bsel_"):
+        parts        = data.split("_", 2)
+        broker_tg_id = parts[1]
+        target_req   = parts[2]
+        if str(query.from_user.id) != broker_tg_id:
+            await query.answer("❌ သင့် button မဟုတ်ဘူး", show_alert=True)
+            return
+        pending = pending_broker_target.pop(broker_tg_id, None)
+        if not pending:
+            await query.answer("❌ Pending message ကုန်သွားပြီ", show_alert=True)
+            return
+        if target_req == "cancel":
+            await query.edit_message_text("❌ မပို့တော့ဘူး — OK")
+            return
+        session = proxy_sessions.get(target_req)
+        if not session:
+            await query.edit_message_text("❌ Session မတွေ့ပါ")
+            return
+        customer_id   = session.get("customerId")
+        broker_obj    = session.get("brokerObj", {})
+        broker_id_val = broker_obj.get("brokerId", "B???")
+        if pending.get("is_photo") and pending.get("file_bytes"):
+            from io import BytesIO
+            cap      = pending.get("caption", "")
+            cap_text = f"📷 *Broker #{broker_id_val}:\n\n{cap}" if cap else f"📷 *Broker #{broker_id_val}*"
+            bio = BytesIO(pending["file_bytes"]); bio.name = "photo.jpg"
+            try:
+                await context.bot.send_photo(chat_id=int(customer_id), photo=bio,
+                    caption=cap_text, parse_mode='Markdown')
+                await log_chat_message(target_req, broker_tg_id, f"Broker#{broker_id_val}", "photo", cap)
+                await query.edit_message_text(f"✅ {target_req} ဆီ ပုံ ပို့ပြီ")
+            except Exception as e:
+                logger.error(f"bsel photo: {e}")
+                await query.edit_message_text("❌ Customer ကို မပို့နိုင်ဘူး")
+        else:
+            txt = pending.get("text", "")
+            try:
+                await context.bot.send_message(chat_id=int(customer_id),
+                    text=f"💬 *Broker #{broker_id_val}:\n\n{txt}", parse_mode='Markdown')
+                await log_chat_message(target_req, broker_tg_id, f"Broker#{broker_id_val}", "text", txt)
+                await query.edit_message_text(f"✅ {target_req} ဆီ ပို့ပြီ")
+            except Exception as e:
+                logger.error(f"bsel text: {e}")
+                await query.edit_message_text("❌ Customer ကို မပို့နိုင်ဘူး")
 
     elif data.startswith("rate_"):
         parts      = data.split("_")
