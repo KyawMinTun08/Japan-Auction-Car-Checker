@@ -4436,6 +4436,7 @@ async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "အမှားအယွင်း ဖြစ်ပါက သက်သေအဖြစ် ပြသနိုင်ရန်\n\n"
         "⑤ ကားဝယ်ယူရာတွင် အမှားအယွင်း ဖြစ်ပေါ်လာပါက "
         "Admin ၏ စိစစ်ချက်ကို လက်ခံပေးရမည် ဖြစ်ပါသည်\n\n"
+        "⑥ ဝန်ဆောင်ခ *฿3,000* ကောက်ခံပါသည်\n\n"
         "သဘောတူမတူ အောက်က Button နှိပ်ပါ 👇",
         parse_mode='Markdown',
         reply_markup=kb)
