@@ -1,4 +1,4 @@
-import asyncio
+Auction asyncio
 import os
 import re
 import random
@@ -3966,21 +3966,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⭐ *Rating တင်ပြီ*\n\n🆔 `{req_id}`\n"
             f"👷 Broker: #{broker_id}\n{star_display} ({stars}/5)\n"
             + (f"📊 Average: {float(new_rating):.1f}" if new_rating else ""))
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ ဟုတ်ကဲ့ — ပိတ်မည်",  callback_data=f"endchat_yes_{req_id}"),
-        InlineKeyboardButton("❌ မပိတ်သေးဘူး",         callback_data=f"endchat_no_{req_id}"),
-    ]])
-    await update.message.reply_text(
-        f"⚠️ *Session ပိတ်တော့မည်!*\n\n"
-        f"🆔 `{req_id}`\n\n"
-        f"Session ပိတ်လိုက်ရင်:\n"
-        f"• Chat history အကုန် ဆုံးသွားမည်\n"
-        f"• Customer ကို Rating prompt သွားမည်\n"
-        f"• Timer ပိတ်သွားမည်\n"
-        f"• သင် FREE ဖြစ်သွားမည်\n\n"
-        f"သေချာပြီလား?",
-        parse_mode='Markdown',
-        reply_markup=kb)
+    
 
 # ── Membership Commands ────────────────────────────────
 async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
