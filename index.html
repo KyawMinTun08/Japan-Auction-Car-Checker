@@ -407,9 +407,11 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
                 <option value="Honda">Honda</option>
                 <option value="Toyota">Toyota</option>
                 <option value="Nissan">Nissan</option>
+                <option value="Daihatsu">Daihatsu</option>
                 <option value="Mazda">Mazda</option>
                 <option value="Subaru">Subaru</option>
                 <option value="Mitsubishi">Mitsubishi</option>
+                <option value="Suzuki">Suzuki</option>
                 <option value="Hino">Hino</option>
               </select>
             </div>
@@ -855,15 +857,15 @@ function renderMonthlyBestSellerContent(){
   el.innerHTML=statsHtml+rankHtml;
 }
 
-/* ── getMissingModelBrand (updated — Toyota +8, Nissan +BIG THUMB, Mitsubishi +CANTER+FUSO, Mazda +SCRUM TRUCK, Hino separate) ── */
+/* ── getMissingModelBrand (updated) ── */
 function getMissingModelBrand(model){
   const mu=model.toUpperCase();
   const brandRules=[
     {brand:'Toyota',     color:'#C8102E',models:['CROWN','WISH','ALPHARD','VELLFIRE','VOXY','HIACE','SUCCEED','PROBOX','VANGUARD','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X','KLUGER','HILUX','HILUX SURF','LEXUS LS','IQ','BELTA','BLADE','CELSIOR','COROLLA FIELDER','PASSO','RACTIS','TOWNACE VAN','VITZ']},
     {brand:'Nissan',     color:'#1D4ED8',models:['X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE TRUCK','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA','MINICAB TRUCK','BIG THUMB']},
     {brand:'Honda',      color:'#B45309',models:['FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','GRACE','STREAM','CR-V']},
-    {brand:'Mazda',      color:'#BE185D',models:['BONGO TRUCK','ATENZA','DEMIO','CX-5','CX-3','AXELA','FAMILIA','BIANTE','PREMACY','SCRUM TRUCK']},
     {brand:'Daihatsu',   color:'#15803D',models:['HIJET','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI']},
+    {brand:'Mazda',      color:'#BE185D',models:['BONGO TRUCK','ATENZA','DEMIO','CX-5','CX-3','AXELA','FAMILIA','BIANTE','PREMACY','SCRUM TRUCK']},
     {brand:'Subaru',     color:'#0E7490',models:['IMPREZA','SAMBAR','FORESTER','LEGACY','OUTBACK','XV','WRX','BRZ','EXIGA']},
     {brand:'Mitsubishi', color:'#6D28D9',models:['PAJERO','OUTLANDER','DELICA','ECLIPSE','ECLIPSE CROSS','GALANT','TRITON','COLT','ASX','RVR','CANTER','FUSO']},
     {brand:'Suzuki',     color:'#525252',models:['ALTO','EVERY','CARRY','JIMNY','SWIFT','SOLIO','SPACIA','WAGON R','HUSTLER','IGNIS']},
@@ -947,7 +949,7 @@ function renderPriceAnalysis(){
   charts.pa=paChart;
 }
 
-/* ── PH_MODELS (updated: Toyota +VITZ+PASSO, Mazda +SCRUM TRUCK, Mitsubishi +CANTER) ── */
+/* ── PH_MODELS (fully expanded — all brands, all models) ── */
 const PH_MODELS={
   Honda:[
     {label:'FIT GP1 (Hybrid)',        modelKey:['FIT'],chassisPrefix:['GP1']},
@@ -958,42 +960,117 @@ const PH_MODELS={
     {label:'FIT (All)',               modelKey:['FIT']},
     {label:'VEZEL',                   modelKey:['VEZEL']},
     {label:'FREED',                   modelKey:['FREED']},
+    {label:'STEPWGN',                 modelKey:['STEPWGN']},
+    {label:'ODYSSEY',                 modelKey:['ODYSSEY']},
+    {label:'CR-V',                    modelKey:['CR-V']},
+    {label:'N-BOX',                   modelKey:['N-BOX']},
+    {label:'STREAM',                  modelKey:['STREAM']},
+    {label:'JADE',                    modelKey:['JADE']},
+    {label:'INSIGHT',                 modelKey:['INSIGHT']},
   ],
   Toyota:[
     {label:'Hiace (All)',             modelKey:['HIACE']},
+    {label:'Probox',                  modelKey:['PROBOX']},
+    {label:'Succeed',                 modelKey:['SUCCEED']},
     {label:'Voxy',                    modelKey:['VOXY']},
     {label:'Noah',                    modelKey:['NOAH']},
     {label:'Alphard',                 modelKey:['ALPHARD']},
     {label:'Vellfire',                modelKey:['VELLFIRE']},
     {label:'Prius',                   modelKey:['PRIUS']},
     {label:'Aqua',                    modelKey:['AQUA']},
+    {label:'Crown',                   modelKey:['CROWN']},
     {label:'Mark X (All)',            modelKey:['MARK X']},
     {label:'Vitz',                    modelKey:['VITZ']},
     {label:'Passo',                   modelKey:['PASSO']},
+    {label:'Vanguard',                modelKey:['VANGUARD']},
+    {label:'Harrier',                 modelKey:['HARRIER']},
+    {label:'Land Cruiser',            modelKey:['LAND CRUISER']},
+    {label:'Hilux',                   modelKey:['HILUX']},
+    {label:'Hilux Surf',              modelKey:['HILUX SURF']},
+    {label:'Estima',                  modelKey:['ESTIMA']},
+    {label:'Wish',                    modelKey:['WISH']},
+    {label:'Rush',                    modelKey:['RUSH']},
+    {label:'Sienta',                  modelKey:['SIENTA']},
+    {label:'Fortuner',                modelKey:['FORTUNER']},
+    {label:'Corolla Fielder',         modelKey:['COROLLA FIELDER']},
+    {label:'Camry',                   modelKey:['CAMRY']},
+    {label:'Townace Van',             modelKey:['TOWNACE VAN']},
+    {label:'Blade',                   modelKey:['BLADE']},
+    {label:'Ractis',                  modelKey:['RACTIS']},
+    {label:'Kluger',                  modelKey:['KLUGER']},
+    {label:'Lexus LS',                modelKey:['LEXUS LS']},
   ],
   Nissan:[
     {label:'X-Trail',                 modelKey:['X-TRAIL']},
     {label:'Note',                    modelKey:['NOTE']},
     {label:'Juke',                    modelKey:['JUKE']},
     {label:'Serena',                  modelKey:['SERENA']},
+    {label:'Elgrand',                 modelKey:['ELGRAND']},
+    {label:'Teana',                   modelKey:['TEANA']},
+    {label:'Fuga',                    modelKey:['FUGA']},
+    {label:'March',                   modelKey:['MARCH']},
+    {label:'Dayz',                    modelKey:['DAYZ']},
     {label:'Vanette Truck',           modelKey:['VANETTE TRUCK']},
+    {label:'Minicab Truck',           modelKey:['MINICAB TRUCK']},
+    {label:'Big Thumb',               modelKey:['BIG THUMB']},
+    {label:'Leaf',                    modelKey:['LEAF']},
+  ],
+  Daihatsu:[
+    {label:'Hijet Truck',             modelKey:['HIJET']},
+    {label:'Move',                    modelKey:['MOVE']},
+    {label:'Tanto',                   modelKey:['TANTO']},
+    {label:'Mira',                    modelKey:['MIRA']},
+    {label:'Rocky',                   modelKey:['ROCKY']},
+    {label:'Boon',                    modelKey:['BOON']},
+    {label:'Wake',                    modelKey:['WAKE']},
+    {label:'Atrai',                   modelKey:['ATRAI']},
+    {label:'Cast',                    modelKey:['CAST']},
+    {label:'Thor',                    modelKey:['THOR']},
   ],
   Mazda:[
     {label:'Bongo Truck',             modelKey:['BONGO TRUCK']},
     {label:'CX-5',                    modelKey:['CX-5']},
+    {label:'CX-3',                    modelKey:['CX-3']},
+    {label:'Atenza',                  modelKey:['ATENZA']},
+    {label:'Axela',                   modelKey:['AXELA']},
+    {label:'Demio',                   modelKey:['DEMIO']},
+    {label:'Biante',                  modelKey:['BIANTE']},
+    {label:'Premacy',                 modelKey:['PREMACY']},
     {label:'Scrum Truck',             modelKey:['SCRUM TRUCK']},
   ],
   Subaru:[
     {label:'Sambar',                  modelKey:['SAMBAR']},
     {label:'Forester',                modelKey:['FORESTER']},
     {label:'Impreza',                 modelKey:['IMPREZA']},
+    {label:'Legacy',                  modelKey:['LEGACY']},
+    {label:'Outback',                 modelKey:['OUTBACK']},
+    {label:'XV',                      modelKey:['XV']},
+    {label:'Exiga',                   modelKey:['EXIGA']},
+    {label:'WRX',                     modelKey:['WRX']},
   ],
   Mitsubishi:[
     {label:'Outlander',               modelKey:['OUTLANDER']},
     {label:'Pajero',                  modelKey:['PAJERO']},
     {label:'Delica',                  modelKey:['DELICA']},
     {label:'RVR (All)',               modelKey:['RVR']},
+    {label:'Eclipse Cross',           modelKey:['ECLIPSE CROSS']},
+    {label:'Galant',                  modelKey:['GALANT']},
+    {label:'Triton',                  modelKey:['TRITON']},
+    {label:'ASX',                     modelKey:['ASX']},
     {label:'Canter',                  modelKey:['CANTER']},
+    {label:'Fuso',                    modelKey:['FUSO']},
+  ],
+  Suzuki:[
+    {label:'Alto',                    modelKey:['ALTO']},
+    {label:'Every',                   modelKey:['EVERY']},
+    {label:'Carry',                   modelKey:['CARRY']},
+    {label:'Jimny',                   modelKey:['JIMNY']},
+    {label:'Swift',                   modelKey:['SWIFT']},
+    {label:'Wagon R',                 modelKey:['WAGON R']},
+    {label:'Spacia',                  modelKey:['SPACIA']},
+    {label:'Hustler',                 modelKey:['HUSTLER']},
+    {label:'Ignis',                   modelKey:['IGNIS']},
+    {label:'Solio',                   modelKey:['SOLIO']},
   ],
   Hino:[
     {label:'Dutro',                   modelKey:['DUTRO']},
@@ -1059,7 +1136,7 @@ function renderTrends(){
   charts.color=new Chart(document.getElementById('colorChart'),{type:'bar',data:{labels:top10c.map(a=>a[0]),datasets:[{label:'Count',data:top10c.map(a=>a[1]),backgroundColor:COLORS.concat(COLORS),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(28,25,23,0.05)'},ticks:{color:'#78716C'}},x:{grid:{display:false},ticks:{color:'#78716C',maxRotation:35}}}}});
 }
 
-/* ── switchTab (Members removed) ── */
+/* ── switchTab ── */
 function switchTab(name){
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
