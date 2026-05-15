@@ -3151,10 +3151,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not pay_data:
             await query.answer("❌ Data ကုန်သွားပြီ", show_alert=True)
             return
-        name   = pay_data.get("name", "Unknown")
-        pkg    = PLAN_NAMES.get(pay_data.get("package","CH"), "Unknown")
-        months = pay_data.get("months", 1)
-        amount = pay_data.get("amount", 0)
+        name        = pay_data.get("name", "Unknown")
+        _pkg_code   = pay_data.get("package","CH")
+        pkg         = PLAN_NAMES.get(_pkg_code, "Unknown")
+        months      = pay_data.get("months", 1)
+        amount      = pay_data.get("amount", 0)
+        _give_txt   = "Channel link + Password ပေးမည်" if _pkg_code == "WEB" else "Channel link ပေးမည် (Password မပါ)"
         confirm_kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Yes — Approve", callback_data=f"slip_ok_{member_id}"),
             InlineKeyboardButton("❌ Cancel",        callback_data=f"slip_okcancel_{member_id}"),
@@ -3164,7 +3166,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👤 {name}\n"
             f"📦 {pkg} — {months} လ\n"
             f"💵 {amount:,} ks\n\n"
-            f"Channel link + Password ပေးမည် — သေချာပါသလား?",
+            f"{_give_txt} — သေချာပါသလား?",
             parse_mode='Markdown',
             reply_markup=confirm_kb)
 
@@ -3220,12 +3222,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_approval_dm(context, member_id, months, password, invite_url)
 
         expire_date = (datetime.now() + timedelta(days=months*30)).strftime("%d/%m/%Y")
+        _pw_line = f"🔑 Password: `{password}`\n" if package == "WEB" else ""
         await query.message.reply_text(
             f"✅ *Payment Confirmed + Approved!*\n\n"
             f"👤 {name} ({username})\n"
             f"📦 {PLAN_NAMES.get(package,'')} — {months} လ\n"
             f"⏰ ကုန်ဆုံး: `{expire_date}`\n"
-            f"🔑 Password: `{password}`\n\n"
+            f"{_pw_line}\n"
             f"Member ကို DM ပို့ပြီးပြီ ✅",
             parse_mode='Markdown')
 
@@ -4368,15 +4371,6 @@ async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
     user_id = user.id
     str_uid = str(user_id)
-
-    # ── COMING SOON ──────────────────────────────────────
-    await update.message.reply_text(
-        "🚧 *Car Request — Coming Soon*\n\n"
-        "ဝန်ဆောင်မှုကို မကြာမီ စတင်ပေးသွားမည် ဖြစ်ပါသည်\n"
-        "အချိန်ရောက်ပါက အသိပေးပါမည် 🙏",
-        parse_mode='Markdown')
-    return
-    # ─────────────────────────────────────────────────────
 
     if not await is_active_member(user_id):
         await update.message.reply_text(
