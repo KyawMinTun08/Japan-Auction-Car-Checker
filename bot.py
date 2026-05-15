@@ -4369,6 +4369,15 @@ async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     str_uid = str(user_id)
 
+    # ── COMING SOON ──────────────────────────────────────
+    await update.message.reply_text(
+        "🚧 *Car Request — Coming Soon*\n\n"
+        "ဝန်ဆောင်မှုကို မကြာမီ စတင်ပေးသွားမည် ဖြစ်ပါသည်\n"
+        "အချိန်ရောက်ပါက အသိပေးပါမည် 🙏",
+        parse_mode='Markdown')
+    return
+    # ─────────────────────────────────────────────────────
+
     if not await is_active_member(user_id):
         await update.message.reply_text(
             "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
