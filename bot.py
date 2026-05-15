@@ -3851,10 +3851,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=nodep_kb)
 
     elif data.startswith("breq_decline_"):
-        req_id = data.replace("breq_decline_", "")
+        req_id      = data.replace("breq_decline_", "")
+        user_id_dec = str(query.from_user.id)
         await query.edit_message_text(
             f"❌ *Request ငြင်းပယ်ပြီ*\n\n🆔 `{req_id}`\n\nRequest အသစ် ထပ်လာရင် notify ပေးမည် 🔔",
             parse_mode='Markdown')
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                await client.post(SHEET_WEBHOOK, json={
+                    "action":     "incrementDecline",
+                    "telegramId": user_id_dec,
+                }, timeout=10)
+        except Exception as e:
+            logger.error(f"incrementDecline: {e}")
 
     # ── NEW: Broker session selector callback ──
     elif data.startswith("bsel_"):
@@ -4695,6 +4704,16 @@ async def submit_request(context, user_id: int, username: str):
         if svc_type in active_types: continue
         if len(active_types) >= 2:   continue
         eligible_brokers.append(b)
+
+    def broker_priority(b):
+        rating       = float(b.get("rating", 0) or 0)
+        decline      = int(b.get("declineCount", 0) or 0)
+        rating_count = int(b.get("ratingCount", 0) or 0)
+        new_bonus    = 50 if rating_count == 0 else 0
+        score        = (rating * 20) - (decline * 10) + new_bonus
+        return -score  # negative = highest first
+
+    eligible_brokers.sort(key=broker_priority)
 
     for b in eligible_brokers:
         try:
