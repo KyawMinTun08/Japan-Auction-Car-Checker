@@ -3792,11 +3792,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if customer_id:
             try:
+                _b_rating = float(broker.get("rating", 0) or 0)
+                _b_deals  = broker.get("deals", 0) or 0
+                _b_rating_str = f"⭐ {_b_rating:.1f} | Deals: {_b_deals}" if _b_rating > 0 else f"🆕 New Broker | Deals: {_b_deals}"
                 await context.bot.send_message(
                     chat_id=int(customer_id),
                     text=(f"🎉 *Broker ရှာပေးနေပြီ!*\n\n"
                           f"🆔 Request: `{req_id}`\n"
-                          f"👷 Broker #{broker['brokerId']} က သင့် Request လက်ခံပြီ\n\n"
+                          f"👷 Broker #{broker['brokerId']} က သင့် Request လက်ခံပြီ\n"
+                          f"{_b_rating_str}\n\n"
                           f"ကားရှာပေးနေတယ် ⏳\n"
                           f"Status စစ်ရန်: /mystatus"),
                     parse_mode='Markdown')
@@ -4745,15 +4749,19 @@ async def mystatus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if session_data:
-        sid, sess    = session_data
-        req_id       = sess.get("reqId", sid)
-        broker_obj   = sess.get("brokerObj", {})
-        broker_id    = broker_obj.get("brokerId", "?")
+        sid, sess      = session_data
+        req_id         = sess.get("reqId", sid)
+        broker_obj     = sess.get("brokerObj", {})
+        broker_id      = broker_obj.get("brokerId", "?")
+        _ms_rating     = float(broker_obj.get("rating", 0) or 0)
+        _ms_deals      = broker_obj.get("deals", 0) or 0
+        _ms_rating_str = f"⭐ {_ms_rating:.1f} | Deals: {_ms_deals}" if _ms_rating > 0 else f"🆕 New Broker | Deals: {_ms_deals}"
         await update.message.reply_text(
             f"📋 *Request Status*\n\n"
             f"🆔 `{req_id}`\n"
             f"🤝 *MATCHED*\n"
-            f"👷 Broker: #{broker_id}",
+            f"👷 Broker: #{broker_id}\n"
+            f"{_ms_rating_str}",
             parse_mode='Markdown')
         return
 
