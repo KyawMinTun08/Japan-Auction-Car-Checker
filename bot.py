@@ -8,7 +8,7 @@ import httpx
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ChatMemberHandler, filters, ContextTypes
 
 try:
     import pytesseract
@@ -5504,6 +5504,117 @@ async def check_expired_bans(context):
     except Exception as e:
         logger.error(f"check_expired_bans: {e}")
 
+# ── Channel Member Validator ──────────────────────────
+async def is_valid_member(user_id: int) -> bool:
+    """Members sheet မှာ ACTIVE ဖြစ်တဲ့ user ဆိုရင် True return"""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                SHEET_WEBHOOK,
+                json={"action": "getMembers"},
+                timeout=15,
+                follow_redirects=True
+            )
+        members = resp.json().get("members", [])
+        for m in members:
+            uid = str(m.get("userId", "")).strip()
+            status = str(m.get("status", "")).upper()
+            if uid.isdigit() and int(uid) == user_id:
+                return status in ("ACTIVE", "PROMO10D")
+        return False
+    except Exception as e:
+        logger.error(f"is_valid_member check: {e}")
+        return True  # Sheet error ဆိုရင် safe side — kick မလုပ်
+
+
+# ── Channel Join Guard ────────────────────────────────
+async def handle_channel_member_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Channel ထဲ user ဝင်လာတိုင်း Members sheet နဲ့ check လုပ်မယ်"""
+    if not update.chat_member:
+        return
+    chat = update.chat_member.chat
+    if str(chat.id) != str(CHANNEL_ID):
+        return
+    new_status = update.chat_member.new_chat_member.status
+    if new_status not in ("member", "subscriber"):
+        return
+
+    user = update.chat_member.new_chat_member.user
+    user_id = user.id
+    username = user.username or str(user_id)
+
+    if user_id in ADMIN_IDS:
+        return
+
+    is_valid = await is_valid_member(user_id)
+    if not is_valid:
+        kicked = await kick_with_retry(context, user_id)
+        status_txt = "✅ Kicked အောင်မြင်" if kicked else "⚠️ Kick မအောင်မြင် — ကိုယ်တိုင် ဆောင်ရွက်ပါ"
+        await notify_admins(
+            context,
+            f"🚨 *Unknown User Channel ဝင်ကြိုးစားမှု*\n\n"
+            f"👤 @{username} (`{user_id}`)\n"
+            f"📋 Members sheet မှာ မပါ / ACTIVE မဟုတ်\n"
+            f"{status_txt}"
+        )
+        logger.warning(f"Channel join blocked: {user_id} @{username}")
+
+
+# ── 12hr Channel Sweep ────────────────────────────────
+async def check_unknown_channel_members(context):
+    """12hr တိုင်း Members sheet ထဲက EXPIRED/KICKED user တွေ
+    channel ထဲ ရှိသေးရင် kick လုပ်မယ်"""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                SHEET_WEBHOOK,
+                json={"action": "getMembers"},
+                timeout=15,
+                follow_redirects=True
+            )
+        members = resp.json().get("members", [])
+
+        kicked_list = []
+        fail_list = []
+
+        for m in members:
+            uid = str(m.get("userId", "")).strip()
+            status = str(m.get("status", "")).upper()
+            username = m.get("username", "?")
+            if not uid.isdigit():
+                continue
+            uid_int = int(uid)
+            if uid_int in ADMIN_IDS:
+                continue
+            if status in ("ACTIVE", "PROMO10D"):
+                continue
+
+            # Channel ထဲ ရှိသေးလားစစ်
+            try:
+                member_info = await context.bot.get_chat_member(
+                    chat_id=CHANNEL_ID, user_id=uid_int
+                )
+                still_in = member_info.status in ("member", "subscriber", "administrator", "creator")
+            except Exception:
+                still_in = False
+
+            if still_in:
+                success = await kick_with_retry(context, uid_int)
+                if success:
+                    kicked_list.append(f"@{username} (`{uid}`) — {status}")
+                else:
+                    fail_list.append(f"@{username} (`{uid}`) — {status}")
+
+        if kicked_list:
+            txt = "🔄 *12hr Sweep — Channel Kick:*\n\n" + "\n".join(f"• {x}" for x in kicked_list)
+            await notify_admins(context, txt)
+        if fail_list:
+            txt = "⚠️ *12hr Sweep — Kick မအောင်မြင်:*\n\n" + "\n".join(f"• {x}" for x in fail_list)
+            await notify_admins(context, txt)
+
+    except Exception as e:
+        logger.error(f"check_unknown_channel_members: {e}")
+
 # ── Main ──────────────────────────────────────────────
 async def main():
     logger.info("Bot starting...")
@@ -5549,8 +5660,10 @@ async def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
-    app.job_queue.run_repeating(check_expired_members, interval=43200, first=60)
-    app.job_queue.run_repeating(check_expired_bans,    interval=43200, first=120)
+    app.add_handler(ChatMemberHandler(handle_channel_member_join, ChatMemberHandler.CHAT_MEMBER))
+    app.job_queue.run_repeating(check_expired_members,         interval=43200, first=60)
+    app.job_queue.run_repeating(check_expired_bans,            interval=43200, first=120)
+    app.job_queue.run_repeating(check_unknown_channel_members, interval=43200, first=180)
     await app.initialize()
     await app.start()
 
