@@ -204,6 +204,12 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
 .sk-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:14px;text-align:center}
 .sk-num{height:24px;width:60%;margin:0 auto 6px}
 .sk-meta{height:10px;width:40%;margin:0 auto}
+.year-filter-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.year-badge{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--line-strong);background:var(--surface);color:var(--ink-3);transition:all 0.15s;font-family:var(--font-sans)}
+.year-badge:hover{border-color:var(--brand);color:var(--brand)}
+.year-badge.yr-active{background:var(--brand);border-color:var(--brand);color:#fff}
+.year-badge.yr-all{background:var(--ink-1);border-color:var(--ink-1);color:#fff}
+.year-badge.yr-all:hover{background:var(--brand-2);border-color:var(--brand-2)}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:3px}
@@ -443,12 +449,18 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
       <div class="card">
         <div class="card-header"><div class="card-title">📈 SMA Price Analysis</div><span class="card-meta">Model ရွေးပြီး trend ကြည့်</span></div>
         <div class="card-body">
-          <div style="margin-bottom:14px"><label class="field-label">Select Model</label><select id="paModel" onchange="renderPriceAnalysis()" style="width:100%"><option value="">-- Model ရွေးပါ --</option></select></div>
+          <div style="margin-bottom:14px"><label class="field-label">Select Model</label><select id="paModel" onchange="paOnModelChange()" style="width:100%"><option value="">-- Model ရွေးပါ --</option></select></div>
           <div id="paInsight" style="display:none;margin-bottom:14px"></div>
           <div id="paStats" style="display:none;margin-bottom:14px"></div>
+          <div id="paYearWrap" style="display:none;margin-bottom:14px">
+            <label class="field-label">&#9313; Year Filter &middot; နှစ် (optional)</label>
+            <div class="year-filter-wrap" id="paYearBadges"></div>
+            <div style="margin-top:6px;font-size:11px;font-weight:600;color:var(--ok)" id="paYearHint">All years selected</div>
+          </div>
           <div id="paControls" style="display:none;margin-bottom:12px;gap:8px;flex-wrap:wrap">
             <button id="paBtnSMA10" onclick="paToggleSMA(10)" class="btn btn-sm" style="background:var(--info);color:#fff">● SMA 10</button>
             <button id="paBtnSMA20" onclick="paToggleSMA(20)" class="btn btn-sm" style="background:var(--brand);color:#fff">● SMA 20</button>
+            <button onclick="renderPriceAnalysis()" class="btn btn-primary btn-sm">&#128269; Analyze</button>
           </div>
           <div id="paChartWrap" style="display:none"><div style="height:300px"><canvas id="paChart"></canvas></div></div>
           <div id="paEmpty" class="empty"><div class="ei">📊</div><p>Model ရွေးပြီး ရှာပါ</p></div>
@@ -565,7 +577,7 @@ const BGs=['linear-gradient(135deg,#FEF2F4,#FECDD3)','linear-gradient(135deg,#FE
 
 /* ── BRAND_MAP (updated) ── */
 const BRAND_MAP={
-  'Toyota':    {color:'#C8102E',models:['CROWN','WISH','ALPHARD','VELLFIRE','VOXY','HIACE','SUCCEED','PROBOX','VANGUARD','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X','KLUGER','HILUX','HILUX SURF','LEXUS LS','IQ','BELTA','BLADE','CELSIOR','COROLLA FIELDER','PASSO','RACTIS','TOWNACE VAN','VITZ']},
+  'Toyota':    {color:'#C8102E',models:['CROWN','WISH','ALPHARD','VELLFIRE','VOXY','HIACE','SUCCEED','PROBOX','VANGUARD','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X','KLUGER','HILUX','HILUX SURF','LEXUS LS','IQ','BELTA','BLADE','CELSIOR','COROLLA FIELDER','PASSO','RACTIS','TOWNACE VAN','VITZ','SUPER CUSTOM']},
   'Nissan':    {color:'#1D4ED8',models:['X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE TRUCK','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA','MINICAB TRUCK','BIG THUMB']},
   'Honda':     {color:'#B45309',models:['FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','GRACE','STREAM','CR-V']},
   'Daihatsu':  {color:'#15803D',models:['HIJET','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI']},
@@ -595,7 +607,7 @@ function getBrandLogoUrl(brand){return BRAND_LOGOS[brand]||null;}
 const BODY_TYPE_MAP={
   'Sedan':    {emoji:'🚗',color:'#1D4ED8',models:['CROWN','TEANA','CAMRY','COROLLA','ATENZA','LEGACY','IMPREZA','AXELA','FUGA','GRACE','LAFESTA','WRX','LEXUS LS','BELTA','CELSIOR','COROLLA FIELDER']},
   'SUV':      {emoji:'🏔️',color:'#15803D',models:['X-TRAIL','PAJERO','OUTLANDER','HARRIER','VANGUARD','FORESTER','CX-5','CX-3','LAND CRUISER','ROCKY','XV','FORTUNER','ECLIPSE CROSS','RUSH','ASX','VEZEL','KLUGER','HILUX SURF']},
-  'Van':      {emoji:'🚐',color:'#6D28D9',models:['HIACE','SUCCEED','DELICA','EVERY','CARRY','PROBOX','STREAM','ATRAI','TOWNACE VAN']},
+  'Van':      {emoji:'🚐',color:'#6D28D9',models:['HIACE','SUCCEED','DELICA','EVERY','CARRY','PROBOX','STREAM','ATRAI','TOWNACE VAN','SUPER CUSTOM']},
   'Truck':    {emoji:'🛻',color:'#B45309',models:['HIJET','SAMBAR','BONGO TRUCK','VANETTE TRUCK','TRITON','HILUX','MINICAB TRUCK','BIG THUMB','CANTER','FUSO','DUTRO','RANGER','SCRUM TRUCK']},
   'Minivan':  {emoji:'👨‍👩‍👧',color:'#C8102E',models:['ALPHARD','VELLFIRE','VOXY','SERENA','STEPWGN','FREED','ELGRAND','ODYSSEY','JADE','WISH','NOAH','SIENTA','ESTIMA','EXIGA','BIANTE','PREMACY']},
   'Hatchback':{emoji:'🚙',color:'#0E7490',models:['FIT','INSIGHT','JUKE','NOTE','AQUA','YARIS','DEMIO','ALTO','BOON','SWIFT','MARCH','MOVE','TANTO','MIRA','N-BOX','WAKE','CAST','DAYZ','SPACIA','WAGON R','HUSTLER','IGNIS','THOR','IQ','VITZ','PASSO','BLADE','RACTIS']},
@@ -633,6 +645,7 @@ async function init(){
         'NV200 VANETTE':'VANETTE TRUCK','NV200VANETTE':'VANETTE TRUCK','NV200':'VANETTE TRUCK',
         'NISSAN LEAF':'LEAF',
         'HIACE VAN':'HIACE','TOYOTA HIACE':'HIACE','HIACE WAGON':'HIACE',
+        'TOYOTA SUPER CUSTOM':'SUPER CUSTOM','HIACE SUPER CUSTOM':'SUPER CUSTOM',
         'SUCCEED VAN':'SUCCEED','SUCCEED WAGON':'SUCCEED',
         'MARKX':'MARK X','MARK-X':'MARK X',
         'HIGHLANDER':'KLUGER','TOYOTA HIGHLANDER':'KLUGER',
@@ -861,7 +874,7 @@ function renderMonthlyBestSellerContent(){
 function getMissingModelBrand(model){
   const mu=model.toUpperCase();
   const brandRules=[
-    {brand:'Toyota',     color:'#C8102E',models:['CROWN','WISH','ALPHARD','VELLFIRE','VOXY','HIACE','SUCCEED','PROBOX','VANGUARD','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X','KLUGER','HILUX','HILUX SURF','LEXUS LS','IQ','BELTA','BLADE','CELSIOR','COROLLA FIELDER','PASSO','RACTIS','TOWNACE VAN','VITZ']},
+    {brand:'Toyota',     color:'#C8102E',models:['CROWN','WISH','ALPHARD','VELLFIRE','VOXY','HIACE','SUCCEED','PROBOX','VANGUARD','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X','KLUGER','HILUX','HILUX SURF','LEXUS LS','IQ','BELTA','BLADE','CELSIOR','COROLLA FIELDER','PASSO','RACTIS','TOWNACE VAN','VITZ','SUPER CUSTOM']},
     {brand:'Nissan',     color:'#1D4ED8',models:['X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE TRUCK','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA','MINICAB TRUCK','BIG THUMB']},
     {brand:'Honda',      color:'#B45309',models:['FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','GRACE','STREAM','CR-V']},
     {brand:'Daihatsu',   color:'#15803D',models:['HIJET','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI']},
@@ -909,6 +922,47 @@ function renderLocationActivity(){
 </script>
 <script>
 let paShowSMA10=true,paShowSMA20=true,paChart=null;
+let paSelectedYears=new Set();
+
+function paOnModelChange(){
+  const model=document.getElementById('paModel').value;
+  paSelectedYears=new Set();
+  const yw=document.getElementById('paYearWrap');
+  const ctrl=document.getElementById('paControls');
+  const emp=document.getElementById('paEmpty');
+  ['paInsight','paStats','paChartWrap'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
+  if(!model){if(yw)yw.style.display='none';if(ctrl)ctrl.style.display='none';emp.style.display='block';emp.innerHTML='<div class="ei">&#128202;</div><p>Model ရွေးပါၑ ရှာပါ</p>';return;}
+  const years=[...new Set(allCars.filter(c=>c.model===model&&c.year>0&&c.price>0).map(c=>c.year))].sort((a,b)=>a-b);
+  if(years.length>1&&yw){
+    document.getElementById('paYearBadges').innerHTML='<span class="year-badge yr-all" id="pa-yr-all" onclick="paSelectAllYears()">All Years</span>'+years.map(y=>'<span class="year-badge" id="pa-yr-'+y+'" onclick="paToggleYear('+y+')">'+y+'</span>').join('');
+    yw.style.display='block';
+  }else if(yw){yw.style.display='none';}
+  if(ctrl)ctrl.style.display='flex';
+  emp.style.display='block';
+  emp.innerHTML='<div class="ei">&#128202;</div><p>Year ရွေး (optional) ပြီး Analyze နှစ်ပါၑ</p>';
+  paUpdateYearHint();
+}
+function paSelectAllYears(){
+  const model=document.getElementById('paModel').value;
+  paSelectedYears=new Set();
+  const years=[...new Set(allCars.filter(c=>c.model===model&&c.year>0&&c.price>0).map(c=>c.year))];
+  const ab=document.getElementById('pa-yr-all');if(ab)ab.className='year-badge yr-all';
+  years.forEach(y=>{const el=document.getElementById('pa-yr-'+y);if(el)el.className='year-badge';});
+  paUpdateYearHint();
+}
+function paToggleYear(year){
+  const model=document.getElementById('paModel').value;
+  const years=[...new Set(allCars.filter(c=>c.model===model&&c.year>0&&c.price>0).map(c=>c.year))];
+  if(paSelectedYears.has(year))paSelectedYears.delete(year);else paSelectedYears.add(year);
+  const ab=document.getElementById('pa-yr-all');if(ab)ab.className='year-badge'+(paSelectedYears.size===0?' yr-all':'');
+  years.forEach(y=>{const el=document.getElementById('pa-yr-'+y);if(!el)return;el.className='year-badge'+(paSelectedYears.has(y)?' yr-active':'');});
+  paUpdateYearHint();
+}
+function paUpdateYearHint(){
+  const el=document.getElementById('paYearHint');if(!el)return;
+  if(paSelectedYears.size===0){el.textContent='All years selected';el.style.color='var(--ok)';}
+  else{el.textContent='Filtered: '+[...paSelectedYears].sort().join(', ');el.style.color='var(--brand)';}
+}
 
 function renderPriceAnalysisSetup(){
   const sel=document.getElementById('paModel');if(!sel)return;
@@ -928,7 +982,9 @@ function renderPriceAnalysis(){
   const sel=document.getElementById('paModel');const model=sel?.value;
   const empty=document.getElementById('paEmpty');const chartWrap=document.getElementById('paChartWrap');const insight=document.getElementById('paInsight');const stats=document.getElementById('paStats');const controls=document.getElementById('paControls');
   if(!model){empty.style.display='block';chartWrap.style.display='none';insight.style.display='none';stats.style.display='none';controls.style.display='none';empty.innerHTML='<div class="ei">📊</div><p>Model ရွေးပြီး ရှာပါ</p>';return;}
-  const dayMap={};allCars.filter(c=>c.model===model&&c.price>0).forEach(c=>{const d=parseDate(c.date);if(!d||d.getTime()===0)return;const key=d.toISOString().slice(0,10);if(!dayMap[key])dayMap[key]=[];dayMap[key].push(c.price);});
+  let filteredCars=allCars.filter(c=>c.model===model&&c.price>0);
+  if(typeof paSelectedYears!=='undefined'&&paSelectedYears.size>0)filteredCars=filteredCars.filter(c=>paSelectedYears.has(c.year));
+  const dayMap={};filteredCars.forEach(c=>{const d=parseDate(c.date);if(!d||d.getTime()===0)return;const key=d.toISOString().slice(0,10);if(!dayMap[key])dayMap[key]=[];dayMap[key].push(c.price);});
   const days=Object.keys(dayMap).sort();
   if(days.length<2){empty.style.display='block';chartWrap.style.display='none';insight.style.display='none';stats.style.display='none';controls.style.display='none';empty.innerHTML='<div class="ei">📊</div><p>Data မလုံလောက်ပါ (2+ ရက် လိုအပ်)</p>';return;}
   const data=days.map(d=>({date:d,price:Math.round(dayMap[d].reduce((s,p)=>s+p,0)/dayMap[d].length),count:dayMap[d].length}));
@@ -937,7 +993,8 @@ function renderPriceAnalysis(){
   const prices=data.map(d=>d.price);const latest=prices[prices.length-1];const sma10L=sma10[sma10.length-1];const sma20L=sma20[sma20.length-1];const minP=Math.min(...prices),maxP=Math.max(...prices);const avgP=Math.round(prices.reduce((s,p)=>s+p,0)/prices.length);const totalC=data.reduce((s,d)=>s+d.count,0);
   let tColor='var(--warn)',tIcon='→ STABLE',tMsg='ဈေးတည်ငြိမ်';
   if(sma10L&&sma20L){if(latest>sma10L&&sma10L>sma20L){tColor='var(--ok)';tIcon='↗ UPTREND';tMsg='ဈေးတက်နေ — ရောင်းဖို့ ကောင်းတဲ့အချိန်';}else if(latest<sma10L&&sma10L<sma20L){tColor='var(--brand)';tIcon='↘ DOWNTREND';tMsg='ဈေးကျနေ — ဝယ်ဖို့ စောင့်';}}
-  empty.style.display='none';chartWrap.style.display='block';insight.style.display='block';stats.style.display='block';controls.style.display='flex';
+  empty.style.display='none';chartWrap.style.display='block';const yearLabel=typeof paSelectedYears!=='undefined'&&paSelectedYears.size>0?' · Year: '+[...paSelectedYears].sort().join(', '):'';
+  insight.style.display='block';stats.style.display='block';
   insight.innerHTML='<div style="background:var(--surface);border-left:4px solid '+tColor+';border-radius:var(--r-sm);padding:14px;border:1px solid var(--line)"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="background:'+tColor+'15;border:1px solid '+tColor+'44;border-radius:var(--r-sm);padding:8px 14px"><div style="font-size:15px;font-weight:800;color:'+tColor+'">'+tIcon+'</div><div style="font-size:10px;color:'+tColor+';margin-top:2px">'+tMsg+'</div></div><div style="flex:1;min-width:200px"><div style="font-size:11px;color:var(--ink-4)">Latest: <strong style="color:var(--ink-1)">฿'+latest.toLocaleString()+'</strong></div>'+(sma10L?'<div style="font-size:11px;color:var(--ink-4)">SMA10: <strong style="color:var(--info)">฿'+sma10L.toLocaleString()+'</strong></div>':'')+(sma20L?'<div style="font-size:11px;color:var(--ink-4)">SMA20: <strong style="color:var(--brand)">฿'+sma20L.toLocaleString()+'</strong></div>':'')+'</div></div></div>';
   stats.innerHTML='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'+[['Min','฿'+minP.toLocaleString(),'var(--ok)'],['Max','฿'+maxP.toLocaleString(),'var(--bad)'],['Avg','฿'+avgP.toLocaleString(),'var(--info)'],['Count',totalC+' cars','var(--ink-3)']].map(([l,v,c])=>'<div style="background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px;text-align:center"><div style="font-size:10px;color:var(--ink-4);text-transform:uppercase;font-weight:700;margin-bottom:4px">'+l+'</div><div style="font-size:14px;font-weight:800;color:'+c+';font-family:var(--font-mono)">'+v+'</div></div>').join('')+'</div>';
   destroyChart('pa');
@@ -970,6 +1027,7 @@ const PH_MODELS={
   ],
   Toyota:[
     {label:'Hiace (All)',             modelKey:['HIACE']},
+    {label:'Super Custom',            modelKey:['SUPER CUSTOM']},
     {label:'Probox',                  modelKey:['PROBOX']},
     {label:'Succeed',                 modelKey:['SUCCEED']},
     {label:'Voxy',                    modelKey:['VOXY']},
