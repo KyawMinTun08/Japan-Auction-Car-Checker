@@ -1196,10 +1196,10 @@ async def renew_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
     user_id = user.id
     await update.message.reply_text(
-        "🔄 *Membership သက်တမ်းတိုး*\n\n"
-        "Package ရွေးချယ်ပါ 👇",
-        parse_mode='Markdown',
-        reply_markup=build_package_keyboard(user_id, "renew"))
+        "🔜 *Coming Soon!*\n\n"
+        "Membership သက်တမ်းတိုး Feature ကို ပြင်ဆင်နေဆဲ ဖြစ်ပါသည်\n\n"
+        "💬 Admin ကို တိုက်ရိုက် ဆက်သွယ်နိုင်ပါသည်",
+        parse_mode='Markdown')
 
 async def mypassword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
@@ -3014,12 +3014,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💰 `{chassis}` ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`", parse_mode='Markdown')
 
     elif data.startswith("join_start"):
-        user_id = query.from_user.id
         await query.message.reply_text(
-            "🆕 *Membership ဝယ်ရန်*\n\n"
-            "Package ရွေးချယ်ပါ 👇",
-            parse_mode='Markdown',
-            reply_markup=build_package_keyboard(user_id, "join"))
+            "🔜 *Coming Soon!*\n\n"
+            "Membership ဝယ်ယူနိုင်မည့် Feature ကို ပြင်ဆင်နေဆဲ ဖြစ်ပါသည်\n\n"
+            "💬 Admin ကို တိုက်ရိုက် ဆက်သွယ်နိုင်ပါသည်",
+            parse_mode='Markdown')
 
     elif data.startswith("pkg_cancel_"):
         pending_payment.pop(query.from_user.id, None)
