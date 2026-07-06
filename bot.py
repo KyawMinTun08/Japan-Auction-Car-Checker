@@ -1550,7 +1550,7 @@ async def gemini_ocr_auction_list(file_bytes: bytes) -> tuple:
         return [], None
     try:
         import base64, json
-        img_b64 = base64.b64encode(file_bytes).decode()
+        img_b64 = base64.b64encode(file_bytes).decode('ascii')
         url     = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
         payload = {"contents":[{"parts":[
             {"text": (
