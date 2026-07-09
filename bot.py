@@ -450,7 +450,7 @@ async def get_member_package(user_id: int) -> str | None:
             uid_cell    = c[0] if len(c) > 0 else None
             expire_cell = c[3] if len(c) > 3 else None
             status_cell = c[4] if len(c) > 4 else None
-            pkg_cell    = c[6] if len(c) > 6 else None
+            pkg_cell    = c[7] if len(c) > 7 else None
             if not uid_cell: continue
             uid_val = uid_cell.get('f') or str(uid_cell.get('v',''))
             uid_val = uid_val.replace('.0','').strip()
