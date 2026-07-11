@@ -4020,7 +4020,7 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         member_username, days, password, package)
     invite_url = await create_invite_link(context, days)
     if member_id:
-        await send_approval_dm(context, member_id, months, password, invite_url)
+        await send_approval_dm(context, member_id, months, password, invite_url , package=package)
 
     expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
     txt = (f"✅ <b>Membership Approved!</b>\n\n"
