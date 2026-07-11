@@ -3221,7 +3221,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"logPayment: {e}")
 
         invite_url = await create_invite_link(context, months * 30)
-        await send_approval_dm(context, member_id, months, password, invite_url)
+        await send_approval_dm(context, member_id, months, password, invite_url,package=package)
 
         expire_date = (datetime.now() + timedelta(days=months*30)).strftime("%d/%m/%Y")
         _pw_line = f"🔑 Password: `{password}`\n" if package == "WEB" else ""
