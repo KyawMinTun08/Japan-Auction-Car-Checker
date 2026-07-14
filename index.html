@@ -512,19 +512,34 @@ async function doLogin(){
   if(!pw){err.style.display='block';err.textContent='Password ထည့်ပါ';return;}
   btn.querySelector('span').textContent='⏳ Checking...';btn.disabled=true;err.style.display='none';
   try{
-    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'validateLogin',password:pw})});
-    const result=await res.json();
+    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'verifyLogin',password:pw})});
+    if(!res.ok)throw new Error('http_'+res.status);
+    let result;
+    try{result=await res.json();}catch(parseError){throw new Error('invalid_server_response');}
     if(result.status!=='ok'){
-      const t=getLoginAttempts();t.count=(t.count||0)+1;
-      if(t.count>=MAX_LOGIN_TRIES){t.lockUntil=Date.now()+LOCKOUT_MINUTES*60*1000;t.count=0;err.textContent='❌ '+MAX_LOGIN_TRIES+' ကြိမ် မှားပြီ — '+LOCKOUT_MINUTES+' မိနစ် Lock';brute.style.display='block';brute.textContent='⚠️ Admin ဆက်သွယ်ပါ: @JapanAuctionCar_Bot';}
-      else{err.textContent=result.message==='expired'?'⏰ Membership ကုန်ဆုံးပြီ — /renew လုပ်ပါ':'❌ Password မှားတယ် ('+(MAX_LOGIN_TRIES-t.count)+' ကြိမ် ကျန်)';}
+      const reason=String(result.message||result.msg||result.error||'').toLowerCase();
+      const t=getLoginAttempts();
+      if(reason==='wrong_password'||reason.includes('password')){
+        t.count=(t.count||0)+1;
+        if(t.count>=MAX_LOGIN_TRIES){t.lockUntil=Date.now()+LOCKOUT_MINUTES*60*1000;t.count=0;err.textContent='❌ '+MAX_LOGIN_TRIES+' ကြိမ် မှားပြီ — '+LOCKOUT_MINUTES+' မိနစ် Lock';brute.style.display='block';brute.textContent='⚠️ Admin ဆက်သွယ်ပါ: @JapanAuctionCar_Bot';}
+        else err.textContent='❌ Password မှားတယ် ('+(MAX_LOGIN_TRIES-t.count)+' ကြိမ် ကျန်)';
+      }
+      else if(reason==='expired'||reason.includes('expire'))err.textContent='⏰ Membership ကုန်ဆုံးပြီ — /renew လုပ်ပါ';
+      else if(reason==='unknown_action'||reason.includes('unknown action'))err.textContent='⚠️ Login service action မကိုက်ညီပါ — Admin ကို ဆက်သွယ်ပါ';
+      else err.textContent='⚠️ Server error — ခဏနေရင် ပြန်ကြိုးစားပါ';
       err.style.display='block';setLoginAttempts(t);btn.querySelector('span').textContent='Sign In →';btn.disabled=false;return;
     }
     setLoginAttempts({count:0,lockUntil:0});
     SESSION={ver:SESSION_VER,token:result.token,userId:result.userId,username:result.username,package:result.package,expireDate:result.expireDate,loginTime:Date.now()};
     sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION));
     logVisitor();showApp();
-  }catch(e){err.style.display='block';err.textContent='❌ Connection error — ပြန်ကြိုးစားပါ';btn.querySelector('span').textContent='Sign In →';btn.disabled=false;}
+  }catch(e){
+    err.style.display='block';
+    err.textContent=(String(e.message||'').startsWith('http_')||e.message==='invalid_server_response')
+      ?'⚠️ Login server error — ခဏနေရင် ပြန်ကြိုးစားပါ'
+      :'❌ Connection error — Internet စစ်ပြီး ပြန်ကြိုးစားပါ';
+    btn.querySelector('span').textContent='Sign In →';btn.disabled=false;
+  }
 }
 
 function checkSession(){
