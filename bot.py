@@ -3193,8 +3193,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username = pay_data.get("username", str(member_id))
         password = generate_password() if package == "WEB" else ""
 
-        await save_member_to_sheet(str(member_id), username.replace("@",""), months * 30, password, package)
-
+    saved = await save_member_to_sheet(str(member_id), username.replace("@",""), months * 30, password, package)
+if not saved:
+    await context.bot.send_message(chat_id=ADMIN_IDS[0], text=f"⚠️ Sheet write FAILED for {member_id} — manual fix needed!")
         slip_info = pay_data.get("slip_info", {})
         chosen_method = pay_data.get("method", "")
         try:
