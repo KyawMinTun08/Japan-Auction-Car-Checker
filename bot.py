@@ -821,7 +821,7 @@ async def create_invite_link(context, days: int) -> str:
         return ""
 
 async def send_approval_dm(context, member_id: int, months: int,
-                           password: str, invite_url: str, package: str = "CH"):
+                           password: str, invite_url: str, package: str = "CH") -> bool:
     is_web      = package == "WEB"
     expire_date = (datetime.now() + timedelta(days=months * 30)).strftime("%d/%m/%Y")
     cust_kb = []
@@ -864,8 +864,22 @@ async def send_approval_dm(context, member_id: int, months: int,
                 disable_notification=True)
         except Exception as e:
             logger.error(f"Pin message: {e}")
+        return True
     except Exception as e:
         logger.error(f"Send approval DM: {e}")
+        # Markdown parsing must never prevent a paid member from receiving
+        # their credentials. Retry once as plain text before reporting failure.
+        try:
+            plain_text = text.replace("*", "").replace("`", "")
+            await context.bot.send_message(
+                chat_id=member_id,
+                text=plain_text,
+                reply_markup=InlineKeyboardMarkup(cust_kb) if cust_kb else None,
+            )
+            return True
+        except Exception as fallback_error:
+            logger.error(f"Send approval DM fallback: {fallback_error}")
+            return False
 
 # ── Commands ──────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3260,7 +3274,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"logPayment: {e}")
 
         invite_url = await create_invite_link(context, months * 30)
-        await send_approval_dm(
+        dm_sent = await send_approval_dm(
             context,
             member_id,
             months,
@@ -3272,15 +3286,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         expire_date = (
             datetime.now() + timedelta(days=months * 30)
         ).strftime("%d/%m/%Y")
-        pw_line = f"🔑 Password: `{password}`\n" if package == "WEB" else ""
-
         await query.message.reply_text(
             f"✅ *Payment Confirmed + Approved!*\n\n"
             f"👤 {name} ({username})\n"
             f"📦 {PLAN_NAMES.get(package, package)} — {months} လ\n"
             f"⏰ ကုန်ဆုံး: `{expire_date}`\n"
-            f"{pw_line}\n"
-            f"Member ကို DM ပို့ပြီးပြီ ✅",
+            f"\n"
+            + ("Member ကို Password/Link DM ပို့ပြီးပြီ ✅"
+               if dm_sent else
+               "⚠️ Member DM မပို့နိုင်ပါ။ Member ကို bot မှာ /start နှိပ်ပြီး /mypassword သုံးခိုင်းပါ။"),
             parse_mode="Markdown",
         )
 
