@@ -579,6 +579,31 @@ function checkSession(){
   }catch(e){return false;}
 }
 
+function clearSession(){
+  sessionStorage.removeItem(SESSION_KEY);
+  SESSION=null;
+}
+
+async function verifyStoredSession(){
+  if(!checkSession())return false;
+  try{
+    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'verifyToken',token:SESSION.token})});
+    if(!res.ok)throw new Error('http_'+res.status);
+    const result=await res.json();
+    const pkg=String(result.package||'').toUpperCase();
+    if(result.status!=='ok'||(pkg!=='WEB'&&pkg!=='WEB-PROMO')){
+      clearSession();
+      return false;
+    }
+    SESSION={...SESSION,userId:result.userId,username:result.username,package:pkg,expireDate:result.expireDate};
+    sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION));
+    return true;
+  }catch(e){
+    clearSession();
+    return false;
+  }
+}
+
 function showApp(){
   document.getElementById('loginOverlay').style.display='none';
   document.getElementById('loadingOverlay').style.display='flex';
@@ -633,7 +658,7 @@ function renderMemberTab(){
   document.getElementById('memberDetailPackage').textContent=packageLabel;
   document.getElementById('memberDetailExpiry').textContent=expiry;
 }
-function doLogout(){sessionStorage.removeItem(SESSION_KEY);location.reload();}
+function doLogout(){clearSession();location.reload();}
 
 async function logVisitor(){
   try{
@@ -643,8 +668,8 @@ async function logVisitor(){
   }catch(e){}
 }
 
-window.addEventListener('DOMContentLoaded',function(){
-  if(checkSession()){showApp();}
+window.addEventListener('DOMContentLoaded',async function(){
+  if(await verifyStoredSession()){showApp();}
   else{document.getElementById('loginOverlay').style.display='flex';document.getElementById('loadingOverlay').style.display='none';}
 });
 </script>
@@ -697,7 +722,15 @@ async function init(){
   try{
     const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'getData',token:SESSION.token})});
     const result=await res.json();
-    if(result.status!=='ok')throw new Error(result.msg||'Data fetch failed');
+    if(result.status!=='ok'){
+      const reason=String(result.message||result.msg||result.error||'').toLowerCase();
+      if(['invalid_token','expired','kicked','banned','web_access_required'].some(code=>reason.includes(code))){
+        clearSession();
+        location.reload();
+        return;
+      }
+      throw new Error(reason||'Data fetch failed');
+    }
 
     allCars=result.cars.map(r=>{
       let model=String(r.model||'UNKNOWN').trim().toUpperCase();
