@@ -701,23 +701,30 @@ async function init(){
 
     allCars=result.cars.map(r=>{
       let model=String(r.model||'UNKNOWN').trim().toUpperCase();
-      const prefixes=['TOYOTA ','NISSAN ','HONDA ','DAIHATSU ','MITSUBISHI ','SUBARU ','MAZDA ','SUZUKI ','ISUZU ','HINO ','NISSIAN ','FUSO '];
-      for(const p of prefixes){if(model.startsWith(p)){model=model.slice(p.length);break;}}
+      /* Remove accidental row/count prefixes (e.g. "7 ALPHARD") and
+         repeated maker names (e.g. "MITSUBISHI FUSO CANTER"). */
+      model=model.replace(/^\d+\s*/, '').replace(/\s+/g,' ').trim();
+      const prefixes=['MITSUBISHI FUSO ','NISSAN DIESEL ','TOYOTA ','NISSAN ','HONDA ','DAIHATSU ','MITSUBISHI ','SUBARU ','MAZDA ','SUZUKI ','ISUZU ','HINO ','NISSIAN ','FUSO ','VOLKSWAGEN '];
+      let prefixRemoved=true;
+      while(prefixRemoved){prefixRemoved=false;for(const p of prefixes){if(model.startsWith(p)){model=model.slice(p.length).trim();prefixRemoved=true;break;}}}
       const locSuffixes=[' MAESOT FREEZON',' KLANG9 FREEZON',' 44GATE FREEZON',' KLANG9',' MAESOT',' 44GATE',' FREEZON'];
       for(const s of locSuffixes){if(model.endsWith(s)){model=model.slice(0,model.length-s.length).trim();break;}}
 
-      /* ── MODEL_NORM (updated — 6 new entries) ── */
+      /* ── MODEL_NORM — one canonical display name per car model ── */
       const MODEL_NORM={
+        'AQUAE':'AQUA','ALTO ECO':'ALTO',
+        'CROWN PEARL':'CROWN','CROWN PAREAL':'CROWN','CROWN ATHLETE':'CROWN','CROWN HYBRID':'CROWN','CROWN MAJESTA':'CROWN',
+        'COROLLA FEILDER':'COROLLA FIELDER','FEILDER':'COROLLA FIELDER','FIELDER':'COROLLA FIELDER','COROLLA FIELDER HYBRID':'COROLLA FIELDER',
         'GK3':'FIT','GK5':'FIT','GE6':'FIT','GE8':'FIT','HONDA FIT':'FIT','HONDAFIT':'FIT','HONDA':'FIT',
-        'FIT HYBRID':'FIT','FIT SHUTTLE HYBRID':'FIT','HONDA FIT HYBRID':'FIT',
-        'GP1':'FIT','GP5':'FIT','GP6':'FIT','GP2':'FIT','GP7':'FIT','SHUTTLE':'FIT','HONDA SHUTTLE':'FIT',
-        'HONDA FREED':'FREED','GB3':'FREED','GB4':'FREED',
+        'FIT HYBRID':'FIT','FIT SHUTTLE':'FIT','FIT SHUTTLE HYBRID':'FIT','HONDA FIT HYBRID':'FIT',
+        'GP1':'FIT','GP5':'FIT','GP6':'FIT','GP2':'FIT','GP7':'FIT','SHUTTLE':'FIT','SHUTTLE HYBRID':'FIT','HONDA SHUTTLE':'FIT',
+        'HONDA FREED':'FREED','FREED HYBRID':'FREED','GB3':'FREED','GB4':'FREED',
         'HONDA INSIGHT':'INSIGHT','ZE2':'INSIGHT','ZE3':'INSIGHT',
         'CRV':'CR-V','HONDA CR-V':'CR-V','HONDA CRV':'CR-V','RE4':'CR-V','RE3':'CR-V','RD1':'CR-V','RD5':'CR-V',
         'HR-V':'VEZEL','HONDA HR-V':'VEZEL','HRV':'VEZEL','VEZEL HYBRID':'VEZEL',
         'XTRAIL':'X-TRAIL','X TRAIL':'X-TRAIL','NISSAN X-TRAIL':'X-TRAIL','NISSIAN XTRAIL':'X-TRAIL','NISSIAN X-TRAIL':'X-TRAIL',
         'JUAKE':'JUKE','NISSIAN JUKE':'JUKE','NISSIAN JUAKE':'JUKE','JUKE NISMO RS':'JUKE',
-        'VANETTE':'VANETTE TRUCK','VANETTE VAN':'VANETTE TRUCK','VANNETTE':'VANETTE TRUCK',
+        'VANETTE':'VANETTE TRUCK','VANETTE VAN':'VANETTE TRUCK','VANNETTE':'VANETTE TRUCK','VANETTEE':'VANETTE TRUCK',
         'NISSIAN VANETTE':'VANETTE TRUCK','NISSIAN VANNETTE':'VANETTE TRUCK',
         'NV200 VANETTE':'VANETTE TRUCK','NV200VANETTE':'VANETTE TRUCK','NV200':'VANETTE TRUCK',
         'NISSAN LEAF':'LEAF',
@@ -726,22 +733,25 @@ async function init(){
         'SUCCEED VAN':'SUCCEED','SUCCEED WAGON':'SUCCEED',
         'MARKX':'MARK X','MARK-X':'MARK X',
         'HIGHLANDER':'KLUGER','TOYOTA HIGHLANDER':'KLUGER',
-        'LAND CRUISER 100':'LAND CRUISER','LAND CRUISER PRADO':'LAND CRUISER',
+        'LAND CRUISER 100':'LAND CRUISER','LAND CRUISER PRADO':'LAND CRUISER','PRADO':'LAND CRUISER','PARADO':'LAND CRUISER',
         'PROBOX VAN':'PROBOX',
-        'MITSUBISHI RVR':'RVR','OUTLANDAR':'OUTLANDER',
+        'MITSUBISHI RVR':'RVR','OUTLANDAR':'OUTLANDER','ESTIMA HYBRID':'ESTIMA',
         'HIJET TRUCK':'HIJET','HIJET VAN':'HIJET','HIJET CARGO':'HIJET','HIJET TRUCKER':'HIJET','HIJET WITE':'HIJET',
         'PIXIS TRUCK':'HIJET','PIXIS VAN':'HIJET','PIXIS MEGA':'HIJET','PIXIA TRUCK':'HIJET','PIXIA VAN':'HIJET',
         'HUET TRUCK':'HIJET',
         'BONGO':'BONGO TRUCK',
         'SAMBAR TRUCK':'SAMBAR','SAMBAR VAN':'SAMBAR',
-        'CX5':'CX-5','MAZDA CX5':'CX-5',
+        'CX5':'CX-5','MAZDA CX5':'CX-5','VIZEL':'VEZEL',
+        'ADVAN':'AD VAN','JUAKE':'JUKE','WIAH':'WISH','VOXY DARK':'VOXY',
+        'MIRA ES':'MIRA E:S','MERA':'MIRA','SUCCEDD':'SUCCEED',
+        'TOWN ACE VAN':'TOWNACE VAN','CANTER TRUCK':'CANTER','FUSO CANTER':'CANTER',
         'UD QUON':'QUON','UD CONDOR MK':'CONDOR',
         'PROFIA TRUCK':'PROFIA',
         'SUPER GREAT CONCRETE MIXER TRUCK':'SUPER GREAT',
         'CARRY TRUCK':'CARRY',
         'DUTRO TRUCK':'DUTRO',
         'FUSO TRUCK':'FUSO',
-        'RAV4':'','TRUCK':'','KLANG9':'','UNKNOWN':'',
+        'TRUCK':'','DIESEL':'','KLANG9':'','UNKNOWN':'',
       };
       if(MODEL_NORM[model]!==undefined){model=MODEL_NORM[model];}
       if(!model||model==='UNKNOWN')return null;
