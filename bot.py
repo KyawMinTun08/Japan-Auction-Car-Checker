@@ -645,10 +645,10 @@ async def notify_admins(context, text: str, reply_markup=None):
             logger.error(f"Admin notify {admin_id}: {e}")
 
 async def kick_with_retry(context, user_id: int, max_retries: int = 3) -> bool:
+    """Remove the user and keep them banned until a paid renewal is approved."""
     for attempt in range(max_retries):
         try:
             await context.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-            await context.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
             return True
         except Exception as e:
             logger.error(f"Kick attempt {attempt+1} for {user_id}: {e}")
@@ -822,6 +822,21 @@ async def create_invite_link(context, days: int) -> str:
 
 async def send_approval_dm(context, member_id: int, months: int,
                            password: str, invite_url: str, package: str = "CH") -> bool:
+    # Expired/kicked members remain banned from the channel. A successful
+    # renewal is the only path that restores their ability to use an invite.
+    try:
+        await context.bot.unban_chat_member(
+            chat_id=CHANNEL_ID,
+            user_id=member_id,
+            only_if_banned=True,
+        )
+    except Exception as e:
+        logger.error(f"Renewal unban failed for {member_id}: {e}")
+        await notify_admins(
+            context,
+            f"⚠️ Renewal approve ဖြစ်ပေမယ့် Channel unban မအောင်မြင်ပါ\n"
+            f"User ID: `{member_id}` — Bot admin permission စစ်ပါ",
+        )
     is_web      = package == "WEB"
     expire_date = (datetime.now() + timedelta(days=months * 30)).strftime("%d/%m/%Y")
     cust_kb = []
@@ -1990,6 +2005,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown')
             return
 
+    # Payment/deposit and active proxy-chat photos are handled above. All
+    # remaining photo/OCR features require a current membership (or admin).
+    if user_id not in ADMIN_IDS and not await is_active_member(user_id):
+        await update.message.reply_text(
+            "🔒 *Membership သက်တမ်းကုန်ဆုံးနေပါသည်*\n\n"
+            "ပြန်လည်အသုံးပြုရန် /renew နှိပ်ပြီး သက်တမ်းတိုးပါ။",
+            parse_mode='Markdown')
+        return
+
     # ── Auction List Mode ──
     if "list" in caption:
         cap_lower = caption.lower()
@@ -2437,6 +2461,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 broker_tg_id=str_uid,
                 broker_sessions=broker_sessions,
                 text=text, is_photo=False)
+        return
+
+    # Public renewal uses buttons/payment photos; broker/proxy messages were
+    # handled above. Every remaining text workflow requires active membership.
+    if user_id not in ADMIN_IDS and not await is_active_member(user_id):
+        await update.message.reply_text(
+            "🔒 *Membership သက်တမ်းကုန်ဆုံးနေပါသည်*\n\n"
+            "ပြန်လည်အသုံးပြုရန် /renew နှိပ်ပြီး သက်တမ်းတိုးပါ။",
+            parse_mode='Markdown')
         return
 
     if user_id in pending_request:
@@ -5544,6 +5577,17 @@ async def check_expired_members(context):
                             parse_mode='Markdown')
                     except Exception as e:
                         logger.error(f"promo10d expire notify: {e}")
+                else:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=int(uid),
+                            text=("⏰ *Membership သက်တမ်းကုန်ဆုံးပြီ*\n\n"
+                                  "Bot member features၊ Website နဲ့ Channel ကို "
+                                  "အသုံးပြု၍မရတော့ပါ။\n\n"
+                                  "ပြန်လည်အသုံးပြုရန် /renew နှိပ်ပြီး သက်တမ်းတိုးပါ။"),
+                            parse_mode='Markdown')
+                    except Exception as e:
+                        logger.error(f"membership expire notify: {e}")
 
                 success = await kick_with_retry(context, int(uid))
                 if success:
@@ -5617,7 +5661,7 @@ async def is_valid_member(user_id: int) -> bool:
         return False
     except Exception as e:
         logger.error(f"is_valid_member check: {e}")
-        return True  # Sheet error ဆိုရင် safe side — kick မလုပ်
+        return False  # Strict guard: backend cannot verify membership, so deny join.
 
 
 # ── Channel Join Guard ────────────────────────────────
@@ -5754,9 +5798,9 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(ChatMemberHandler(handle_channel_member_join, ChatMemberHandler.CHAT_MEMBER))
-    app.job_queue.run_repeating(check_expired_members,         interval=43200, first=60)
+    app.job_queue.run_repeating(check_expired_members,         interval=600, first=30)
     app.job_queue.run_repeating(check_expired_bans,            interval=43200, first=120)
-    app.job_queue.run_repeating(check_unknown_channel_members, interval=43200, first=180)
+    app.job_queue.run_repeating(check_unknown_channel_members, interval=3600, first=90)
     await app.initialize()
     await app.start()
 
