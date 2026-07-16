@@ -60,6 +60,15 @@ PLAN_NAMES = {
     "WEB": "💎 Web Premium",
 }
 
+def normalize_package_code(value: object, default: str = "CH") -> str:
+    """Convert stored/display package names to the canonical CH or WEB code."""
+    package = str(value or default).upper().strip().replace("_", " ").replace("-", " ")
+    if "WEB" in package or "PREMIUM" in package:
+        return "WEB"
+    if package in ("CH", "CH PROMO", "CHANNEL") or "STANDARD" in package:
+        return "CH"
+    return package.replace(" ", "-") or default
+
 CHASSIS_PREFIX_MAP = {
     "VZNY12":"ADVAN",
     "GRS200":"CROWN","GRS201":"CROWN","GRS202":"CROWN","GRS204":"CROWN","GRS210":"CROWN",
@@ -461,12 +470,7 @@ async def get_member_package(user_id: int) -> str | None:
             if status != "ACTIVE":
                 return None
 
-            package = str(member.get("package", "CH") or "CH").upper().strip()
-            if package in ("WEB", "WEB-PROMO"):
-                return "WEB"
-            if package in ("CH", "CH-PROMO"):
-                return "CH"
-            return package
+            return normalize_package_code(member.get("package", "CH"))
 
         return None
     except Exception as e:
@@ -783,6 +787,10 @@ async def set_payment_qr(method: str, file_id: str, admin_name: str) -> bool:
 async def save_member_to_sheet(user_id: str, username: str, days: int,
                                 password: str = "", package: str = "CH") -> bool:
     if not SHEET_WEBHOOK:
+        return False
+    package = normalize_package_code(package)
+    if package not in ("CH", "WEB"):
+        logger.error(f"saveMember rejected invalid package: {package}")
         return False
     try:
         async with httpx.AsyncClient() as client:
