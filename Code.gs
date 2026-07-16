@@ -938,6 +938,9 @@ function saveMember(userId, username, expireDays, password, pkg) {
   var startStr  = Utilities.formatDate(now,    "Asia/Bangkok", "dd/MM/yyyy");
   var expireStr = Utilities.formatDate(expire, "Asia/Bangkok", "dd/MM/yyyy");
   var normalizedPackage = _normalizePackage(pkg);
+  if (normalizedPackage === "WEB" && !String(password || "").trim()) {
+    return {status:"error", message:"web_password_required"};
+  }
 
   var rows = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
@@ -946,17 +949,21 @@ function saveMember(userId, username, expireDays, password, pkg) {
       sheet.getRange(i+1, C_START+1).setValue(startStr);
       sheet.getRange(i+1, C_EXPIRE+1).setValue(expireStr);
       sheet.getRange(i+1, C_STATUS+1).setValue("ACTIVE");
-      if (password) sheet.getRange(i+1, C_PASSWORD+1).setValue(password);
+      // A WEB approval always replaces the old password. Downgrading to a
+      // non-WEB package removes any former web credential completely.
+      sheet.getRange(i+1, C_PASSWORD+1).setValue(
+        normalizedPackage === "WEB" ? String(password).trim() : ""
+      );
       sheet.getRange(i+1, C_PACKAGE+1).setValue(normalizedPackage);
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
-      return {status:"ok", result:"updated"};
+      return {status:"ok", result:"updated", passwordRotated:normalizedPackage === "WEB"};
     }
   }
 
   // New member
   sheet.appendRow([
     userId, username, startStr, expireStr, "ACTIVE",
-    0, password, normalizedPackage, ""
+    0, normalizedPackage === "WEB" ? String(password).trim() : "", normalizedPackage, ""
   ]);
   writeAuditLog('Admin', 'APPROVE', username, 'pkg:' + normalizedPackage);
   return {status:"ok", result:"added"};
@@ -980,6 +987,11 @@ function getMembers() {
       : (expireDate && expireDate >= now ? "ACTIVE" : "EXPIRED");
     // Update status in sheet
     sheet.getRange(i+1, C_STATUS+1).setValue(status);
+    // Expired/kicked/banned and non-WEB accounts must never retain a web
+    // session token.
+    if (status !== "ACTIVE" || _normalizePackage(rows[i][C_PACKAGE]) !== "WEB") {
+      sheet.getRange(i+1, C_TOKEN+1).setValue("");
+    }
     members.push({
       userId:     String(rows[i][C_USERID]),
       username:   String(rows[i][C_USERNAME]),
@@ -1006,6 +1018,12 @@ function verifyLogin(password) {
     var storedPw = String(rows[i][C_PASSWORD] || "");
     if (!storedPw) continue;
     if (storedPw.trim() !== password.trim()) continue;
+
+    var memberPackage = _normalizePackage(rows[i][C_PACKAGE]);
+    if (memberPackage !== "WEB") {
+      sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      return {status:"error", message:"web_access_required"};
+    }
 
     var memberStatus = String(rows[i][C_STATUS] || "").trim().toUpperCase();
     if (memberStatus === "KICKED" || memberStatus === "BANNED" || memberStatus === "EXPIRED") {
@@ -1046,6 +1064,11 @@ function verifyToken(token) {
 
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][C_TOKEN]) !== token) continue;
+    var memberPackage = _normalizePackage(rows[i][C_PACKAGE]);
+    if (memberPackage !== "WEB") {
+      sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      return {status:"error", message:"web_access_required"};
+    }
     var memberStatus = String(rows[i][C_STATUS] || "").trim().toUpperCase();
     if (memberStatus === "KICKED" || memberStatus === "BANNED" || memberStatus === "EXPIRED") {
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
@@ -1081,6 +1104,10 @@ function getPassword(userId) {
 
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][C_USERID]) !== String(userId)) continue;
+    if (_normalizePackage(rows[i][C_PACKAGE]) !== "WEB") {
+      sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      return {status:"error", message:"web_access_required"};
+    }
     var memberStatus = String(rows[i][C_STATUS] || "").trim().toUpperCase();
     if (memberStatus === "KICKED" || memberStatus === "BANNED" || memberStatus === "EXPIRED") {
       return {status:"error", message:memberStatus.toLowerCase()};
@@ -1107,6 +1134,11 @@ function resetPassword(username, newPassword) {
     var rowUserId = String(rows[i][C_USERID]   || "").trim();
     var rowUser   = String(rows[i][C_USERNAME] || "").replace("@","").toLowerCase().trim();
     if (rowUser !== uname && rowUserId !== uname) continue;
+    if (_normalizePackage(rows[i][C_PACKAGE]) !== "WEB") {
+      sheet.getRange(i+1, C_PASSWORD+1).setValue("");
+      sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      return {status:"error", message:"web_access_required"};
+    }
     sheet.getRange(i+1, C_PASSWORD+1).setValue(newPassword);
     sheet.getRange(i+1, C_TOKEN+1).setValue("");
     writeAuditLog('Admin', 'PASSWORD_RESET', uname, 'SUCCESS');
