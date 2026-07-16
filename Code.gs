@@ -922,10 +922,11 @@ function _parseMemberDate(value) {
 }
 
 function _normalizePackage(value) {
-  var pkg = String(value || "CH").trim().toUpperCase();
-  if (pkg === "WEB-PROMO") return "WEB";
-  if (pkg === "CH-PROMO") return "CH";
-  return pkg || "CH";
+  var pkg = String(value || "CH").trim().toUpperCase()
+    .replace(/[_-]+/g, " ");
+  if (pkg.indexOf("WEB") !== -1 || pkg.indexOf("PREMIUM") !== -1) return "WEB";
+  if (pkg === "CH" || pkg === "CH PROMO" || pkg.indexOf("STANDARD") !== -1 || pkg === "CHANNEL") return "CH";
+  return pkg.replace(/\s+/g, "-") || "CH";
 }
 
 // ── saveMember ─────────────────────────────────────────────
