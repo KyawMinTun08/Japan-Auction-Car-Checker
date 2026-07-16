@@ -268,6 +268,7 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
     <div class="nav-item" id="nav-price" onclick="switchTab('price')"><span class="icon">📈</span>Pricing</div>
     <div class="nav-item" id="nav-chassis" onclick="switchTab('chassis')"><span class="icon">🔍</span>Chassis Lookup</div>
     <div class="nav-item" id="nav-trends" onclick="switchTab('trends')"><span class="icon">📊</span>Trends</div>
+    <div class="nav-item" id="nav-member" onclick="switchTab('member')"><span class="icon">👤</span>Member</div>
   </div>
   <div class="side-section">
     <div class="side-label">Tools</div>
@@ -299,6 +300,7 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
     <div class="tab" onclick="switchTab('price')">📈 Pricing</div>
     <div class="tab" onclick="switchTab('chassis')">🔍 Chassis</div>
     <div class="tab" onclick="switchTab('trends')">📊 Trends</div>
+    <div class="tab" onclick="switchTab('member')">👤 Member</div>
   </nav>
 
   <div class="content">
@@ -473,6 +475,31 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
       <div class="card"><div class="card-header"><div class="card-title">Color Distribution</div></div><div class="card-body"><div class="chart-container"><canvas id="colorChart"></canvas></div></div></div>
     </div>
 
+    <!-- MEMBER -->
+    <div class="tab-content" id="tab-member">
+      <div class="kpi-grid">
+        <div class="kpi-card" style="--ac:var(--brand)"><div class="kpi-icon">👤</div><div class="kpi-label">Member</div><div class="kpi-value" id="memberName" style="font-size:18px">—</div><div class="kpi-sub" id="memberId">—</div></div>
+        <div class="kpi-card" style="--ac:var(--info)"><div class="kpi-icon">💎</div><div class="kpi-label">Package</div><div class="kpi-value" id="memberPackage" style="font-size:18px">—</div><div class="kpi-sub">Current membership plan</div></div>
+        <div class="kpi-card" style="--ac:var(--warn)"><div class="kpi-icon">⏰</div><div class="kpi-label">Expiry Date</div><div class="kpi-value" id="memberExpiry" style="font-size:18px">—</div><div class="kpi-sub" id="memberDays">—</div></div>
+        <div class="kpi-card" style="--ac:var(--ok)"><div class="kpi-icon">✓</div><div class="kpi-label">Status</div><div class="kpi-value" id="memberStatus" style="font-size:18px">Active</div><div class="kpi-sub">Web access enabled</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Membership Details</div><span class="badge badge-ok">Secure Session</span></div>
+        <div class="detail-grid">
+          <div class="di"><div class="dk">Username</div><div class="dv" id="memberDetailUsername">—</div></div>
+          <div class="di"><div class="dk">User ID</div><div class="dv mono" id="memberDetailId">—</div></div>
+          <div class="di"><div class="dk">Package</div><div class="dv" id="memberDetailPackage">—</div></div>
+          <div class="di"><div class="dk">Expiry</div><div class="dv mono" id="memberDetailExpiry">—</div></div>
+          <div class="di"><div class="dk">Session</div><div class="dv">24 hours</div></div>
+          <div class="di"><div class="dk">Access</div><div class="dv">Channel + Web</div></div>
+        </div>
+        <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap">
+          <a class="btn btn-primary" href="https://t.me/JapanAuctionCar_Bot" target="_blank" rel="noopener">🔄 Renew Membership</a>
+          <button class="btn btn-outline" onclick="doLogout()">🚪 Logout</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -530,7 +557,7 @@ async function doLogin(){
       err.style.display='block';setLoginAttempts(t);btn.querySelector('span').textContent='Sign In →';btn.disabled=false;return;
     }
     setLoginAttempts({count:0,lockUntil:0});
-    SESSION={ver:SESSION_VER,token:result.token,userId:result.userId,username:result.username,package:result.package,expireDate:result.expireDate,loginTime:Date.now()};
+    SESSION={ver:SESSION_VER,token:result.token,userId:result.userId,username:result.username,package:String(result.package||'CH').toUpperCase(),expireDate:result.expireDate,loginTime:Date.now()};
     sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION));
     logVisitor();showApp();
   }catch(e){
@@ -570,6 +597,41 @@ function updateUserBar(){
   const initial=esc((SESSION.username||'?').charAt(0).toUpperCase());
   const expire=esc(SESSION.expireDate||'-');
   document.getElementById('sideFooter').innerHTML='<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r-md);padding:12px;margin-bottom:10px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div class="member-av" style="width:34px;height:34px;font-size:14px;border-radius:var(--r-sm)">'+initial+'</div><div style="flex:1;min-width:0"><div style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Account</div><div style="font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@'+username+'</div></div></div><div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:rgba(255,255,255,0.5)">📦 Package</span><strong style="color:#fff;font-family:var(--font-mono);font-size:10px">'+esc(pkg)+'</strong></div><div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:rgba(255,255,255,0.5)">⏰ ကုန်ဆုံး</span><strong style="color:#FCD34D;font-family:var(--font-mono);font-size:10px">'+expire+'</strong></div></div></div><button onclick="doLogout()" style="width:100%;background:rgba(200,16,46,0.12);border:1px solid rgba(200,16,46,0.3);border-radius:var(--r-sm);padding:9px;font-size:12px;color:#FCA5A5;cursor:pointer;font-family:inherit;font-weight:600">🚪 Logout</button>';
+}
+
+function getMembershipDays(expireDate){
+  const value=String(expireDate||'').trim();
+  if(!value)return null;
+  const parts=value.split(/[\/\-]/).map(Number);
+  let date=null;
+  if(parts.length===3&&parts.every(Number.isFinite)){
+    date=parts[0]>31?new Date(parts[0],parts[1]-1,parts[2]):new Date(parts[2],parts[1]-1,parts[0]);
+  }else{
+    const parsed=new Date(value);if(!Number.isNaN(parsed.getTime()))date=parsed;
+  }
+  if(!date||Number.isNaN(date.getTime()))return null;
+  date.setHours(23,59,59,999);
+  return Math.max(0,Math.ceil((date-Date.now())/86400000));
+}
+
+function renderMemberTab(){
+  if(!SESSION)return;
+  const username=String(SESSION.username||'Member');
+  const userId=String(SESSION.userId||'—');
+  const packageCode=String(SESSION.package||'CH').toUpperCase();
+  const packageLabel=(packageCode==='WEB-PROMO')?'Web Promo':(packageCode==='WEB'?'Web Premium':packageCode);
+  const expiry=String(SESSION.expireDate||'—');
+  const days=getMembershipDays(expiry);
+  const daysText=days===null?'Expiry date unavailable':days===0?'Expires today':days+' days remaining';
+  document.getElementById('memberName').textContent='@'+username;
+  document.getElementById('memberId').textContent='ID: '+userId;
+  document.getElementById('memberPackage').textContent=packageLabel;
+  document.getElementById('memberExpiry').textContent=expiry;
+  document.getElementById('memberDays').textContent=daysText;
+  document.getElementById('memberDetailUsername').textContent='@'+username;
+  document.getElementById('memberDetailId').textContent=userId;
+  document.getElementById('memberDetailPackage').textContent=packageLabel;
+  document.getElementById('memberDetailExpiry').textContent=expiry;
 }
 function doLogout(){sessionStorage.removeItem(SESSION_KEY);location.reload();}
 
@@ -1215,9 +1277,10 @@ function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(t=>t.classList.remove('active'));
   const tc=document.getElementById('tab-'+name);if(tc)tc.classList.add('active');
-  const tabIdx=['dashboard','explorer','price','chassis','trends'].indexOf(name);
+  const tabIdx=['dashboard','explorer','price','chassis','trends','member'].indexOf(name);
   if(tabIdx>=0)document.querySelectorAll('.tab')[tabIdx]?.classList.add('active');
   const navEl=document.getElementById('nav-'+name);if(navEl)navEl.classList.add('active');
+  if(name==='member')renderMemberTab();
   if(window.innerWidth<900){const sidebar=document.getElementById('sidebar');const overlay=document.getElementById('sideOverlay');if(sidebar)sidebar.classList.remove('open');if(overlay)overlay.classList.remove('open');}
 }
 
