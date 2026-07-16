@@ -1248,7 +1248,7 @@ async def mypassword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def resetpass_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
     if not context.args:
@@ -1288,7 +1288,7 @@ async def resetpass_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def updateid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
     if len(context.args) < 3:
@@ -1379,7 +1379,7 @@ async def setqr_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
 
@@ -1470,7 +1470,7 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def backup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
     await update.message.reply_text("⏳ Sheet မှ data ဆွဲနေသည်...")
@@ -4031,7 +4031,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Membership Commands ────────────────────────────────
 async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if len(context.args) < 2:
         await update.message.reply_text("❌ Format: `/approve @username 1` သို့မဟုတ် `/approve 123456789 3`",
@@ -4077,7 +4077,7 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     try:
         async with httpx.AsyncClient() as client:
@@ -4115,7 +4115,7 @@ async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def kick_member_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if not context.args:
         await update.message.reply_text("❌ Format: `/kick 123456789`", parse_mode='Markdown'); return
@@ -4212,7 +4212,7 @@ async def update_broker(telegram_id: str, **kwargs) -> bool:
 
 async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if not context.args:
         await update.message.reply_text(
@@ -4261,7 +4261,7 @@ async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if not context.args:
         await update.message.reply_text(
@@ -4304,7 +4304,7 @@ async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def brokers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
 
     brokers = await get_brokers()
