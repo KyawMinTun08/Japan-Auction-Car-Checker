@@ -60,6 +60,15 @@ PLAN_NAMES = {
     "WEB": "💎 Web Premium",
 }
 
+def normalize_package_code(value: object, default: str = "CH") -> str:
+    """Convert stored/display package names to the canonical CH or WEB code."""
+    package = str(value or default).upper().strip().replace("_", " ").replace("-", " ")
+    if "WEB" in package or "PREMIUM" in package:
+        return "WEB"
+    if package in ("CH", "CH PROMO", "CHANNEL") or "STANDARD" in package:
+        return "CH"
+    return package.replace(" ", "-") or default
+
 CHASSIS_PREFIX_MAP = {
     "VZNY12":"ADVAN",
     "GRS200":"CROWN","GRS201":"CROWN","GRS202":"CROWN","GRS204":"CROWN","GRS210":"CROWN",
@@ -461,12 +470,7 @@ async def get_member_package(user_id: int) -> str | None:
             if status != "ACTIVE":
                 return None
 
-            package = str(member.get("package", "CH") or "CH").upper().strip()
-            if package in ("WEB", "WEB-PROMO"):
-                return "WEB"
-            if package in ("CH", "CH-PROMO"):
-                return "CH"
-            return package
+            return normalize_package_code(member.get("package", "CH"))
 
         return None
     except Exception as e:
@@ -641,10 +645,10 @@ async def notify_admins(context, text: str, reply_markup=None):
             logger.error(f"Admin notify {admin_id}: {e}")
 
 async def kick_with_retry(context, user_id: int, max_retries: int = 3) -> bool:
+    """Remove the user and keep them banned until a paid renewal is approved."""
     for attempt in range(max_retries):
         try:
             await context.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-            await context.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
             return True
         except Exception as e:
             logger.error(f"Kick attempt {attempt+1} for {user_id}: {e}")
@@ -781,9 +785,13 @@ async def set_payment_qr(method: str, file_id: str, admin_name: str) -> bool:
 
 # ── Save Member with Password ─────────────────────────
 async def save_member_to_sheet(user_id: str, username: str, days: int,
-                                password: str = "", package: str = "CH") -> bool:
+                                password: str = "", package: str = "CH") -> dict:
     if not SHEET_WEBHOOK:
-        return False
+        return {"status": "error", "message": "missing_webhook"}
+    package = normalize_package_code(package)
+    if package not in ("CH", "WEB"):
+        logger.error(f"saveMember rejected invalid package: {package}")
+        return {"status": "error", "message": "invalid_package"}
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(SHEET_WEBHOOK, json={
@@ -794,10 +802,13 @@ async def save_member_to_sheet(user_id: str, username: str, days: int,
                 "password": password,
                 "package":  package,
             }, timeout=10, follow_redirects=True)
-        return resp.json().get("status") == "ok"
+        result = resp.json()
+        if result.get("status") != "ok":
+            logger.error(f"saveMember rejected: {result}")
+        return result
     except Exception as e:
         logger.error(f"saveMember: {e}")
-        return False
+        return {"status": "error", "message": "request_failed"}
 
 async def create_invite_link(context, days: int) -> str:
     try:
@@ -813,9 +824,27 @@ async def create_invite_link(context, days: int) -> str:
         return ""
 
 async def send_approval_dm(context, member_id: int, months: int,
-                           password: str, invite_url: str, package: str = "CH"):
+                           password: str, invite_url: str, package: str = "CH",
+                           expire_date: str = "") -> bool:
+    # Expired/kicked members remain banned from the channel. A successful
+    # renewal is the only path that restores their ability to use an invite.
+    try:
+        await context.bot.unban_chat_member(
+            chat_id=CHANNEL_ID,
+            user_id=member_id,
+            only_if_banned=True,
+        )
+    except Exception as e:
+        logger.error(f"Renewal unban failed for {member_id}: {e}")
+        await notify_admins(
+            context,
+            f"⚠️ Renewal approve ဖြစ်ပေမယ့် Channel unban မအောင်မြင်ပါ\n"
+            f"User ID: `{member_id}` — Bot admin permission စစ်ပါ",
+        )
     is_web      = package == "WEB"
-    expire_date = (datetime.now() + timedelta(days=months * 30)).strftime("%d/%m/%Y")
+    expire_date = expire_date or (
+        datetime.now() + timedelta(days=months * 30)
+    ).strftime("%d/%m/%Y")
     cust_kb = []
     if invite_url:
         cust_kb.append([InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)])
@@ -856,8 +885,22 @@ async def send_approval_dm(context, member_id: int, months: int,
                 disable_notification=True)
         except Exception as e:
             logger.error(f"Pin message: {e}")
+        return True
     except Exception as e:
         logger.error(f"Send approval DM: {e}")
+        # Markdown parsing must never prevent a paid member from receiving
+        # their credentials. Retry once as plain text before reporting failure.
+        try:
+            plain_text = text.replace("*", "").replace("`", "")
+            await context.bot.send_message(
+                chat_id=member_id,
+                text=plain_text,
+                reply_markup=InlineKeyboardMarkup(cust_kb) if cust_kb else None,
+            )
+            return True
+        except Exception as fallback_error:
+            logger.error(f"Send approval DM fallback: {fallback_error}")
+            return False
 
 # ── Commands ──────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1248,7 +1291,7 @@ async def mypassword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def resetpass_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
     if not context.args:
@@ -1288,7 +1331,7 @@ async def resetpass_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def updateid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
     if len(context.args) < 3:
@@ -1379,7 +1422,7 @@ async def setqr_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
 
@@ -1470,7 +1513,7 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def backup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
     await update.message.reply_text("⏳ Sheet မှ data ဆွဲနေသည်...")
@@ -1968,6 +2011,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown')
             return
 
+    # Payment/deposit and active proxy-chat photos are handled above. All
+    # remaining photo/OCR features require a current membership (or admin).
+    if user_id not in ADMIN_IDS and not await is_active_member(user_id):
+        await update.message.reply_text(
+            "🔒 *Membership သက်တမ်းကုန်ဆုံးနေပါသည်*\n\n"
+            "ပြန်လည်အသုံးပြုရန် /renew နှိပ်ပြီး သက်တမ်းတိုးပါ။",
+            parse_mode='Markdown')
+        return
+
     # ── Auction List Mode ──
     if "list" in caption:
         cap_lower = caption.lower()
@@ -2415,6 +2467,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 broker_tg_id=str_uid,
                 broker_sessions=broker_sessions,
                 text=text, is_photo=False)
+        return
+
+    # Public renewal uses buttons/payment photos; broker/proxy messages were
+    # handled above. Every remaining text workflow requires active membership.
+    if user_id not in ADMIN_IDS and not await is_active_member(user_id):
+        await update.message.reply_text(
+            "🔒 *Membership သက်တမ်းကုန်ဆုံးနေပါသည်*\n\n"
+            "ပြန်လည်အသုံးပြုရန် /renew နှိပ်ပြီး သက်တမ်းတိုးပါ။",
+            parse_mode='Markdown')
         return
 
     if user_id in pending_request:
@@ -3193,16 +3254,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         months = int(pay_data.get("months", 1))
         name = pay_data.get("name", "Unknown")
         username = pay_data.get("username", str(member_id))
-        password = generate_password() if package == "WEB" else ""
+        proposed_password = generate_password() if package == "WEB" else ""
 
         saved = await save_member_to_sheet(
             str(member_id),
             username.replace("@", ""),
             months * 30,
-            password,
+            proposed_password,
             package,
         )
-        if not saved:
+        if saved.get("status") != "ok":
             await query.message.reply_text(
                 "❌ Membership ကို Sheet ထဲ မသိမ်းနိုင်ပါ။ Customer ကို approve မလုပ်ရသေးပါ။"
             )
@@ -3215,6 +3276,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception as e:
                     logger.error(f"sheet failure admin notify: {e}")
             return
+
+        # Existing WEB members keep their old password. The backend returns
+        # the effective credential so the bot never sends a discarded one.
+        password = str(saved.get("password") or "")
+        expire_date = str(saved.get("expireDate") or "")
 
         slip_info = pay_data.get("slip_info", {})
         chosen_method = pay_data.get("method", "")
@@ -3252,27 +3318,28 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"logPayment: {e}")
 
         invite_url = await create_invite_link(context, months * 30)
-        await send_approval_dm(
+        dm_sent = await send_approval_dm(
             context,
             member_id,
             months,
             password,
             invite_url,
             package=package,
+            expire_date=expire_date,
         )
 
-        expire_date = (
+        expire_date = expire_date or (
             datetime.now() + timedelta(days=months * 30)
         ).strftime("%d/%m/%Y")
-        pw_line = f"🔑 Password: `{password}`\n" if package == "WEB" else ""
-
         await query.message.reply_text(
             f"✅ *Payment Confirmed + Approved!*\n\n"
             f"👤 {name} ({username})\n"
             f"📦 {PLAN_NAMES.get(package, package)} — {months} လ\n"
             f"⏰ ကုန်ဆုံး: `{expire_date}`\n"
-            f"{pw_line}\n"
-            f"Member ကို DM ပို့ပြီးပြီ ✅",
+            f"\n"
+            + ("Member ကို Password/Link DM ပို့ပြီးပြီ ✅"
+               if dm_sent else
+               "⚠️ Member DM မပို့နိုင်ပါ။ Member ကို bot မှာ /start နှိပ်ပြီး /mypassword သုံးခိုင်းပါ။"),
             parse_mode="Markdown",
         )
 
@@ -4031,7 +4098,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Membership Commands ────────────────────────────────
 async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if len(context.args) < 2:
         await update.message.reply_text("❌ Format: `/approve @username 1` သို့မဟုတ် `/approve 123456789 3`",
@@ -4056,28 +4123,39 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"get_chat: {e}")
 
-    password   = generate_password()
-    await save_member_to_sheet(
+    proposed_password = generate_password() if package == "WEB" else ""
+    saved = await save_member_to_sheet(
         str(member_id) if member_id else username_or_id,
-        member_username, days, password, package)
+        member_username, days, proposed_password, package)
+    if saved.get("status") != "ok":
+        await update.message.reply_text(
+            "❌ Membership ကို Sheet ထဲ မသိမ်းနိုင်ပါ။ Active မလုပ်ရသေးပါ။"
+        )
+        return
+    password = str(saved.get("password") or "")
+    expire_date = str(saved.get("expireDate") or "")
     invite_url = await create_invite_link(context, days)
     if member_id:
-        await send_approval_dm(context, member_id, months, password, invite_url , package=package)
+        await send_approval_dm(
+            context, member_id, months, password, invite_url,
+            package=package, expire_date=expire_date)
 
-    expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
+    expire_date = expire_date or (
+        datetime.now() + timedelta(days=days)
+    ).strftime("%d/%m/%Y")
     txt = (f"✅ <b>Membership Approved!</b>\n\n"
            f"👤 @{member_username}\n"
            f"🆔 <code>{member_id or 'N/A'}</code>\n"
            f"📦 Package: {PLAN_NAMES.get(package,'')}\n"
            f"📅 <b>{months} လ</b>\n"
            f"⏰ ကုန်ဆုံး: <code>{expire_date}</code>\n"
-           f"🔑 Password: <code>{password}</code>\n")
+           + (f"🔑 Password: <code>{password}</code>\n" if package == "WEB" else ""))
     if invite_url: txt += f"\n🔗 {invite_url}"
     await update.message.reply_text(txt, parse_mode='HTML')
 
 async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     try:
         async with httpx.AsyncClient() as client:
@@ -4115,7 +4193,7 @@ async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def kick_member_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if not context.args:
         await update.message.reply_text("❌ Format: `/kick 123456789`", parse_mode='Markdown'); return
@@ -4212,7 +4290,7 @@ async def update_broker(telegram_id: str, **kwargs) -> bool:
 
 async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if not context.args:
         await update.message.reply_text(
@@ -4261,7 +4339,7 @@ async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     if not context.args:
         await update.message.reply_text(
@@ -4304,7 +4382,7 @@ async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def brokers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if ADMIN_IDS and user_id not in ADMIN_IDS:
+    if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
 
     brokers = await get_brokers()
@@ -5522,6 +5600,17 @@ async def check_expired_members(context):
                             parse_mode='Markdown')
                     except Exception as e:
                         logger.error(f"promo10d expire notify: {e}")
+                else:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=int(uid),
+                            text=("⏰ *Membership သက်တမ်းကုန်ဆုံးပြီ*\n\n"
+                                  "Bot member features၊ Website နဲ့ Channel ကို "
+                                  "အသုံးပြု၍မရတော့ပါ။\n\n"
+                                  "ပြန်လည်အသုံးပြုရန် /renew နှိပ်ပြီး သက်တမ်းတိုးပါ။"),
+                            parse_mode='Markdown')
+                    except Exception as e:
+                        logger.error(f"membership expire notify: {e}")
 
                 success = await kick_with_retry(context, int(uid))
                 if success:
@@ -5595,7 +5684,7 @@ async def is_valid_member(user_id: int) -> bool:
         return False
     except Exception as e:
         logger.error(f"is_valid_member check: {e}")
-        return True  # Sheet error ဆိုရင် safe side — kick မလုပ်
+        return False  # Strict guard: backend cannot verify membership, so deny join.
 
 
 # ── Channel Join Guard ────────────────────────────────
@@ -5732,9 +5821,9 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(ChatMemberHandler(handle_channel_member_join, ChatMemberHandler.CHAT_MEMBER))
-    app.job_queue.run_repeating(check_expired_members,         interval=43200, first=60)
+    app.job_queue.run_repeating(check_expired_members,         interval=600, first=30)
     app.job_queue.run_repeating(check_expired_bans,            interval=43200, first=120)
-    app.job_queue.run_repeating(check_unknown_channel_members, interval=43200, first=180)
+    app.job_queue.run_repeating(check_unknown_channel_members, interval=3600, first=90)
     await app.initialize()
     await app.start()
 
