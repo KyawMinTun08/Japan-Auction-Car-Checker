@@ -293,6 +293,7 @@ promo_used     = {}
 rate_limit     = {}
 pending_setqr    = {}  # admin_id -> "kpay" / "wave" / "cb"
 payment_qr_cache = {}  # method -> {"file_id": str, "ts": datetime}
+pending_auction_lists = {}  # admin_id -> {loc, cars, unknown, pages, started_at}
 
 # ── NEW: Broker pending target (dual-session routing) ──
 pending_broker_target = {}  # broker_tg_id -> {text, is_photo, file_bytes, caption, sessions}
@@ -1634,6 +1635,64 @@ async def gemini_ocr_auction_list(file_bytes: bytes) -> tuple:
         logger.error(f"Gemini list: {e}")
     return [], None
 
+async def auction_list_total_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Finish a multi-photo auction-list batch and add its unique cars to memory."""
+    global CARS
+    user_id = update.effective_user.id
+    session = pending_auction_lists.pop(user_id, None)
+    if not session:
+        await update.message.reply_text(
+            "⚠️ စုထားတဲ့ Auction List မရှိသေးပါ\n\n"
+            "ပထမပုံ Caption မှာ `maesot list`, `klang9 list` သို့မဟုတ် "
+            "`border44 list` ရေးပြီး ပုံတင်ပါ။",
+            parse_mode='Markdown')
+        return
+
+    existing = {str(c.get("chassis", "")).upper() for c in CARS}
+    seen = set()
+    added = []
+    duplicate_count = 0
+
+    for car in session.get("cars", []):
+        chassis = str(car.get("chassis", "")).upper().strip()
+        if not chassis:
+            continue
+        if chassis in seen:
+            duplicate_count += 1
+            continue
+        seen.add(chassis)
+        if chassis in existing:
+            duplicate_count += 1
+            continue
+        CARS.append(car)
+        existing.add(chassis)
+        added.append(chassis)
+
+    loc = session.get("loc", "MaeSot")
+    if loc == "Klang9":
+        loc_name = LOC_KLANG9
+    elif loc == "Border44":
+        loc_name = LOC_BORDER44
+    else:
+        loc_name = LOC_MAESOT
+
+    unknown = session.get("unknown", [])
+    text = (
+        f"✅ *{loc_name} Auction List Total ပြီး!*\n\n"
+        f"🖼 ပုံ: {session.get('pages', 0)} ပုံ\n"
+        f"📊 စုစုပေါင်းဖတ်ရ: {len(session.get('cars', []))} စီး\n"
+        f"🔑 Unique chassis: {len(seen)} စီး\n"
+        f"✨ အသစ်ထည့်ပြီး: {len(added)} စီး\n"
+        f"♻️ ထပ်နေ/ရှိပြီးသား: {duplicate_count} စီး\n"
+        f"⚠️ အချက်အလက်မပြည့်စုံ: {len(unknown)} စီး\n"
+        f"📋 Database: {await get_sheet_car_count()} စီး"
+    )
+    if added:
+        text += "\n\n🆕 " + "".join(f"`{ch}`\n" for ch in added[:10])
+        if len(added) > 10:
+            text += f"... {len(added) - 10} စီး ထပ်ရှိ"
+    await update.message.reply_text(text, parse_mode='Markdown')
+
 async def gemini_ocr_chassis(file_bytes: bytes) -> dict:
     if GEMINI_API_KEY:
         try:
@@ -2020,12 +2079,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown')
         return
 
-    # ── Auction List Mode ──
-    if "list" in caption:
+    # ── Auction List Mode (multi-photo batch) ──
+    active_list = pending_auction_lists.get(user_id)
+    if active_list and (datetime.now() - active_list.get("started_at", datetime.now())).total_seconds() > 1800:
+        pending_auction_lists.pop(user_id, None)
+        active_list = None
+
+    if "list" in caption or active_list:
         cap_lower = caption.lower()
         caption_klang9 = any(k in cap_lower for k in ["klang9","klang 9","klang","9.2"])
         caption_maesot = any(k in cap_lower for k in ["maesot","mae sot","measot"])
-        await update.message.reply_text(f"📋 Auction List ဖတ်နေတယ်... ⏳")
+        page_number = active_list.get("pages", 0) + 1 if active_list else 1
+        await update.message.reply_text(f"📋 Auction List ပုံ ({page_number}) ဖတ်နေတယ်... ⏳")
         try:
             file       = await photo.get_file()
             file_bytes = bytes(await file.download_as_bytearray())
@@ -2035,14 +2100,28 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         cap_border44 = any(k in cap_lower for k in ["border44","border 44","44gate","44 gate","best border","border-44"])
 
-        if detected_loc in ("Klang9", "MaeSot", "Border44"):
-            import_loc = detected_loc
-        elif caption_klang9:
-            import_loc = "Klang9"
+        caption_loc = None
+        if caption_klang9:
+            caption_loc = "Klang9"
         elif cap_border44:
-            import_loc = "Border44"
+            caption_loc = "Border44"
         elif caption_maesot:
-            import_loc = "MaeSot"
+            caption_loc = "MaeSot"
+
+        detected_or_caption_loc = caption_loc or (
+            detected_loc if detected_loc in ("Klang9", "MaeSot", "Border44") else None
+        )
+        if active_list:
+            import_loc = active_list.get("loc", "MaeSot")
+            if detected_or_caption_loc and detected_or_caption_loc != import_loc:
+                await update.message.reply_text(
+                    f"⚠️ ဒီပုံရဲ့ Location က `{detected_or_caption_loc}` ဖြစ်နေပြီး "
+                    f"လက်ရှိ batch က `{import_loc}` ဖြစ်ပါတယ်။\n"
+                    "လက်ရှိ batch ကို `total` လုပ်ပြီးမှ နောက် location ကို စတင်ပါ။",
+                    parse_mode='Markdown')
+                return
+        elif detected_or_caption_loc:
+            import_loc = detected_or_caption_loc
         else:
             await update.message.reply_text(
                 "⚠️ *Location မသိပါ!*\n\n"
@@ -2063,9 +2142,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ List ဖတ်မရပါ\n💡 Gemini API limit ကုန်နိုင်တယ်")
             return
 
-        existing = {c["chassis"].upper() for c in CARS}
-        added    = []
-        unknown  = []
+        page_cars = []
+        page_unknown = []
 
         for car in new_cars:
             ch    = str(car.get("chassis","")).upper().strip()
@@ -2083,25 +2161,36 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 color = "-"
             if not year:
                 missing_fields.append("Year")
-            if ch not in existing:
-                CARS.append({"chassis":ch,"model":model,"color":color,"year":year,"loc":import_loc})
-                existing.add(ch)
-                added.append(ch)
+            page_cars.append({"chassis":ch,"model":model,"color":color,"year":year,"loc":import_loc})
             if missing_fields:
-                unknown.append({"chassis":ch,"model":model,"missing":missing_fields})
+                page_unknown.append({"chassis":ch,"model":model,"missing":missing_fields})
 
-        txt = f"✅ *{loc_name} List Update ပြီး!*\n\n📊 ဖတ်ရ: {len(new_cars)} စီး\n✨ အသစ်: {len(added)} စီး\n"
-        if added:
-            txt += "\n🆕 " + "".join(f"`{ch}`\n" for ch in added[:10])
-            if len(added) > 10:
-                txt += f"... {len(added)-10} စီး ထပ်ရှိ\n"
-        if unknown:
-            txt += f"\n⚠️ *မသေချာ ({len(unknown)} စီး):*\n"
-            for u in unknown[:5]:
+        if not active_list:
+            active_list = {
+                "loc": import_loc, "cars": [], "unknown": [],
+                "pages": 0, "started_at": datetime.now(),
+            }
+            pending_auction_lists[user_id] = active_list
+        active_list["cars"].extend(page_cars)
+        active_list["unknown"].extend(page_unknown)
+        active_list["pages"] += 1
+
+        txt = (
+            f"✅ *{loc_name} List ပုံ ({active_list['pages']}) စုပြီး!*\n\n"
+            f"📊 ဒီပုံမှဖတ်ရ: {len(page_cars)} စီး\n"
+            f"🧮 လက်ရှိစုစုပေါင်း: {len(active_list['cars'])} စီး\n"
+        )
+        if page_unknown:
+            txt += f"\n⚠️ *ဒီပုံမှာ မသေချာ ({len(page_unknown)} စီး):*\n"
+            for u in page_unknown[:5]:
                 txt += f"• `{u['chassis']}` ({u['model']}) — မရ: *{', '.join(u['missing'])}*\n"
-            if len(unknown) > 5:
-                txt += f"... {len(unknown)-5} စီး ထပ်ရှိ\n"
-        txt += f"\n📋 Database: {await get_sheet_car_count()} စီး"
+            if len(page_unknown) > 5:
+                txt += f"... {len(page_unknown)-5} စီး ထပ်ရှိ\n"
+        txt += (
+            "\n➡️ နောက် List ပုံကို *caption မရေးဘဲ* ဆက်တင်ပါ။\n"
+            "✅ ပုံအားလုံးပြီးရင် `total` သို့မဟုတ် `/total` ရိုက်ပါ။\n"
+            "❌ မသိမ်းတော့ရင် `cancel` ရိုက်ပါ။"
+        )
         await update.message.reply_text(txt, parse_mode='Markdown')
         return
 
@@ -2364,6 +2453,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text    = update.message.text.strip()
 
     str_uid = str(user_id)
+
+    # Finish/cancel an active multi-photo auction-list batch before other text routing.
+    if user_id in pending_auction_lists:
+        if text.lower() in ("total", "done", "finish", "ပြီးပြီ", "စုစုပေါင်း"):
+            await auction_list_total_cmd(update, context)
+            return
+        if text.lower() in ("cancel", "cancel list", "ဖျက်", "မသိမ်းတော့ဘူး"):
+            session = pending_auction_lists.pop(user_id, None) or {}
+            await update.message.reply_text(
+                f"❌ Auction List batch ပယ်ဖျက်ပြီး\n"
+                f"🖼 {session.get('pages', 0)} ပုံ / "
+                f"🚗 {len(session.get('cars', []))} စီး မသိမ်းထားပါ")
+            return
 
     if "JAN Broker T&C သဘောတူပါသည်" in text:
         brokers = await get_brokers()
@@ -5817,6 +5919,7 @@ async def main():
     app.add_handler(CommandHandler("auctionlost",    auctionlost_cmd))
     app.add_handler(CommandHandler("refunddone",     refunddone_cmd))
     app.add_handler(CommandHandler("chatlog",        chatlog_cmd))
+    app.add_handler(CommandHandler("total",          auction_list_total_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
@@ -5865,6 +5968,7 @@ async def main():
         BotCommand("auctionlost",   "❌ ကားမရဘူး (Admin)"),
         BotCommand("refunddone",    "💸 Refund ပြီး (Admin)"),
         BotCommand("chatlog",       "📋 Chat log ကြည့်ရန် (Admin)"),
+        BotCommand("total",         "🧮 Auction List ပုံများ စုစုပေါင်းသိမ်းရန်"),
     ]
     try:
         await app.bot.set_my_commands(member_commands, scope=BotCommandScopeAllPrivateChats())
