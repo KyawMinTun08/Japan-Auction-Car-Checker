@@ -934,40 +934,74 @@ function saveMember(userId, username, expireDays, password, pkg) {
   var ss     = SpreadsheetApp.openById(SS_ID);
   var sheet  = ss.getSheetByName(MEMBERS);
   var now    = new Date();
-  var expire = new Date(now.getTime() + parseInt(expireDays) * 24 * 60 * 60 * 1000);
-  var startStr  = Utilities.formatDate(now,    "Asia/Bangkok", "dd/MM/yyyy");
-  var expireStr = Utilities.formatDate(expire, "Asia/Bangkok", "dd/MM/yyyy");
-  var normalizedPackage = _normalizePackage(pkg);
-  if (normalizedPackage === "WEB" && !String(password || "").trim()) {
-    return {status:"error", message:"web_password_required"};
+  var days   = parseInt(expireDays, 10);
+  if (!isFinite(days) || days <= 0) {
+    return {status:"error", message:"invalid_expire_days"};
   }
+  var startStr = Utilities.formatDate(now, "Asia/Bangkok", "dd/MM/yyyy");
+  var normalizedPackage = _normalizePackage(pkg);
+  var requestedPassword = String(password || "").trim();
 
   var rows = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][C_USERID]) === String(userId)) {
-      // Update existing row
-      sheet.getRange(i+1, C_START+1).setValue(startStr);
+      // Renewal: add purchased days after the current expiry when it is still
+      // active. Expired accounts restart from the admin approval time.
+      var currentExpire = _parseMemberDate(rows[i][C_EXPIRE]);
+      var renewalBase = currentExpire && currentExpire > now ? currentExpire : now;
+      var expire = new Date(renewalBase.getTime() + days * 24 * 60 * 60 * 1000);
+      var expireStr = Utilities.formatDate(expire, "Asia/Bangkok", "dd/MM/yyyy");
+      var currentPackage = _normalizePackage(rows[i][C_PACKAGE]);
+      var currentPassword = String(rows[i][C_PASSWORD] || "").trim();
+      var effectivePassword = "";
+
+      // Same-package WEB renewals keep the existing password. Generate a
+      // password only for a new WEB account or a CH -> WEB upgrade.
+      if (normalizedPackage === "WEB") {
+        effectivePassword = currentPackage === "WEB" && currentPassword
+          ? currentPassword
+          : requestedPassword;
+        if (!effectivePassword) {
+          return {status:"error", message:"web_password_required"};
+        }
+      }
+
       sheet.getRange(i+1, C_EXPIRE+1).setValue(expireStr);
       sheet.getRange(i+1, C_STATUS+1).setValue("ACTIVE");
-      // A WEB approval always replaces the old password. Downgrading to a
-      // non-WEB package removes any former web credential completely.
-      sheet.getRange(i+1, C_PASSWORD+1).setValue(
-        normalizedPackage === "WEB" ? String(password).trim() : ""
-      );
+      sheet.getRange(i+1, C_PASSWORD+1).setValue(effectivePassword);
       sheet.getRange(i+1, C_PACKAGE+1).setValue(normalizedPackage);
+      // Force a fresh login only after the admin approves the renewal.
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
-      return {status:"ok", result:"updated", passwordRotated:normalizedPackage === "WEB"};
+      writeAuditLog('Admin', 'RENEW', username, 'pkg:' + normalizedPackage);
+      return {
+        status:"ok",
+        result:"renewed",
+        password:effectivePassword,
+        passwordPreserved:normalizedPackage === "WEB" && currentPackage === "WEB" && !!currentPassword,
+        expireDate:expireStr
+      };
     }
   }
 
   // New member
+  if (normalizedPackage === "WEB" && !requestedPassword) {
+    return {status:"error", message:"web_password_required"};
+  }
+  var expire = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  var expireStr = Utilities.formatDate(expire, "Asia/Bangkok", "dd/MM/yyyy");
+  var newPassword = normalizedPackage === "WEB" ? requestedPassword : "";
   sheet.appendRow([
     userId, username, startStr, expireStr, "ACTIVE",
-    0, normalizedPackage === "WEB" ? String(password).trim() : "", normalizedPackage, ""
+    0, newPassword, normalizedPackage, ""
   ]);
   writeAuditLog('Admin', 'APPROVE', username, 'pkg:' + normalizedPackage);
-  return {status:"ok", result:"added"};
-  
+  return {
+    status:"ok",
+    result:"added",
+    password:newPassword,
+    passwordPreserved:false,
+    expireDate:expireStr
+  };
 }
 
 // ── getMembers ─────────────────────────────────────────────
