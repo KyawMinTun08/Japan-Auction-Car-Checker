@@ -785,13 +785,13 @@ async def set_payment_qr(method: str, file_id: str, admin_name: str) -> bool:
 
 # ── Save Member with Password ─────────────────────────
 async def save_member_to_sheet(user_id: str, username: str, days: int,
-                                password: str = "", package: str = "CH") -> bool:
+                                password: str = "", package: str = "CH") -> dict:
     if not SHEET_WEBHOOK:
-        return False
+        return {"status": "error", "message": "missing_webhook"}
     package = normalize_package_code(package)
     if package not in ("CH", "WEB"):
         logger.error(f"saveMember rejected invalid package: {package}")
-        return False
+        return {"status": "error", "message": "invalid_package"}
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(SHEET_WEBHOOK, json={
@@ -802,10 +802,13 @@ async def save_member_to_sheet(user_id: str, username: str, days: int,
                 "password": password,
                 "package":  package,
             }, timeout=10, follow_redirects=True)
-        return resp.json().get("status") == "ok"
+        result = resp.json()
+        if result.get("status") != "ok":
+            logger.error(f"saveMember rejected: {result}")
+        return result
     except Exception as e:
         logger.error(f"saveMember: {e}")
-        return False
+        return {"status": "error", "message": "request_failed"}
 
 async def create_invite_link(context, days: int) -> str:
     try:
@@ -821,7 +824,8 @@ async def create_invite_link(context, days: int) -> str:
         return ""
 
 async def send_approval_dm(context, member_id: int, months: int,
-                           password: str, invite_url: str, package: str = "CH") -> bool:
+                           password: str, invite_url: str, package: str = "CH",
+                           expire_date: str = "") -> bool:
     # Expired/kicked members remain banned from the channel. A successful
     # renewal is the only path that restores their ability to use an invite.
     try:
@@ -838,7 +842,9 @@ async def send_approval_dm(context, member_id: int, months: int,
             f"User ID: `{member_id}` — Bot admin permission စစ်ပါ",
         )
     is_web      = package == "WEB"
-    expire_date = (datetime.now() + timedelta(days=months * 30)).strftime("%d/%m/%Y")
+    expire_date = expire_date or (
+        datetime.now() + timedelta(days=months * 30)
+    ).strftime("%d/%m/%Y")
     cust_kb = []
     if invite_url:
         cust_kb.append([InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)])
@@ -3248,16 +3254,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         months = int(pay_data.get("months", 1))
         name = pay_data.get("name", "Unknown")
         username = pay_data.get("username", str(member_id))
-        password = generate_password() if package == "WEB" else ""
+        proposed_password = generate_password() if package == "WEB" else ""
 
         saved = await save_member_to_sheet(
             str(member_id),
             username.replace("@", ""),
             months * 30,
-            password,
+            proposed_password,
             package,
         )
-        if not saved:
+        if saved.get("status") != "ok":
             await query.message.reply_text(
                 "❌ Membership ကို Sheet ထဲ မသိမ်းနိုင်ပါ။ Customer ကို approve မလုပ်ရသေးပါ။"
             )
@@ -3270,6 +3276,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception as e:
                     logger.error(f"sheet failure admin notify: {e}")
             return
+
+        # Existing WEB members keep their old password. The backend returns
+        # the effective credential so the bot never sends a discarded one.
+        password = str(saved.get("password") or "")
+        expire_date = str(saved.get("expireDate") or "")
 
         slip_info = pay_data.get("slip_info", {})
         chosen_method = pay_data.get("method", "")
@@ -3314,9 +3325,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             password,
             invite_url,
             package=package,
+            expire_date=expire_date,
         )
 
-        expire_date = (
+        expire_date = expire_date or (
             datetime.now() + timedelta(days=months * 30)
         ).strftime("%d/%m/%Y")
         await query.message.reply_text(
@@ -4111,22 +4123,33 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"get_chat: {e}")
 
-    password   = generate_password()
-    await save_member_to_sheet(
+    proposed_password = generate_password() if package == "WEB" else ""
+    saved = await save_member_to_sheet(
         str(member_id) if member_id else username_or_id,
-        member_username, days, password, package)
+        member_username, days, proposed_password, package)
+    if saved.get("status") != "ok":
+        await update.message.reply_text(
+            "❌ Membership ကို Sheet ထဲ မသိမ်းနိုင်ပါ။ Active မလုပ်ရသေးပါ။"
+        )
+        return
+    password = str(saved.get("password") or "")
+    expire_date = str(saved.get("expireDate") or "")
     invite_url = await create_invite_link(context, days)
     if member_id:
-        await send_approval_dm(context, member_id, months, password, invite_url , package=package)
+        await send_approval_dm(
+            context, member_id, months, password, invite_url,
+            package=package, expire_date=expire_date)
 
-    expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
+    expire_date = expire_date or (
+        datetime.now() + timedelta(days=days)
+    ).strftime("%d/%m/%Y")
     txt = (f"✅ <b>Membership Approved!</b>\n\n"
            f"👤 @{member_username}\n"
            f"🆔 <code>{member_id or 'N/A'}</code>\n"
            f"📦 Package: {PLAN_NAMES.get(package,'')}\n"
            f"📅 <b>{months} လ</b>\n"
            f"⏰ ကုန်ဆုံး: <code>{expire_date}</code>\n"
-           f"🔑 Password: <code>{password}</code>\n")
+           + (f"🔑 Password: <code>{password}</code>\n" if package == "WEB" else ""))
     if invite_url: txt += f"\n🔗 {invite_url}"
     await update.message.reply_text(txt, parse_mode='HTML')
 
