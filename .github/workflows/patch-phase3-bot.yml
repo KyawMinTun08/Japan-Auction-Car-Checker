@@ -1,0 +1,63 @@
+name: Patch Phase 3 bot callbacks
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-phase3-bot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Patch bot.py
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('bot.py')
+          text = path.read_text(encoding='utf-8')
+
+          import_line = 'from phase3_payment_callbacks import handle_phase3_payment_callback\n'
+          if import_line not in text:
+              anchor = 'import httpx\n'
+              if anchor not in text:
+                  raise SystemExit('Could not find import httpx anchor')
+              text = text.replace(anchor, anchor + import_line, 1)
+
+          callback_block = '''\n    if await handle_phase3_payment_callback(\n        update,\n        context,\n        sheet_webhook=SHEET_WEBHOOK,\n        admin_ids=ADMIN_IDS,\n    ):\n        return\n'''
+
+          if callback_block.strip() not in text:
+              anchors = [
+                  '    data  = query.data\n',
+                  '    data = query.data\n',
+              ]
+              for anchor in anchors:
+                  if anchor in text:
+                      text = text.replace(anchor, anchor + callback_block, 1)
+                      break
+              else:
+                  raise SystemExit('Could not find query.data anchor in button_callback')
+
+          path.write_text(text, encoding='utf-8')
+
+      - name: Validate Python syntax
+        run: python -m py_compile bot.py phase3_payment_callbacks.py
+
+      - name: Commit patched bot.py
+        run: |
+          if git diff --quiet -- bot.py; then
+            echo 'bot.py already patched'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bot.py
+          git commit -m 'Wire Phase 3 payment callbacks into bot'
+          git push
