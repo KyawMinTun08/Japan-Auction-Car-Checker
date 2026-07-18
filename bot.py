@@ -6,6 +6,7 @@ import random
 import string
 import logging
 import httpx
+from phase3_payment_callbacks import handle_phase3_payment_callback
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat
@@ -2715,6 +2716,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data  = query.data
+
+    if await handle_phase3_payment_callback(
+        update,
+        context,
+        sheet_webhook=SHEET_WEBHOOK,
+        admin_ids=ADMIN_IDS,
+    ):
+        return
 
     # ── 🚗 Buying Car 10 Day Promo ──
     if data.startswith("buying_car_"):
