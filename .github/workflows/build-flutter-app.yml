@@ -2,7 +2,7 @@ name: Build JACC Flutter App
 
 on:
   push:
-    branches: [main, agent/jacc-flutter-clean]
+    branches: [main, agent/jacc-flutter-clean, agent/build-jacc-apk]
     paths:
       - 'flutter_app/**'
       - '.github/workflows/build-flutter-app.yml'
@@ -31,26 +31,87 @@ jobs:
           cache: true
       - name: Generate Android project
         run: flutter create . --platforms=android --org=com.jacc.app
-      - name: Add internet permission
+      - name: Configure JACC Android app
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('android/app/src/main/AndroidManifest.xml')
-          s=p.read_text()
-          permission='<uses-permission android:name="android.permission.INTERNET" />'
-          if permission not in s:
-              s=s.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">','<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    '+permission)
-          p.write_text(s)
+          from PIL import Image, ImageDraw, ImageFont
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          s = manifest.read_text()
+          for permission in [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+          ]:
+              if permission not in s:
+                  s = s.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+                                '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    ' + permission)
+          s = s.replace('android:label="jacc_app"', 'android:label="JACC"')
+          manifest.write_text(s)
+
+          colors = Path('android/app/src/main/res/values/colors.xml')
+          colors.write_text('<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="jacc_navy">#050B16</color></resources>\n')
+
+          launch = Path('android/app/src/main/res/drawable/launch_background.xml')
+          launch.write_text('''<?xml version="1.0" encoding="utf-8"?>
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+              <item android:drawable="@color/jacc_navy" />
+              <item>
+                  <bitmap android:gravity="center" android:src="@mipmap/ic_launcher" />
+              </item>
+          </layer-list>
+          ''')
+
+          sizes = {
+              'mipmap-mdpi': 48,
+              'mipmap-hdpi': 72,
+              'mipmap-xhdpi': 96,
+              'mipmap-xxhdpi': 144,
+              'mipmap-xxxhdpi': 192,
+          }
+          for folder, size in sizes.items():
+              out = Path('android/app/src/main/res') / folder
+              out.mkdir(parents=True, exist_ok=True)
+              img = Image.new('RGBA', (size, size), '#050B16')
+              d = ImageDraw.Draw(img)
+              margin = max(3, size // 12)
+              d.rounded_rectangle((margin, margin, size-margin, size-margin), radius=size//5, fill='#0B1220', outline='#C8102E', width=max(2,size//24))
+              d.line((size*0.20,size*0.56,size*0.34,size*0.38,size*0.68,size*0.38,size*0.82,size*0.56), fill='#E5E7EB', width=max(2,size//18))
+              d.line((size*0.18,size*0.58,size*0.82,size*0.58), fill='#C8102E', width=max(2,size//16))
+              d.ellipse((size*0.25,size*0.55,size*0.38,size*0.68), fill='#E5E7EB')
+              d.ellipse((size*0.62,size*0.55,size*0.75,size*0.68), fill='#E5E7EB')
+              img.save(out / 'ic_launcher.png')
+              img.save(out / 'ic_launcher_round.png')
           PY
+        env:
+          PYTHONUNBUFFERED: '1'
+      - name: Install icon generator dependency
+        run: python3 -m pip install pillow
       - run: flutter pub get
       - name: Analyze Flutter source
-        run: flutter analyze || true
-      - run: flutter build apk --release
-      - run: flutter build appbundle --release
+        run: flutter analyze
+      - name: Build release APK
+        run: flutter build apk --release
+      - name: Build release AAB
+        run: flutter build appbundle --release
+      - name: Prepare release package
+        run: |
+          mkdir -p release
+          cp build/app/outputs/flutter-apk/app-release.apk release/JACC-v1.0.0.apk
+          cp build/app/outputs/bundle/release/app-release.aab release/JACC-v1.0.0.aab
+          cat > release/JACC-v1.0.0-release-notes.txt <<'TXT'
+          JACC 1.0.0
+          - Persistent login session
+          - DeviceID bridge protection
+          - JACC splash and loading screen
+          - Offline retry and reconnect handling
+          - External-link security rules
+          - Version update notification support
+          TXT
+          sha256sum release/JACC-v1.0.0.apk release/JACC-v1.0.0.aab > release/JACC-v1.0.0-sha256.txt
+          cd release && zip JACC-v1.0.0-release.zip JACC-v1.0.0.apk JACC-v1.0.0.aab JACC-v1.0.0-release-notes.txt JACC-v1.0.0-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: JACC-Flutter-Android
-          path: |
-            flutter_app/build/app/outputs/flutter-apk/app-release.apk
-            flutter_app/build/app/outputs/bundle/release/app-release.aab
+          name: JACC-v1.0.0-release
+          path: flutter_app/release/*
           retention-days: 90
