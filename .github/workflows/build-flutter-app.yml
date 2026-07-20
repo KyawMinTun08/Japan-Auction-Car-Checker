@@ -31,11 +31,13 @@ jobs:
           cache: true
       - name: Generate Android project
         run: flutter create . --platforms=android --org=com.jacc.app
+      - name: Install icon generator dependency
+        run: python3 -m pip install pillow
       - name: Configure JACC Android app
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          from PIL import Image, ImageDraw, ImageFont
+          from PIL import Image, ImageDraw
 
           manifest = Path('android/app/src/main/AndroidManifest.xml')
           s = manifest.read_text()
@@ -83,10 +85,6 @@ jobs:
               img.save(out / 'ic_launcher.png')
               img.save(out / 'ic_launcher_round.png')
           PY
-        env:
-          PYTHONUNBUFFERED: '1'
-      - name: Install icon generator dependency
-        run: python3 -m pip install pillow
       - run: flutter pub get
       - name: Analyze Flutter source
         run: flutter analyze
