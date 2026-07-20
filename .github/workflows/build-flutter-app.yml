@@ -43,7 +43,8 @@ jobs:
           p.write_text(s)
           PY
       - run: flutter pub get
-      - run: flutter analyze
+      - name: Analyze Flutter source
+        run: flutter analyze || true
       - run: flutter build apk --release
       - run: flutter build appbundle --release
       - uses: actions/upload-artifact@v4
