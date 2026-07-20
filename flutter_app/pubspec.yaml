@@ -1,0 +1,24 @@
+name: jacc_app
+description: JACC Android-first hybrid app for Japan Auction Car Checker.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  webview_flutter: ^4.14.1
+  url_launcher: ^6.3.2
+  connectivity_plus: ^7.3.0
+  flutter_secure_storage: ^10.3.1
+  uuid: ^4.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
