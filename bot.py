@@ -813,17 +813,72 @@ async def save_member_to_sheet(user_id: str, username: str, days: int,
         return {"status": "error", "message": "request_failed"}
 
 async def create_invite_link(context, days: int) -> str:
+    """Create a one-use link after the member explicitly requests it."""
     try:
         import time
         invite = await context.bot.create_chat_invite_link(
             chat_id=CHANNEL_ID,
             member_limit=1,
-            expire_date=int(time.time() + 1800)
+            expire_date=int(time.time() + 3600)
         )
         return invite.invite_link
     except Exception as e:
         logger.error(f"Invite link: {e}")
         return ""
+
+async def send_fresh_channel_invite(context, user_id: int, reply_target) -> bool:
+    """Verify an active member and issue a fresh channel link on demand."""
+    valid = await is_valid_member(user_id)
+    if valid is None:
+        await reply_target.reply_text(
+            "⚠️ Membership server ခဏမတုံ့ပြန်နိုင်ပါ။ ခဏနေပြီး /channel ပြန်နှိပ်ပါ။"
+        )
+        return False
+    if not valid:
+        await reply_target.reply_text(
+            "🚫 Active Membership မတွေ့ပါ။ သက်တမ်းတိုးရန် /renew နှိပ်ပါ။"
+        )
+        return False
+
+    try:
+        current = await context.bot.get_chat_member(
+            chat_id=CHANNEL_ID,
+            user_id=user_id,
+        )
+        if current.status in ("member", "subscriber", "administrator", "creator"):
+            await reply_target.reply_text("✅ Channel ထဲ ဝင်ထားပြီးသားဖြစ်ပါတယ်။")
+            return True
+    except Exception:
+        pass
+
+    try:
+        await context.bot.unban_chat_member(
+            chat_id=CHANNEL_ID,
+            user_id=user_id,
+            only_if_banned=True,
+        )
+    except Exception as e:
+        logger.error(f"Channel self-service unban failed for {user_id}: {e}")
+
+    invite_url = await create_invite_link(context, 1)
+    if not invite_url:
+        await reply_target.reply_text(
+            "⚠️ Channel link ထုတ်မရသေးပါ။ Admin ကို ဆက်သွယ်ပါ။"
+        )
+        await notify_admins(
+            context,
+            f"⚠️ Active member အတွက် Channel invite ထုတ်မရပါ — User ID: `{user_id}`",
+        )
+        return False
+
+    await reply_target.reply_text(
+        "📢 Channel invite အသစ်ရပါပြီ။\n\n"
+        "အောက်က button ကို ၁ နာရီအတွင်းနှိပ်ပြီး ဝင်ပါ။",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("📢 Channel ထဲဝင်ရန်", url=invite_url)
+        ]]),
+    )
+    return True
 
 async def send_approval_dm(context, member_id: int, months: int,
                            password: str, invite_url: str, package: str = "CH",
@@ -847,9 +902,12 @@ async def send_approval_dm(context, member_id: int, months: int,
     expire_date = expire_date or (
         datetime.now() + timedelta(days=months * 30)
     ).strftime("%d/%m/%Y")
-    cust_kb = []
-    if invite_url:
-        cust_kb.append([InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)])
+    cust_kb = [[
+        InlineKeyboardButton(
+            "📢 Channel ဝင်ရန်",
+            callback_data=f"channel_join_{member_id}",
+        )
+    ]]
     if is_web:
         cust_kb.append([InlineKeyboardButton("🌐 Web App ဖွင့်",
                         url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/")])
@@ -1183,6 +1241,14 @@ async def list_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt += f"\n... နှင့် {len(CARS)-20} စီး ထပ်ရှိ"
     txt += f"\n\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     await update.message.reply_text(txt, parse_mode='Markdown')
+
+async def channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Let any active member request a fresh one-use channel invite."""
+    await send_fresh_channel_invite(
+        context,
+        update.effective_user.id,
+        update.message,
+    )
 
 async def web_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -3185,6 +3251,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "price":   None, "loc": loc_display(car.get('loc','MaeSot')), "image_url": ""}
         await query.message.reply_text(
             f"💰 `{chassis}` ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`", parse_mode='Markdown')
+
+    elif data.startswith("channel_join_"):
+        target_id = int(data.replace("channel_join_", ""))
+        if query.from_user.id != target_id:
+            await query.answer("❌ ဒီ button က သင့်အတွက်မဟုတ်ပါ", show_alert=True)
+            return
+        await query.answer()
+        await send_fresh_channel_invite(context, target_id, query.message)
 
     elif data.startswith("join_start"):
         user_id = query.from_user.id
@@ -5776,8 +5850,8 @@ async def check_expired_bans(context):
         logger.error(f"check_expired_bans: {e}")
 
 # ── Channel Member Validator ──────────────────────────
-async def is_valid_member(user_id: int) -> bool:
-    """Members sheet မှာ ACTIVE ဖြစ်တဲ့ user ဆိုရင် True return"""
+async def is_valid_member(user_id: int) -> bool | None:
+    """Return True/False for a verified result, or None if backend is unavailable."""
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -5795,7 +5869,7 @@ async def is_valid_member(user_id: int) -> bool:
         return False
     except Exception as e:
         logger.error(f"is_valid_member check: {e}")
-        return False  # Strict guard: backend cannot verify membership, so deny join.
+        return None  # Never kick a paid member because of a temporary backend error.
 
 
 # ── Channel Join Guard ────────────────────────────────
@@ -5818,7 +5892,16 @@ async def handle_channel_member_join(update: Update, context: ContextTypes.DEFAU
         return
 
     is_valid = await is_valid_member(user_id)
-    if not is_valid:
+    if is_valid is None:
+        await notify_admins(
+            context,
+            f"⚠️ Channel join verification ခဏမရပါ — မ kick သေးပါ\n"
+            f"👤 @{username} (`{user_id}`)\n"
+            f"နောက် ၁ နာရီ sweep မှာ ပြန်စစ်ပါမယ်။"
+        )
+        logger.warning(f"Channel join verification unavailable: {user_id} @{username}")
+        return
+    if is_valid is False:
         kicked = await kick_with_retry(context, user_id)
         status_txt = "✅ Kicked အောင်မြင်" if kicked else "⚠️ Kick မအောင်မြင် — ကိုယ်တိုင် ဆောင်ရွက်ပါ"
         await notify_admins(
@@ -5900,6 +5983,7 @@ async def main():
     app.add_handler(CommandHandler("history",     price_history_cmd))
     app.add_handler(CommandHandler("list",        list_cars))
     app.add_handler(CommandHandler("web",         web_link))
+    app.add_handler(CommandHandler("channel",     channel_cmd))
     app.add_handler(CommandHandler("approve",     approve_member))
     app.add_handler(CommandHandler("members",     members_list))
     app.add_handler(CommandHandler("kick",        kick_member_cmd))
@@ -5948,6 +6032,7 @@ async def main():
         BotCommand("history",       "📈 ဈေးနှုန်း မှတ်တမ်းကြည့်ရန်"),
         BotCommand("list",          "📊 ကားစာရင်း အားလုံးကြည့်ရန်"),
         BotCommand("web",           "🌐 Web App link ကြည့်ရန်"),
+        BotCommand("channel",       "📢 Channel invite အသစ်ယူရန်"),
         BotCommand("renew",         "🔄 Membership သက်တမ်းတိုး"),
         BotCommand("mypassword",    "🔑 Password ပြန်ယူရန်"),
         BotCommand("redeem",        "🎁 Promo Code သုံးရန်"),
