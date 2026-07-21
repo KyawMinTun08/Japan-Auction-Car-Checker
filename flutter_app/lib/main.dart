@@ -52,6 +52,7 @@ class _JaccWebViewState extends State<JaccWebView> {
   late final WebViewController _controller;
   StreamSubscription<List<ConnectivityResult>>? _networkSub;
   String _deviceId = '';
+  String _savedSession = '';
   bool _loading = true;
   bool _offline = false;
   bool _showSplash = true;
@@ -66,6 +67,7 @@ class _JaccWebViewState extends State<JaccWebView> {
 
   Future<void> _prepare() async {
     _deviceId = await _storage.read(key: 'jacc_installation_id') ?? const Uuid().v4();
+    _savedSession = await _storage.read(key: 'jacc_secure_session') ?? '';
     await _storage.write(key: 'jacc_installation_id', value: _deviceId);
     _setupWebView();
     _networkSub = Connectivity().onConnectivityChanged.listen((results) {
@@ -83,6 +85,26 @@ class _JaccWebViewState extends State<JaccWebView> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFF4F1EC))
+      ..addJavaScriptChannel(
+        'JaccSecureSession',
+        onMessageReceived: (message) async {
+          if (message.message == 'CLEAR') {
+            _savedSession = '';
+            await _storage.delete(key: 'jacc_secure_session');
+            return;
+          }
+          try {
+            final decoded = jsonDecode(message.message);
+            if (decoded is Map && decoded['token'] != null) {
+              _savedSession = message.message;
+              await _storage.write(
+                key: 'jacc_secure_session',
+                value: message.message,
+              );
+            }
+          } catch (_) {}
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (value) => mounted ? setState(() => _progress = value) : null,
@@ -130,49 +152,130 @@ class _JaccWebViewState extends State<JaccWebView> {
   }
 
   Future<void> _installDeviceBridge() async {
-    final escaped = _deviceId.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
+    final escapedDeviceId = _deviceId.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
+    final escapedSession = _savedSession
+        .replaceAll(r'\', r'\\')
+        .replaceAll("'", r"\'")
+        .replaceAll('\n', r'\n')
+        .replaceAll('\r', r'\r');
+
     await _controller.runJavaScript('''
       (() => {
-        const deviceId = '$escaped';
+        const deviceId = '$escapedDeviceId';
+        const nativeSession = '$escapedSession';
+        const sessionKey = 'jan_session';
         localStorage.setItem('jacc_installation_id', deviceId);
 
-        const sessionKey = 'jan_session';
-        const savedSession = localStorage.getItem(sessionKey);
+        let restored = false;
+        let savedSession = localStorage.getItem(sessionKey);
+        if (!savedSession && nativeSession) {
+          savedSession = nativeSession;
+          localStorage.setItem(sessionKey, nativeSession);
+        }
         if (savedSession && !sessionStorage.getItem(sessionKey)) {
           sessionStorage.setItem(sessionKey, savedSession);
+          restored = true;
+        }
+        if (restored && !window.__jaccSessionRestored) {
+          window.__jaccSessionRestored = true;
           location.reload();
           return;
         }
-        if (!window.__jaccPersistentSessionInstalled) {
-          window.__jaccPersistentSessionInstalled = true;
-          const originalSetItem = sessionStorage.setItem.bind(sessionStorage);
-          const originalRemoveItem = sessionStorage.removeItem.bind(sessionStorage);
-          sessionStorage.setItem = (key, value) => {
-            originalSetItem(key, value);
-            if (key === sessionKey) localStorage.setItem(key, value);
-          };
-          sessionStorage.removeItem = (key) => {
-            originalRemoveItem(key);
-            if (key === sessionKey) localStorage.removeItem(key);
+
+        const persistSession = (session) => {
+          try {
+            const value = typeof session === 'string' ? session : JSON.stringify(session);
+            localStorage.setItem(sessionKey, value);
+            sessionStorage.setItem(sessionKey, value);
+            if (window.JaccSecureSession) {
+              window.JaccSecureSession.postMessage(value);
+            }
+          } catch (_) {}
+        };
+
+        const clearSession = () => {
+          try {
+            localStorage.removeItem(sessionKey);
+            sessionStorage.removeItem(sessionKey);
+            if (window.JaccSecureSession) {
+              window.JaccSecureSession.postMessage('CLEAR');
+            }
+          } catch (_) {}
+        };
+
+        if (!window.__jaccNativeFetchInstalled) {
+          window.__jaccNativeFetchInstalled = true;
+          const originalFetch = window.fetch.bind(window);
+          window.fetch = async (input, init = {}) => {
+            let action = '';
+            try {
+              if (init && typeof init.body === 'string') {
+                const body = JSON.parse(init.body);
+                if (body && (body.action === 'verifyLogin' || body.action === 'verifyToken')) {
+                  action = body.action;
+                  body.deviceId = deviceId;
+                  body.app = 'flutter';
+                  init = {...init, body: JSON.stringify(body)};
+                }
+              }
+            } catch (_) {}
+
+            const response = await originalFetch(input, init);
+            if (!action) return response;
+
+            try {
+              const data = await response.clone().json();
+              if (action === 'verifyLogin' && data && data.status === 'ok' && data.token) {
+                const session = {
+                  ver: 'v3',
+                  token: data.token,
+                  userId: data.userId,
+                  username: data.username,
+                  package: data.package,
+                  expireDate: data.expireDate,
+                  loginTime: Date.now()
+                };
+                persistSession(session);
+              }
+
+              if (data && data.status !== 'ok') {
+                const reason = String(data.message || data.msg || data.error || '').toLowerCase();
+                if (
+                  reason.includes('expire') ||
+                  reason.includes('kicked') ||
+                  reason.includes('inactive') ||
+                  reason.includes('not_active') ||
+                  reason.includes('membership ended')
+                ) {
+                  data.message = 'expired';
+                } else if (reason.includes('device') && reason.includes('mismatch')) {
+                  data.message = 'device_mismatch';
+                }
+                return new Response(JSON.stringify(data), {
+                  status: response.status,
+                  statusText: response.statusText,
+                  headers: response.headers
+                });
+              }
+            } catch (_) {}
+            return response;
           };
         }
 
-        if (window.__jaccNativeFetchInstalled) return;
-        window.__jaccNativeFetchInstalled = true;
-        const originalFetch = window.fetch.bind(window);
-        window.fetch = async (input, init = {}) => {
-          try {
-            if (init && typeof init.body === 'string') {
-              const body = JSON.parse(init.body);
-              if (body && (body.action === 'verifyLogin' || body.action === 'verifyToken')) {
-                body.deviceId = deviceId;
-                body.app = 'flutter';
-                init = {...init, body: JSON.stringify(body)};
-              }
-            }
-          } catch (_) {}
-          return originalFetch(input, init);
+        const installLogout = () => {
+          if (window.__jaccLogoutInstalled) return;
+          if (typeof window.doLogout !== 'function') {
+            setTimeout(installLogout, 250);
+            return;
+          }
+          window.__jaccLogoutInstalled = true;
+          const originalLogout = window.doLogout;
+          window.doLogout = () => {
+            clearSession();
+            try { originalLogout(); } catch (_) { location.reload(); }
+          };
         };
+        installLogout();
       })();
     ''');
   }
