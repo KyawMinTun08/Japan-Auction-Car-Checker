@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050B16"/>
+      <stop offset="1" stop-color="#0B1220"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.45" stop-color="#D9DEE7"/>
+      <stop offset="1" stop-color="#8E98A8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="210" fill="url(#bg)"/>
+  <circle cx="512" cy="520" r="370" fill="none" stroke="#111A2A" stroke-width="2" opacity="0.9"/>
+
+  <g filter="url(#shadow)">
+    <path d="M205 520 A307 307 0 0 1 819 520" fill="none" stroke="#C8102E" stroke-width="34" stroke-linecap="round"/>
+    <g stroke="#AAB3C2" stroke-width="8" stroke-linecap="round">
+      <path d="M257 431 l-24 -18"/>
+      <path d="M304 361 l-16 -25"/>
+      <path d="M374 313 l-8 -29"/>
+      <path d="M456 288 l0 -30"/>
+      <path d="M568 288 l0 -30"/>
+      <path d="M650 313 l8 -29"/>
+      <path d="M720 361 l16 -25"/>
+      <path d="M767 431 l24 -18"/>
+    </g>
+
+    <path d="M512 516 L720 388" stroke="#C8102E" stroke-width="18" stroke-linecap="round"/>
+    <circle cx="512" cy="516" r="25" fill="#E7EBF1"/>
+
+    <path d="M196 493 C250 458 294 405 375 374 C455 344 595 343 675 373 C741 398 784 448 830 487 L851 511 L799 526 L755 526 C746 493 721 472 687 472 C653 472 628 493 619 526 L405 526 C396 493 371 472 337 472 C303 472 278 493 269 526 L220 526 L179 510 Z" fill="none" stroke="url(#silver)" stroke-width="22" stroke-linejoin="round"/>
+    <path d="M382 374 L438 437 L626 437 L675 373" fill="none" stroke="url(#silver)" stroke-width="18" stroke-linejoin="round"/>
+    <circle cx="337" cy="516" r="47" fill="#050B16" stroke="url(#silver)" stroke-width="18"/>
+    <circle cx="687" cy="516" r="47" fill="#050B16" stroke="url(#silver)" stroke-width="18"/>
+
+    <text x="512" y="705" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="178" font-weight="900" letter-spacing="8">
+      <tspan fill="url(#silver)">J</tspan><tspan fill="#C8102E">A</tspan><tspan fill="url(#silver)">CC</tspan>
+    </text>
+    <text x="512" y="778" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700" letter-spacing="5" fill="#D9DEE7">JAPAN AUCTION CAR CHECKER</text>
+    <path d="M211 822 H386" stroke="#C8102E" stroke-width="8" stroke-linecap="round"/>
+    <path d="M638 822 H813" stroke="#C8102E" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>
