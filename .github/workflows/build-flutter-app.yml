@@ -31,13 +31,14 @@ jobs:
           cache: true
       - name: Generate Android project
         run: flutter create . --platforms=android --org=com.jacc.app
-      - name: Install icon generator dependency
-        run: python3 -m pip install pillow
-      - name: Configure JACC Android app
+      - name: Install logo renderer
+        run: python3 -m pip install pillow cairosvg
+      - name: Configure JACC Android app and approved logo
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          from PIL import Image, ImageDraw
+          from PIL import Image
+          import cairosvg
 
           manifest = Path('android/app/src/main/AndroidManifest.xml')
           s = manifest.read_text()
@@ -54,28 +55,33 @@ jobs:
           colors = Path('android/app/src/main/res/values/colors.xml')
           colors.write_text('<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="jacc_navy">#050B16</color></resources>\n')
 
-          launch = Path('android/app/src/main/res/drawable/launch_background.xml')
-          launch.write_text('''<?xml version="1.0" encoding="utf-8"?>
-          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-              <item android:drawable="@color/jacc_navy" />
-              <item><bitmap android:gravity="center" android:src="@mipmap/ic_launcher" /></item>
-          </layer-list>
-          ''')
+          logo_svg = Path('assets/jacc_logo.svg')
+          logo_png = Path('assets/jacc_logo_1024.png')
+          cairosvg.svg2png(url=str(logo_svg), write_to=str(logo_png), output_width=1024, output_height=1024)
+          base = Image.open(logo_png).convert('RGBA')
 
           sizes = {'mipmap-mdpi':48,'mipmap-hdpi':72,'mipmap-xhdpi':96,'mipmap-xxhdpi':144,'mipmap-xxxhdpi':192}
           for folder, size in sizes.items():
               out = Path('android/app/src/main/res') / folder
               out.mkdir(parents=True, exist_ok=True)
-              img = Image.new('RGBA', (size, size), '#050B16')
-              d = ImageDraw.Draw(img)
-              margin = max(3, size // 12)
-              d.rounded_rectangle((margin, margin, size-margin, size-margin), radius=size//5, fill='#0B1220', outline='#C8102E', width=max(2,size//24))
-              d.line((size*.20,size*.56,size*.34,size*.38,size*.68,size*.38,size*.82,size*.56), fill='#E5E7EB', width=max(2,size//18))
-              d.line((size*.18,size*.58,size*.82,size*.58), fill='#C8102E', width=max(2,size//16))
-              d.ellipse((size*.25,size*.55,size*.38,size*.68), fill='#E5E7EB')
-              d.ellipse((size*.62,size*.55,size*.75,size*.68), fill='#E5E7EB')
-              img.save(out / 'ic_launcher.png')
-              img.save(out / 'ic_launcher_round.png')
+              icon = base.resize((size, size), Image.Resampling.LANCZOS)
+              icon.save(out / 'ic_launcher.png')
+              icon.save(out / 'ic_launcher_round.png')
+
+          drawable = Path('android/app/src/main/res/drawable')
+          drawable.mkdir(parents=True, exist_ok=True)
+          splash_logo = base.resize((420, 420), Image.Resampling.LANCZOS)
+          splash_logo.save(drawable / 'jacc_splash_logo.png')
+
+          launch = drawable / 'launch_background.xml'
+          launch.write_text('''<?xml version="1.0" encoding="utf-8"?>
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+              <item android:drawable="@color/jacc_navy" />
+              <item>
+                  <bitmap android:gravity="center" android:src="@drawable/jacc_splash_logo" />
+              </item>
+          </layer-list>
+          ''')
           PY
       - run: flutter pub get
       - name: Analyze Flutter source
