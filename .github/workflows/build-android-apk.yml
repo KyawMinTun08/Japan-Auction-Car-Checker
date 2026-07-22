@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - feature/android-apkpure-wrapper
       - main
     paths:
       - "android-app/**"
@@ -52,7 +51,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.JACC_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.JACC_KEY_PASSWORD }}
         run: |
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > jacc-release.jks
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > jacc-release.jks
+          test -s jacc-release.jks
           keytool -list -keystore jacc-release.jks -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
           cat > keystore.properties <<EOF
           storeFile=../jacc-release.jks
@@ -63,28 +63,43 @@ jobs:
 
       - name: Build signed release APK
         working-directory: android-app
-        run: gradle clean assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          gradle clean assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
       - name: Verify APK package and signature
         working-directory: android-app
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
-          apksigner verify --verbose --print-certs "$APK"
-          PACKAGE=$(aapt dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+          PACKAGE=$("$BUILD_TOOLS/aapt" dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
+          VERSION_NAME=$("$BUILD_TOOLS/aapt" dump badging "$APK" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          VERSION_CODE=$("$BUILD_TOOLS/aapt" dump badging "$APK" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
           echo "Detected package: $PACKAGE"
+          echo "Detected version: $VERSION_NAME ($VERSION_CODE)"
           test "$PACKAGE" = "com.kyawmintun.jacc"
+          test "$VERSION_NAME" = "1.01"
+          test "$VERSION_CODE" = "101"
 
       - name: Rename APK
         working-directory: android-app
-        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.01-signed.apk
+        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.01-APKPure-signed.apk
 
       - name: Upload verified signed APK
         uses: actions/upload-artifact@v4
         with:
           name: JACC-v1.01-APKPure-ready
-          path: android-app/JACC-v1.01-signed.apk
+          path: android-app/JACC-v1.01-APKPure-signed.apk
           if-no-files-found: error
           retention-days: 30
 
-# APKPure release workflow: package and signature are verified before upload.
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JACC-build-log
+          path: android-app/build.log
+          if-no-files-found: ignore
+          retention-days: 7
