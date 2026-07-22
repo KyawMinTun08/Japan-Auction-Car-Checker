@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Japan Auction Car Checker</string>
+    <string name="network_error">Internet connection မရှိသေးပါ။ Connection စစ်ပြီး ပြန်ကြိုးစားပါ။</string>
+    <string name="retry">ပြန်ကြိုးစားမယ်</string>
+</resources>
