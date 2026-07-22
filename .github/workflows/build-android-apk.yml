@@ -86,3 +86,5 @@ jobs:
           path: android-app/JACC-v1.01-signed.apk
           if-no-files-found: error
           retention-days: 30
+
+# APKPure release workflow: package and signature are verified before upload.
