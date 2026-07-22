@@ -1,0 +1,88 @@
+name: Build JACC Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/android-apkpure-wrapper
+      - main
+    paths:
+      - "android-app/**"
+      - ".github/workflows/build-android-apk.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Verify signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.JACC_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.JACC_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.JACC_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.JACC_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "Missing JACC_KEYSTORE_BASE64"; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "Missing JACC_STORE_PASSWORD"; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "Missing JACC_KEY_ALIAS"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "Missing JACC_KEY_PASSWORD"; exit 1; }
+
+      - name: Restore and verify release keystore
+        working-directory: android-app
+        env:
+          KEYSTORE_BASE64: ${{ secrets.JACC_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.JACC_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.JACC_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.JACC_KEY_PASSWORD }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > jacc-release.jks
+          keytool -list -keystore jacc-release.jks -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+          cat > keystore.properties <<EOF
+          storeFile=../jacc-release.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Build signed release APK
+        working-directory: android-app
+        run: gradle clean assembleRelease --stacktrace
+
+      - name: Verify APK package and signature
+        working-directory: android-app
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          apksigner verify --verbose --print-certs "$APK"
+          PACKAGE=$(aapt dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
+          echo "Detected package: $PACKAGE"
+          test "$PACKAGE" = "com.kyawmintun.jacc"
+
+      - name: Rename APK
+        working-directory: android-app
+        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.01-signed.apk
+
+      - name: Upload verified signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JACC-v1.01-APKPure-ready
+          path: android-app/JACC-v1.01-signed.apk
+          if-no-files-found: error
+          retention-days: 30
