@@ -34,12 +34,12 @@ jobs:
       - name: Verify signing secrets
         env:
           KEYSTORE_BASE64: ${{ secrets.JACC_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.JACC_STORE_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.JACC_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.JACC_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.JACC_KEY_PASSWORD }}
         run: |
           test -n "$KEYSTORE_BASE64" || { echo "Missing JACC_KEYSTORE_BASE64"; exit 1; }
-          test -n "$STORE_PASSWORD" || { echo "Missing JACC_STORE_PASSWORD"; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "Missing JACC_KEYSTORE_PASSWORD"; exit 1; }
           test -n "$KEY_ALIAS" || { echo "Missing JACC_KEY_ALIAS"; exit 1; }
           test -n "$KEY_PASSWORD" || { echo "Missing JACC_KEY_PASSWORD"; exit 1; }
 
@@ -47,7 +47,7 @@ jobs:
         working-directory: android-app
         env:
           KEYSTORE_BASE64: ${{ secrets.JACC_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.JACC_STORE_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.JACC_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.JACC_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.JACC_KEY_PASSWORD }}
         run: |
