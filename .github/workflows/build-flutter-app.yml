@@ -113,7 +113,7 @@ jobs:
           ZIPALIGN=$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools" -type f -name zipalign | sort -V | tail -1)
           test -x "$APKSIGNER"
           test -x "$ZIPALIGN"
-          "$ZIPALIGN" -f -p 4 build/app/outputs/flutter-apk/app-release.apk release/JACC-v1.0.0-aligned.apk
+          "$ZIPALIGN" -f -p 4 build/app/outputs/flutter-apk/app-release.apk release/JACC-v1.0.1-aligned.apk
           "$APKSIGNER" sign \
             --ks jacc-release-key.jks \
             --ks-key-alias "$JACC_KEY_ALIAS" \
@@ -122,26 +122,28 @@ jobs:
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
-            --out release/JACC-v1.0.0.apk \
-            release/JACC-v1.0.0-aligned.apk
-          "$APKSIGNER" verify --verbose --print-certs release/JACC-v1.0.0.apk
-          rm -f release/JACC-v1.0.0-aligned.apk jacc-release-key.jks
+            --out release/JACC-v1.0.1.apk \
+            release/JACC-v1.0.1-aligned.apk
+          "$APKSIGNER" verify --verbose --print-certs release/JACC-v1.0.1.apk
+          rm -f release/JACC-v1.0.1-aligned.apk jacc-release-key.jks
       - name: Prepare release files
         run: |
-          cp build/app/outputs/bundle/release/app-release.aab release/JACC-v1.0.0.aab
-          sha256sum release/JACC-v1.0.0.apk release/JACC-v1.0.0.aab > release/JACC-v1.0.0-sha256.txt
-          cat > release/JACC-v1.0.0-release-notes.txt <<'TXT'
-          JACC 1.0.0
+          cp build/app/outputs/bundle/release/app-release.aab release/JACC-v1.0.1.aab
+          sha256sum release/JACC-v1.0.1.apk release/JACC-v1.0.1.aab > release/JACC-v1.0.1-sha256.txt
+          cat > release/JACC-v1.0.1-release-notes.txt <<'TXT'
+          JACC 1.0.1
+          - Automatic update checker connected to GitHub app-config.json
+          - pCloud APK download link support
           - Approved JACC logo and splash screen
           - Secure token auto-login
           - Logout clears saved session
           - Device binding support
           - Expired-member handling
-          - Offline retry and update checks
+          - Offline retry support
           TXT
-          cd release && zip JACC-v1.0.0-release.zip JACC-v1.0.0.apk JACC-v1.0.0.aab JACC-v1.0.0-sha256.txt JACC-v1.0.0-release-notes.txt
+          cd release && zip JACC-v1.0.1-release.zip JACC-v1.0.1.apk JACC-v1.0.1.aab JACC-v1.0.1-sha256.txt JACC-v1.0.1-release-notes.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: JACC-v1.0.0-release
+          name: JACC-v1.0.1-release
           path: flutter_app/release/*
           retention-days: 90
