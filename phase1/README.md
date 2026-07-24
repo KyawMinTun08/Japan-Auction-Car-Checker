@@ -22,7 +22,7 @@ JACC Broker Service ရဲ့ ပထမဆုံး production foundation ဖြ
 
 ## Folder ထဲက Files
 
-- `001_phase1_schema.sql` — Supabase/PostgreSQL schema, constraints, indexes, RLS helpers, transactional RPC functions
+- `sql/001_core.sql` မှ `sql/005_rls_and_permissions.sql` — Supabase/PostgreSQL schema, constraints, indexes, RLS helpers, transactional RPC functions
 - `phase1_client.py` — Railway Bot/App Backend ကနေ Supabase RPC ခေါ်ရန် Async Python client
 - `phase1_worker.py` — Expired 10-minute offers နှင့် 48-hour stale assignments ကို စစ်ဆေးမည့် Railway worker
 - `integration_patch_guide.md` — လက်ရှိ Bot code ထဲ ဘယ် function ကို ဘယ်လိုပြောင်းရမလဲ
@@ -32,7 +32,7 @@ JACC Broker Service ရဲ့ ပထမဆုံး production foundation ဖြ
 ## Deployment အစဉ်
 
 1. Supabase project အသစ်ဖွင့်ပါ။
-2. SQL Editor မှာ `001_phase1_schema.sql` ကို run ပါ။
+2. SQL Editor မှာ `sql/` folder ထဲက migration files ကို filename အစဉ်အတိုင်း run ပါ။
 3. Customer/Broker test accounts ထည့်ပါ။
 4. Railway မှာ `.env.example` ထဲက variables ထည့်ပါ။
 5. `phase1_worker.py` ကို worker service အဖြစ် run ပါ။
