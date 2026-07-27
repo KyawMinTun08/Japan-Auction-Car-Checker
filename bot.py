@@ -6,6 +6,7 @@ import random
 import string
 import logging
 import httpx
+from phase1.phase1_client import JaccPhase1Client, JaccPhase1Error
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat
@@ -33,7 +34,14 @@ ADMIN_USERNAME        = os.environ.get('ADMIN_USERNAME', '')
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
 CLOUDINARY_API_KEY    = os.environ.get('CLOUDINARY_API_KEY', '')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
-
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+phase1 = None
+if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    phase1 = JaccPhase1Client(
+        supabase_url=SUPABASE_URL,
+        service_role_key=SUPABASE_SERVICE_ROLE_KEY,
+    )
 # ── Membership Plan Pricing (ks) ──────────────────────
 PLAN_CH_1M  = int(os.environ.get('PLAN_CH_1M',  '15000'))
 PLAN_CH_2M  = int(os.environ.get('PLAN_CH_2M',  '30000'))
