@@ -25,9 +25,6 @@ logger = logging.getLogger(__name__)
 # ── Environment Variables ──────────────────────────────
 GEMINI_API_KEY        = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL          = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
-ZYLOO_API_KEY         = os.environ.get("ZYLOO_API_KEY", "").strip()
-ZYLOO_BASE_URL        = os.environ.get("ZYLOO_BASE_URL", "https://api.zyloo.io/v1").rstrip("/")
-AI_PRIMARY_MODEL      = os.environ.get("AI_PRIMARY_MODEL", "zyloo/deepseek-v3.1-free").strip()
 TOKEN                 = os.environ.get('BOT_TOKEN', '')
 SHEET_WEBHOOK         = os.environ.get('SHEET_WEBHOOK', '')
 CHANNEL_ID            = os.environ.get('CHANNEL_ID', '-1003749046571')
@@ -803,17 +800,70 @@ async def save_member_to_sheet(user_id: str, username: str, days: int,
         return False
 
 async def create_invite_link(context, days: int) -> str:
+    """Create a single-use channel link that stays valid long enough to use.
+
+    The old code expired links after 30 minutes (1800 seconds), which caused
+    genuine members to see "Expired Link" when they opened the approval DM
+    later. Keep the link single-use, but allow up to 7 days.
+    """
     try:
         import time
+
+        requested_days = max(1, int(days or 1))
+        valid_days = min(requested_days, 7)
         invite = await context.bot.create_chat_invite_link(
             chat_id=CHANNEL_ID,
             member_limit=1,
-            expire_date=int(time.time() + 1800)
+            expire_date=int(time.time() + valid_days * 86400),
+            name=f"JACC member {valid_days}d",
         )
         return invite.invite_link
     except Exception as e:
         logger.error(f"Invite link: {e}")
         return ""
+
+
+async def channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Give an ACTIVE member a fresh, single-use channel invite link."""
+    user = update.effective_user
+    user_id = user.id
+
+    if not await is_active_member(user_id):
+        await update.message.reply_text(
+            "🚫 Membership Active မဖြစ်သေးပါ။\n\n"
+            "Membership ဝယ်ရန် သို့မဟုတ် သက်တမ်းတိုးရန် /renew နှိပ်ပါ။"
+        )
+        return
+
+    try:
+        chat_member = await context.bot.get_chat_member(
+            chat_id=CHANNEL_ID, user_id=user_id
+        )
+        if chat_member.status in ("member", "administrator", "creator"):
+            await update.message.reply_text(
+                "✅ သင်သည် Channel ထဲ ဝင်ထားပြီးသားဖြစ်ပါတယ်။"
+            )
+            return
+    except Exception as e:
+        # A user who has never joined may not be readable as a channel member.
+        logger.info(f"channel status check {user_id}: {e}")
+
+    invite_url = await create_invite_link(context, 7)
+    if not invite_url:
+        await update.message.reply_text(
+            "❌ Channel link အသစ်ထုတ်မရသေးပါ။ Admin ကို ဆက်သွယ်ပေးပါ။"
+        )
+        return
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)
+    ]])
+    await update.message.reply_text(
+        "✅ Channel link အသစ် ထုတ်ပေးပြီးပါပြီ။\n\n"
+        "⏰ ဒီ link က ၇ ရက်အတွင်း အသုံးပြုရမယ်။\n"
+        "🔒 လူတစ်ယောက်သာ ဝင်လို့ရပါတယ်။",
+        reply_markup=keyboard,
+    )
 
 async def send_approval_dm(context, member_id: int, months: int,
                            password: str, invite_url: str, package: str = "CH"):
@@ -5707,6 +5757,7 @@ async def main():
     app.add_handler(CommandHandler("members",     members_list))
     app.add_handler(CommandHandler("kick",        kick_member_cmd))
     app.add_handler(CommandHandler("renew",       renew_cmd))
+    app.add_handler(CommandHandler("channel",     channel_cmd))
     app.add_handler(CommandHandler("mypassword",  mypassword_cmd))
     app.add_handler(CommandHandler("resetpass",   resetpass_cmd))
     app.add_handler(CommandHandler("updateid",    updateid_cmd))
@@ -5751,6 +5802,7 @@ async def main():
         BotCommand("list",          "📊 ကားစာရင်း အားလုံးကြည့်ရန်"),
         BotCommand("web",           "🌐 Web App link ကြည့်ရန်"),
         BotCommand("renew",         "🔄 Membership သက်တမ်းတိုး"),
+        BotCommand("channel",       "📢 Channel link အသစ်ယူရန်"),
         BotCommand("mypassword",    "🔑 Password ပြန်ယူရန်"),
         BotCommand("redeem",        "🎁 Promo Code သုံးရန်"),
     ]
@@ -5819,96 +5871,13 @@ async def main():
     await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
     logger.info("Bot polling!")
 
-    # --- Railway Health Check + JACC AI Test Server ---
+    # --- Railway Health Check Server ---
     async def health_check(request):
-        return web.json_response({
-            "ok": True,
-            "service": "JACC Bot",
-            "ai_configured": bool(ZYLOO_API_KEY and AI_PRIMARY_MODEL),
-        })
-
-    async def ai_test(request):
-        """Safely test the Zyloo chat-completions connection.
-
-        This endpoint never returns or logs the API key.
-        """
-        if not ZYLOO_API_KEY:
-            return web.json_response({
-                "ok": False,
-                "error": "ZYLOO_API_KEY is not configured",
-            }, status=503)
-
-        payload = {
-            "model": AI_PRIMARY_MODEL,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Reply with exactly: JACC AI connection successful",
-                }
-            ],
-            "max_tokens": 40,
-            "temperature": 0,
-        }
-        headers = {
-            "Authorization": f"Bearer {ZYLOO_API_KEY}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
-                response = await client.post(
-                    f"{ZYLOO_BASE_URL}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-
-            if response.status_code >= 400:
-                # Return only a short provider error; never expose headers or secrets.
-                provider_message = response.text[:500]
-                return web.json_response({
-                    "ok": False,
-                    "status": response.status_code,
-                    "model": AI_PRIMARY_MODEL,
-                    "error": provider_message,
-                }, status=502)
-
-            data = response.json()
-            choices = data.get("choices") or []
-            reply = ""
-            if choices:
-                reply = str((choices[0].get("message") or {}).get("content") or "").strip()
-
-            if not reply:
-                return web.json_response({
-                    "ok": False,
-                    "model": AI_PRIMARY_MODEL,
-                    "error": "AI provider returned an empty response",
-                }, status=502)
-
-            return web.json_response({
-                "ok": True,
-                "model": AI_PRIMARY_MODEL,
-                "reply": reply,
-            })
-
-        except httpx.TimeoutException:
-            return web.json_response({
-                "ok": False,
-                "model": AI_PRIMARY_MODEL,
-                "error": "AI request timed out",
-            }, status=504)
-        except Exception as exc:
-            logger.error("JACC AI test failed: %s", type(exc).__name__)
-            return web.json_response({
-                "ok": False,
-                "model": AI_PRIMARY_MODEL,
-                "error": f"AI connection failed: {type(exc).__name__}",
-            }, status=502)
+        return web.Response(text="Bot is running!")
 
     port = int(os.environ.get("PORT", 8080))
     web_app = web.Application()
     web_app.router.add_get("/", health_check)
-    web_app.router.add_get("/api/ai-test", ai_test)
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
