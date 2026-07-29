@@ -63,7 +63,73 @@ class JaccPhase1Client:
             return None
         return response.json()
 
+            async def get_profile_by_telegram_user_id(
+        self,
+        telegram_user_id: int,
+    ) -> dict[str, Any]:
+        url = f"{self._base_url}/rest/v1/jacc_profiles"
+        params = {
+            "telegram_user_id": f"eq.{telegram_user_id}",
+            "select": "id,role,account_active",
+        }
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.get(
+                url,
+                headers=self._headers,
+                params=params,
+            )
+
+        if response.is_error:
+            detail = response.text[:1_000]
+            raise JaccPhase1Error(
+                f"Profile lookup failed ({response.status_code}): {detail}"
+            )
+
+        data = response.json()
+        if not data:
+            raise JaccPhase1Error(
+                "PROFILE_NOT_FOUND_FOR_TELEGRAM_USER"
+            )
+
+        profile = data[0]
+        if not profile.get("account_active"):
+            raise JaccPhase1Error("PROFILE_NOT_ACTIVE")
+
+        return profile
+
+    async def create_request_for_telegram_customer(
+        self,
+        *,
+        telegram_user_id: int,
+        service_type: str,
+        form_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        profile = await self.get_profile_by_telegram_user_id(
+            telegram_user_id
+        )
+
+        return await self.create_request_for_customer(
+            customer_id=str(profile["id"]),
+            service_type=service_type,
+            form_data=form_data,
+        )
     async def create_request_for_customer(
+          self,
+        *,
+        customer_id: str,
+        service_type: str,
+        form_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        profile = await self.get_profile_by_telegram_user_id(
+            telegram_user_id
+        )
+
+        return await self.create_request_for_customer(
+            customer_id=str(profile["id"]),
+            service_type=service_type,
+            form_data=form_data,
+        )
         self,
         *,
         customer_id: str,
