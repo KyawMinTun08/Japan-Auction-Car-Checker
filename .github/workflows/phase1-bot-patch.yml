@@ -1,0 +1,89 @@
+name: Apply Phase 1 bot bridge patch
+
+on:
+  push:
+    branches:
+      - agent/jacc-phase1-foundation
+    paths:
+      - .github/workflows/phase1-bot-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Phase 1 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/jacc-phase1-foundation
+
+      - name: Insert Phase 1 request bridge
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("bot.py")
+          text = path.read_text(encoding="utf-8")
+
+          call_marker = "phase1.create_request_for_telegram_customer"
+          anchor = '''    d      = req["data"]
+    svc_prefix = 'A' if d.get("service_type") == "auction" else 'R'
+'''
+          replacement = '''    d      = req["data"]
+
+    if phase1 is not None:
+        try:
+            phase1_request = await phase1.create_request_for_telegram_customer(
+                telegram_user_id=user_id,
+                service_type=(
+                    "auction"
+                    if d.get("service_type") == "auction"
+                    else "outside_car"
+                ),
+                form_data={
+                    "username": username,
+                    "car_name": d.get("car_name", ""),
+                    "year": d.get("year", ""),
+                    "grade": d.get("grade", ""),
+                    "budget": d.get("budget", ""),
+                    "condition": d.get("condition", ""),
+                    "timeline": d.get("timeline", ""),
+                },
+            )
+            logger.info(
+                "Phase 1 request mirrored: %s",
+                phase1_request.get("request_code"),
+            )
+        except JaccPhase1Error as exc:
+            logger.warning("Phase 1 request mirror skipped: %s", exc)
+        except Exception:
+            logger.exception("Phase 1 request mirror failed")
+
+    svc_prefix = 'A' if d.get("service_type") == "auction" else 'R'
+'''
+
+          if call_marker in text:
+              print("Phase 1 bridge already present; no change needed.")
+          else:
+              if text.count(anchor) != 1:
+                  raise SystemExit(
+                      f"Expected one submit_request anchor, found {text.count(anchor)}"
+                  )
+              text = text.replace(anchor, replacement, 1)
+              compile(text, "bot.py", "exec")
+              path.write_text(text, encoding="utf-8")
+              print("Phase 1 bridge inserted and bot.py compiled successfully.")
+          PY
+
+      - name: Commit patched bot and remove one-time workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/phase1-bot-patch.yml
+          git add bot.py
+          git commit -m "Add Phase 1 request bridge to bot submission"
+          git push origin HEAD:agent/jacc-phase1-foundation
