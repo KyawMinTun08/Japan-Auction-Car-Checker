@@ -1,1 +1,1 @@
-web: python -u admin_launcher.py
+web: python -u completion_launcher.py
