@@ -7,6 +7,7 @@ state changes are also mirrored to Supabase during the Phase 1 rollout.
 
 import asyncio
 import logging
+import os
 import traceback
 
 # HTTP client INFO logs include the full Telegram Bot API URL, which contains
@@ -18,32 +19,93 @@ import legacy_bot as _legacy
 from legacy_bot import *  # noqa: F401,F403 - preserve existing import surface
 
 
+# This remains OFF until the Phase 1 Accept/Decline callback bridge is ready.
+# It lets us deploy and validate the sequential-offer code without changing the
+# current production broker broadcast behaviour.
+PHASE1_SEQUENTIAL_ENABLED = (
+    os.environ.get("PHASE1_SEQUENTIAL_ENABLED", "0").strip() == "1"
+)
+
 _original_submit_request = _legacy.submit_request
+
+
+async def _send_phase1_offer(context, offer, request_data: dict) -> None:
+    """Send one guarded Phase 1 offer to the selected broker."""
+    if offer.broker_telegram_user_id is None:
+        _legacy.logger.warning(
+            "Phase 1 offer has no broker Telegram id: offer=%s broker=%s",
+            offer.offer_id,
+            offer.broker_code,
+        )
+        return
+
+    service_header = (
+        "🏆 *AUCTION CAR ORDER*"
+        if offer.service_type == "auction"
+        else "🔍 *ကားရှာ ORDER*"
+    )
+    button_label = (
+        "🏆 Auction Order လက်ခံမည်"
+        if offer.service_type == "auction"
+        else "🔍 ကားရှာ Order လက်ခံမည်"
+    )
+    keyboard = _legacy.InlineKeyboardMarkup(
+        [[
+            _legacy.InlineKeyboardButton(
+                button_label,
+                callback_data=f"p1_accept_{offer.offer_id}",
+            ),
+            _legacy.InlineKeyboardButton(
+                "❌ ငြင်းမည်",
+                callback_data=f"p1_decline_{offer.offer_id}",
+            ),
+        ]]
+    )
+
+    await context.bot.send_message(
+        chat_id=int(offer.broker_telegram_user_id),
+        text=(
+            "🔔 *JACC Broker Offer*\n\n"
+            f"{service_header}\n"
+            f"🆔 `{offer.request_code}`\n"
+            f"👷 Broker: `{offer.broker_code}`\n"
+            f"🚘 *{request_data.get('car_name', '')}*\n"
+            f"📅 နှစ်: {request_data.get('year', '')}\n"
+            f"🔧 Grade: {request_data.get('grade', '')}\n"
+            f"💰 Budget: {request_data.get('budget', '')}\n"
+            f"⭐ Condition: {request_data.get('condition', '')}\n"
+            f"⏳ Timeline: {request_data.get('timeline', '')}\n\n"
+            "⏱ ၁၀ မိနစ်အတွင်း Accept / Decline လုပ်ပါ။"
+        ),
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
 
 
 async def submit_request(context, user_id: int, username: str):
     """Mirror the pending request to Phase 1, then run the legacy flow."""
     req = _legacy.pending_request.get(user_id)
+    phase1_request = None
+    request_data = dict(req.get("data") or {}) if req else {}
 
     if req and _legacy.phase1 is not None:
-        data = dict(req.get("data") or {})
         try:
             phase1_request = (
                 await _legacy.phase1.create_request_for_telegram_customer(
                     telegram_user_id=user_id,
                     service_type=(
                         "auction"
-                        if data.get("service_type") == "auction"
+                        if request_data.get("service_type") == "auction"
                         else "outside_car"
                     ),
                     form_data={
                         "username": username,
-                        "car_name": data.get("car_name", ""),
-                        "year": data.get("year", ""),
-                        "grade": data.get("grade", ""),
-                        "budget": data.get("budget", ""),
-                        "condition": data.get("condition", ""),
-                        "timeline": data.get("timeline", ""),
+                        "car_name": request_data.get("car_name", ""),
+                        "year": request_data.get("year", ""),
+                        "grade": request_data.get("grade", ""),
+                        "budget": request_data.get("budget", ""),
+                        "condition": request_data.get("condition", ""),
+                        "timeline": request_data.get("timeline", ""),
                     },
                 )
             )
@@ -51,13 +113,31 @@ async def submit_request(context, user_id: int, username: str):
                 "Phase 1 request mirrored: %s",
                 phase1_request.get("request_code"),
             )
+
+            if PHASE1_SEQUENTIAL_ENABLED:
+                offer = await _legacy.phase1.dispatch_next_offer(
+                    str(phase1_request["id"])
+                )
+                if offer is None:
+                    _legacy.logger.info(
+                        "Phase 1 request waiting for an available broker: %s",
+                        phase1_request.get("request_code"),
+                    )
+                else:
+                    await _send_phase1_offer(context, offer, request_data)
+                    _legacy.logger.info(
+                        "Phase 1 sequential offer sent: request=%s offer=%s broker=%s",
+                        offer.request_code,
+                        offer.offer_id,
+                        offer.broker_code,
+                    )
         except _legacy.JaccPhase1Error as exc:
             _legacy.logger.warning(
-                "Phase 1 request mirror skipped: %s",
+                "Phase 1 request mirror/dispatch skipped: %s",
                 exc,
             )
         except Exception:
-            _legacy.logger.exception("Phase 1 request mirror failed")
+            _legacy.logger.exception("Phase 1 request mirror/dispatch failed")
 
     await _original_submit_request(context, user_id, username)
 
