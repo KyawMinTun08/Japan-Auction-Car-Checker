@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-
 import httpx
 
 
@@ -104,6 +103,47 @@ class JaccPhase1Client:
             raise JaccPhase1Error("PROFILE_NOT_ACTIVE")
 
         return profile
+
+    async def set_broker_availability_by_telegram_user_id(
+        self,
+        *,
+        telegram_user_id: int,
+        accepting_requests: bool,
+    ) -> dict[str, Any]:
+        profile = await self.get_profile_by_telegram_user_id(
+            telegram_user_id
+        )
+        if profile.get("role") not in {"broker", "lead_broker"}:
+            raise JaccPhase1Error("PROFILE_IS_NOT_A_BROKER")
+
+        url = f"{self._base_url}/rest/v1/jacc_broker_profiles"
+        params = {
+            "user_id": f"eq.{profile['id']}",
+            "select": "user_id,broker_code,account_status,accepting_requests",
+        }
+        headers = {
+            **self._headers,
+            "Prefer": "return=representation",
+        }
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.patch(
+                url,
+                headers=headers,
+                params=params,
+                json={"accepting_requests": accepting_requests},
+            )
+
+        if response.is_error:
+            detail = response.text[:1_000]
+            raise JaccPhase1Error(
+                f"Broker availability update failed ({response.status_code}): {detail}"
+            )
+
+        data = response.json()
+        if not data:
+            raise JaccPhase1Error("BROKER_PROFILE_NOT_FOUND")
+        return data[0]
 
     async def create_request_for_telegram_customer(
         self,
