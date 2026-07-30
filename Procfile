@@ -1,1 +1,1 @@
-web: python -u bot.py
+web: python -u admin_launcher.py
