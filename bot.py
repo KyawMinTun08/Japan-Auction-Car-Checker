@@ -6,7 +6,13 @@ broker broadcast flow continues while requests are also mirrored to Supabase.
 """
 
 import asyncio
+import logging
 import traceback
+
+# HTTP client INFO logs include the full Telegram Bot API URL, which contains
+# the bot token. Keep request details out of Railway logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 import legacy_bot as _legacy
 from legacy_bot import *  # noqa: F401,F403 - preserve existing import surface
