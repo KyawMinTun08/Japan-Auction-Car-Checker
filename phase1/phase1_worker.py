@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import Any
 
 import httpx
 
@@ -25,6 +26,9 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+# Telegram Bot API URLs contain the bot token. Never print them in Railway logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("jacc-phase1-worker")
 
 POLL_SECONDS = max(15, int(os.getenv("PHASE1_POLL_SECONDS", "30")))
@@ -38,17 +42,25 @@ ADMIN_IDS = [
 ]
 
 
-async def telegram_send(chat_id: int | str, text: str) -> bool:
+async def telegram_send(
+    chat_id: int | str,
+    text: str,
+    *,
+    reply_markup: dict[str, Any] | None = None,
+) -> bool:
     if not BOT_TOKEN:
         logger.warning("BOT_TOKEN is not set; notification skipped")
         return False
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
+    payload: dict[str, Any] = {
         "chat_id": str(chat_id),
         "text": text,
         "parse_mode": "Markdown",
     }
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(url, json=payload)
@@ -68,16 +80,40 @@ async def notify_offer(offer: OfferDispatch) -> None:
         )
         return
 
-    service_label = "🏆 Auction Car" if offer.service_type == "auction" else "🔍 Outside Car"
+    service_label = (
+        "🏆 Auction Car"
+        if offer.service_type == "auction"
+        else "🔍 Outside Car"
+    )
+    accept_label = (
+        "🏆 Auction Order လက်ခံမည်"
+        if offer.service_type == "auction"
+        else "🔍 ကားရှာ Order လက်ခံမည်"
+    )
     text = (
         "🔔 *JACC Broker Offer*\n\n"
         f"🆔 Request: `{offer.request_code}`\n"
         f"📌 Service: {service_label}\n"
         f"👷 Broker: `{offer.broker_code}`\n\n"
-        "⏱ ဒီ Offer သည် ၁၀ မိနစ်အတွင်း သက်တမ်းကုန်မည်။\n"
-        "Broker Dashboard သို့မဟုတ် Bot မှ Accept / Decline လုပ်ပါ။"
+        "⏱ ဒီ Offer သည် ၁၀ မိနစ်အတွင်း သက်တမ်းကုန်မည်။"
     )
-    await telegram_send(offer.broker_telegram_user_id, text)
+    reply_markup = {
+        "inline_keyboard": [[
+            {
+                "text": accept_label,
+                "callback_data": f"p1_accept_{offer.offer_id}",
+            },
+            {
+                "text": "❌ ငြင်းမည်",
+                "callback_data": f"p1_decline_{offer.offer_id}",
+            },
+        ]]
+    }
+    await telegram_send(
+        offer.broker_telegram_user_id,
+        text,
+        reply_markup=reply_markup,
+    )
 
 
 async def notify_admin(text: str) -> None:
@@ -88,7 +124,10 @@ async def notify_admin(text: str) -> None:
 async def dispatch_request(client: JaccPhase1Client, request_id: str) -> None:
     offer = await client.dispatch_next_offer(request_id)
     if offer is None:
-        logger.info("No eligible broker currently available for request=%s", request_id)
+        logger.info(
+            "No eligible broker currently available for request=%s",
+            request_id,
+        )
         return
     logger.info(
         "Dispatched request=%s offer=%s broker=%s expires=%s",
