@@ -398,9 +398,10 @@ _legacy.save_member_to_sheet = save_member_to_sheet
 _legacy.send_approval_dm = send_approval_dm
 ExtBot.set_my_commands = _set_my_commands_with_admin_tools
 
-# Load the health command after the queue/admin patches above, but before
-# completion_launcher starts legacy_bot.main and registers Telegram handlers.
+# Load Phase 1 health/backup commands and the phone-friendly restore patch
+# before completion_launcher starts legacy_bot.main and registers handlers.
 import phase1_healthcheck as _phase1_healthcheck  # noqa: F401,E402
+import phase1_restore_latest as _phase1_restore_latest  # noqa: F401,E402
 
 
 async def main() -> None:
