@@ -1,1 +1,1 @@
-web: python -u bot.py
+web: python -u production_launcher.py
