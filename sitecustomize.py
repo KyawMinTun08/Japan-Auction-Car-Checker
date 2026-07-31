@@ -8,11 +8,72 @@ critical command patches in this single module so Railway does not depend on
 from __future__ import annotations
 
 import os
+from contextvars import ContextVar
 from typing import Any
 
 import legacy_bot as _legacy
 from telegram import BotCommand, BotCommandScopeChat
 from telegram.ext import ExtBot
+
+
+# ---------------------------------------------------------------------------
+# ONE CANONICAL REQUEST ID
+# ---------------------------------------------------------------------------
+# During mirror rollout, Phase 1 creates the canonical request code first and
+# the legacy submit function used to generate a second random R/A code. Capture
+# the Phase 1 code in the current async context and make the legacy generator
+# reuse it. ContextVar keeps concurrent customer requests isolated.
+if not getattr(_legacy, "_canonical_request_id_patch_installed", False):
+    _CANONICAL_REQUEST_CODE: ContextVar[str] = ContextVar(
+        "jacc_canonical_request_code",
+        default="",
+    )
+    _ORIGINAL_RANDOM_CHOICES = _legacy.random.choices
+
+    def _canonical_aware_choices(
+        population,
+        weights=None,
+        *,
+        cum_weights=None,
+        k=1,
+    ):
+        request_code = _CANONICAL_REQUEST_CODE.get()
+        if (
+            request_code
+            and population == _legacy.string.digits
+            and k == 6
+            and request_code[:1] in {"R", "A"}
+        ):
+            # legacy_bot builds: service_prefix + ''.join(random.choices(...))
+            # Returning the rest of the canonical code preserves the full code.
+            _CANONICAL_REQUEST_CODE.set("")
+            return [request_code[1:]]
+        return _ORIGINAL_RANDOM_CHOICES(
+            population,
+            weights=weights,
+            cum_weights=cum_weights,
+            k=k,
+        )
+
+    _legacy.random.choices = _canonical_aware_choices
+
+    if _legacy.phase1 is not None:
+        _ORIGINAL_CREATE_REQUEST = (
+            _legacy.phase1.create_request_for_telegram_customer
+        )
+
+        async def _create_request_and_capture_code(*args, **kwargs):
+            result = await _ORIGINAL_CREATE_REQUEST(*args, **kwargs)
+            request_code = str(result.get("request_code") or "").strip().upper()
+            if request_code:
+                _CANONICAL_REQUEST_CODE.set(request_code)
+            return result
+
+        _legacy.phase1.create_request_for_telegram_customer = (
+            _create_request_and_capture_code
+        )
+
+    _legacy._canonical_request_id_patch_installed = True
 
 
 _BASE_COMMAND_HANDLER = _legacy.CommandHandler
