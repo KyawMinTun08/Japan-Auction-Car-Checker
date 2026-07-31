@@ -5,10 +5,10 @@ Responsibilities:
 - Dispatch the next broker sequentially.
 - Reassign requests after 48 hours without a meaningful update.
 - Retry queued requests when a broker becomes available.
-- Send Telegram fallback notifications to brokers during the pilot.
+- Queue critical Telegram notifications in the database outbox.
 
 Run:
-    python phase1_worker.py
+    python phase1/phase1_worker.py
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-# Telegram Bot API URLs contain the bot token. Never print them in Railway logs.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("jacc-phase1-worker")
@@ -36,8 +35,6 @@ POLL_SECONDS = max(15, int(os.getenv("PHASE1_POLL_SECONDS", "30")))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-# Phase 1 is now the production request source of truth. Railway may still
-# override this explicitly with 0 for an emergency rollback.
 PHASE1_SEQUENTIAL_ENABLED = (
     os.getenv("PHASE1_SEQUENTIAL_ENABLED", "1").strip() == "1"
 )
@@ -58,6 +55,7 @@ async def telegram_send(
     *,
     reply_markup: dict[str, Any] | None = None,
 ) -> bool:
+    """Emergency fallback used only when the outbox cannot be reached."""
     if not BOT_TOKEN:
         logger.warning("BOT_TOKEN is not set; notification skipped")
         return False
@@ -77,11 +75,11 @@ async def telegram_send(
         response.raise_for_status()
         return True
     except Exception:
-        logger.exception("Telegram notification failed for chat_id=%s", chat_id)
+        logger.exception("Telegram fallback failed for chat_id=%s", chat_id)
         return False
 
 
-async def notify_offer(offer: OfferDispatch) -> None:
+async def notify_offer(client: JaccPhase1Client, offer: OfferDispatch) -> None:
     if offer.broker_telegram_user_id is None:
         logger.info(
             "Offer %s created for broker %s; dashboard push pending",
@@ -119,16 +117,71 @@ async def notify_offer(offer: OfferDispatch) -> None:
             },
         ]]
     }
-    await telegram_send(
-        offer.broker_telegram_user_id,
-        text,
-        reply_markup=reply_markup,
-    )
+    payload = {
+        "chat_id": str(offer.broker_telegram_user_id),
+        "text": text,
+        "parse_mode": "Markdown",
+        "reply_markup": reply_markup,
+    }
+
+    try:
+        outbox_id = await client.enqueue_message(
+            channel="telegram",
+            message_type="broker_offer",
+            payload=payload,
+            request_id=offer.request_id,
+            recipient_profile_id=offer.broker_id,
+            dedupe_key=f"broker-offer:{offer.offer_id}:telegram",
+            priority=100,
+            max_attempts=5,
+        )
+        logger.info(
+            "Queued broker offer outbox=%s request=%s broker=%s",
+            outbox_id,
+            offer.request_code,
+            offer.broker_code,
+        )
+    except Exception:
+        logger.exception(
+            "Outbox enqueue failed for offer=%s; using direct fallback",
+            offer.offer_id,
+        )
+        await telegram_send(
+            offer.broker_telegram_user_id,
+            text,
+            reply_markup=reply_markup,
+        )
 
 
-async def notify_admin(text: str) -> None:
+async def notify_admin(
+    client: JaccPhase1Client,
+    text: str,
+    *,
+    request_id: str | None,
+    event_key: str,
+) -> None:
     for admin_id in ADMIN_IDS:
-        await telegram_send(admin_id, text)
+        try:
+            await client.enqueue_message(
+                channel="telegram",
+                message_type="admin_alert",
+                payload={
+                    "chat_id": admin_id,
+                    "text": text,
+                    "parse_mode": "Markdown",
+                },
+                request_id=request_id,
+                dedupe_key=f"{event_key}:admin:{admin_id}",
+                priority=200,
+                max_attempts=5,
+            )
+        except Exception:
+            logger.exception(
+                "Admin outbox enqueue failed admin=%s event=%s; using fallback",
+                admin_id,
+                event_key,
+            )
+            await telegram_send(admin_id, text)
 
 
 async def dispatch_request(client: JaccPhase1Client, request_id: str) -> None:
@@ -146,17 +199,13 @@ async def dispatch_request(client: JaccPhase1Client, request_id: str) -> None:
         offer.broker_code,
         offer.expires_at,
     )
-    await notify_offer(offer)
+    await notify_offer(client, offer)
 
 
 async def list_waiting_request_ids(
     client: JaccPhase1Client,
 ) -> list[str]:
-    """Return the oldest queued requests that currently have no active owner.
-
-    The dispatch RPC performs the final locking and eligibility checks, so this
-    read can safely run alongside the Telegram bot and other worker cycles.
-    """
+    """Return oldest queued requests that currently have no active owner."""
     url = f"{client._base_url}/rest/v1/jacc_service_requests"
     params = {
         "status": "eq.waiting_broker",
@@ -196,15 +245,19 @@ async def run_cycle(client: JaccPhase1Client) -> None:
         request_code = row["request_code"]
         urgent = bool(row.get("urgent_auction"))
         await notify_admin(
-            "🚨 *Broker Auto Reassign*\n\n"
-            f"🆔 `{request_code}`\n"
-            "အကြောင်းရင်း: ၄၈ နာရီအတွင်း Meaningful Update မရှိ\n"
-            f"Urgent Auction: `{'YES' if urgent else 'NO'}`"
+            client,
+            (
+                "🚨 *Broker Auto Reassign*\n\n"
+                f"🆔 `{request_code}`\n"
+                "အကြောင်းရင်း: ၄၈ နာရီအတွင်း Meaningful Update မရှိ\n"
+                f"Urgent Auction: `{'YES' if urgent else 'NO'}`"
+            ),
+            request_id=request_id,
+            event_key=f"stale-reassign:{request_id}",
         )
         await dispatch_request(client, request_id)
 
     if not PHASE1_SEQUENTIAL_ENABLED:
-        logger.warning("Phase 1 queue processing is disabled")
         return
 
     waiting_request_ids = await list_waiting_request_ids(client)
@@ -221,7 +274,7 @@ async def main() -> None:
     )
 
     logger.info(
-        "JACC Phase 1 worker started; poll=%ss queue_enabled=%s batch=%s",
+        "JACC Phase 1 worker started; poll=%ss queue_enabled=%s batch=%s outbox=enabled",
         POLL_SECONDS,
         PHASE1_SEQUENTIAL_ENABLED,
         QUEUE_BATCH_SIZE,
