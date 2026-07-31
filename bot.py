@@ -673,6 +673,10 @@ _legacy.button_callback = button_callback
 _legacy.available_cmd = available_cmd
 _legacy.busy_cmd = busy_cmd
 
+# Python's automatic sitecustomize loading is not guaranteed in every Railway
+# launch layout. Import it explicitly before legacy_bot.main registers handlers.
+import sitecustomize as _phase1_runtime_patches  # noqa: F401,E402
+
 
 if __name__ == "__main__":
     try:
