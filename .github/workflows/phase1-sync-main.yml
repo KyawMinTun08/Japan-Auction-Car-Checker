@@ -1,0 +1,32 @@
+name: One-time Phase 1 main sync
+
+on:
+  push:
+    branches:
+      - agent/jacc-phase1-foundation
+    paths:
+      - .github/workflows/phase1-sync-main.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync-main:
+    if: github.event.head_commit.message == 'Add one-time Phase 1 main sync workflow'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out Phase 1 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/jacc-phase1-foundation
+          fetch-depth: 0
+
+      - name: Merge current main while preserving tested Phase 1 conflict resolutions
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge origin/main --no-edit -X ours
+          git push origin HEAD:agent/jacc-phase1-foundation
