@@ -13,12 +13,18 @@ only patches runtime entry points before ``legacy_bot.main`` registers them.
 from __future__ import annotations
 
 import asyncio
+import sys
 import traceback
 from typing import Any
 
 import completion_launcher as _completion
 from telegram.ext import ExtBot
 
+
+# Railway currently starts this file directly as ``__main__``.  Expose the
+# running module under its import name so phase1_healthcheck patches this exact
+# runtime instead of loading a second copy of queue_launcher.
+sys.modules.setdefault("queue_launcher", sys.modules[__name__])
 
 _legacy = _completion._legacy
 _existing_command_handler = _legacy.CommandHandler
@@ -391,6 +397,10 @@ _legacy.mypassword_cmd = mypassword_cmd
 _legacy.save_member_to_sheet = save_member_to_sheet
 _legacy.send_approval_dm = send_approval_dm
 ExtBot.set_my_commands = _set_my_commands_with_admin_tools
+
+# Load the health command after the queue/admin patches above, but before
+# completion_launcher starts legacy_bot.main and registers Telegram handlers.
+import phase1_healthcheck as _phase1_healthcheck  # noqa: F401,E402
 
 
 async def main() -> None:
