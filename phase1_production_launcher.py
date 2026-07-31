@@ -1,7 +1,7 @@
 """Production entrypoint for the JACC Phase 1 sequential broker flow.
 
 This launcher enables the guarded Phase 1 path before importing the existing
-production launch stack.  Keeping the flag here avoids changing legacy_bot.py
+production launch stack. Keeping the flag here avoids changing legacy_bot.py
 and makes the production cutover explicit and reversible.
 """
 
@@ -18,6 +18,7 @@ os.environ.setdefault("PHASE1_POLL_SECONDS", "30")
 os.environ.setdefault("PHASE1_QUEUE_BATCH_SIZE", "25")
 
 import queue_launcher  # noqa: E402  (environment must be set first)
+import phase1_healthcheck  # noqa: F401,E402  (patch before handler registration)
 
 
 if __name__ == "__main__":
