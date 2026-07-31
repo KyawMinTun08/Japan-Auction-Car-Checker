@@ -36,8 +36,10 @@ POLL_SECONDS = max(15, int(os.getenv("PHASE1_POLL_SECONDS", "30")))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+# Phase 1 is now the production request source of truth. Railway may still
+# override this explicitly with 0 for an emergency rollback.
 PHASE1_SEQUENTIAL_ENABLED = (
-    os.getenv("PHASE1_SEQUENTIAL_ENABLED", "0").strip() == "1"
+    os.getenv("PHASE1_SEQUENTIAL_ENABLED", "1").strip() == "1"
 )
 QUEUE_BATCH_SIZE = max(
     1,
@@ -201,9 +203,8 @@ async def run_cycle(client: JaccPhase1Client) -> None:
         )
         await dispatch_request(client, request_id)
 
-    # Keep production behaviour unchanged until the guarded Phase 1 rollout is
-    # explicitly enabled in this worker's Railway variables.
     if not PHASE1_SEQUENTIAL_ENABLED:
+        logger.warning("Phase 1 queue processing is disabled")
         return
 
     waiting_request_ids = await list_waiting_request_ids(client)
