@@ -167,3 +167,6 @@ async def restoreverify_cmd(update, context):
 ExtBot.send_document = _send_document_with_backup_capture
 _health.backupdb_cmd = backupdb_cmd
 _health.restoreverify_cmd = restoreverify_cmd
+
+# Load after health/backup command patches so the self-test extends the final chain.
+import phase1_selftest as _phase1_selftest  # noqa: F401,E402
