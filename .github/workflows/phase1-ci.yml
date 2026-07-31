@@ -10,6 +10,7 @@ on:
       - "queue_launcher.py"
       - "phase1_production_launcher.py"
       - "phase1_healthcheck.py"
+      - "phase1_selftest.py"
       - "phase1/**"
       - ".github/workflows/phase1-ci.yml"
   push:
@@ -23,6 +24,7 @@ on:
       - "queue_launcher.py"
       - "phase1_production_launcher.py"
       - "phase1_healthcheck.py"
+      - "phase1_selftest.py"
       - "phase1/**"
       - ".github/workflows/phase1-ci.yml"
 
@@ -54,6 +56,7 @@ jobs:
           python -m py_compile \
             phase1_production_launcher.py \
             phase1_healthcheck.py \
+            phase1_selftest.py \
             queue_launcher.py \
             bot.py \
             bot_core.py \
