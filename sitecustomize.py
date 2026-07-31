@@ -1,8 +1,8 @@
-"""Runtime bridge for customer request status during the JACC Phase 1 rollout.
+"""Runtime bridges for the JACC Phase 1 rollout.
 
-Python imports ``sitecustomize`` automatically at startup.  The bridge patches
-only ``legacy_bot.mystatus_cmd`` and keeps the existing Google Sheets command as
-a safe fallback while Phase 1 sequential assignment is disabled or unavailable.
+Python imports ``sitecustomize`` automatically at startup. The bridges patch the
+active ``legacy_bot`` runtime used by Railway, while preserving the existing
+Google Sheets commands as safe fallbacks.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import legacy_bot as _legacy
 
 
 _original_mystatus_cmd = _legacy.mystatus_cmd
+_original_brokers_cmd = _legacy.brokers_cmd
+_original_command_handler = _legacy.CommandHandler
 
 _STATUS_LABELS = {
     "submitted": "📥 Request တင်ပြီး",
@@ -172,4 +174,127 @@ async def mystatus_cmd(update, context):
     await update.message.reply_text("\n".join(lines))
 
 
+async def _load_phase1_queue(limit: int = 20) -> list[dict[str, Any]]:
+    """Load waiting and offered requests for the admin queue view."""
+    if _legacy.phase1 is None:
+        raise _legacy.JaccPhase1Error("PHASE1_NOT_CONFIGURED")
+
+    url = f"{_legacy.phase1._base_url}/rest/v1/jacc_service_requests"
+    params = {
+        "status": "in.(waiting_broker,offered)",
+        "select": (
+            "request_code,status,service_type,priority,created_at,form_data"
+        ),
+        "order": "priority.desc,created_at.asc",
+        "limit": str(limit),
+    }
+    async with _legacy.httpx.AsyncClient(
+        timeout=_legacy.phase1._timeout
+    ) as client:
+        response = await client.get(
+            url,
+            headers=_legacy.phase1._headers,
+            params=params,
+        )
+
+    if response.is_error:
+        raise _legacy.JaccPhase1Error(
+            "Phase 1 queue lookup failed "
+            f"({response.status_code}): {response.text[:500]}"
+        )
+    return list(response.json() or [])
+
+
+def _queue_text(rows: list[dict[str, Any]]) -> str:
+    waiting_count = sum(
+        1 for row in rows if row.get("status") == "waiting_broker"
+    )
+    offered_count = sum(
+        1 for row in rows if row.get("status") == "offered"
+    )
+    lines = [
+        "📋 JACC REQUEST QUEUE",
+        "",
+        f"⏳ Waiting: {waiting_count}",
+        f"📨 Offer sent: {offered_count}",
+        f"📊 Showing: {len(rows)}",
+        "",
+    ]
+
+    for index, row in enumerate(rows, start=1):
+        form_data = dict(row.get("form_data") or {})
+        service = (
+            "AUCTION"
+            if row.get("service_type") == "auction"
+            else "OUTSIDE"
+        )
+        status = (
+            "WAITING"
+            if row.get("status") == "waiting_broker"
+            else "OFFER SENT"
+        )
+        car_name = str(form_data.get("car_name") or "-")[:60]
+        username = str(form_data.get("username") or "-")[:40]
+        priority = row.get("priority", 0)
+        created_at = str(row.get("created_at") or "").replace("T", " ")[:16]
+        lines.extend(
+            [
+                (
+                    f"{index}. {row.get('request_code', '-')} | "
+                    f"{service} | {status} | P{priority}"
+                ),
+                f"   🚗 {car_name}",
+                f"   👤 {username} | 🕒 {created_at}",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip()
+
+
+async def brokers_cmd(update, context):
+    """Serve /queue and preserve the existing /brokers command."""
+    message = update.effective_message
+    command = (
+        (message.text or "")
+        .split(maxsplit=1)[0]
+        .split("@", 1)[0]
+        .lower()
+    )
+
+    if command != "/queue":
+        await _original_brokers_cmd(update, context)
+        return
+
+    user = update.effective_user
+    if not _legacy.ADMIN_IDS or user.id not in _legacy.ADMIN_IDS:
+        await message.reply_text("❌ Admin သာ သုံးနိုင်ပါတယ်")
+        return
+
+    try:
+        rows = await _load_phase1_queue()
+    except _legacy.JaccPhase1Error as exc:
+        _legacy.logger.warning("Phase 1 /queue unavailable: %s", exc)
+        await message.reply_text("❌ Queue data မရသေးပါ — ခဏပြန်စမ်းပါ")
+        return
+    except Exception:
+        _legacy.logger.exception("Phase 1 /queue failed")
+        await message.reply_text("❌ Queue စစ်ဆေးမှု မအောင်မြင်ပါ")
+        return
+
+    if not rows:
+        await message.reply_text("✅ Queue ထဲမှာ စောင့်နေတဲ့ Request မရှိပါ")
+        return
+
+    await message.reply_text(_queue_text(rows))
+
+
+def _command_handler_with_queue(command, callback, *args, **kwargs):
+    """Register /queue through the existing /brokers handler slot."""
+    if command == "brokers":
+        command = ["brokers", "queue"]
+    return _original_command_handler(command, callback, *args, **kwargs)
+
+
 _legacy.mystatus_cmd = mystatus_cmd
+_legacy.brokers_cmd = brokers_cmd
+_legacy.CommandHandler = _command_handler_with_queue
