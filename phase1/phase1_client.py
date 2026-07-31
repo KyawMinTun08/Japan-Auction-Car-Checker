@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
 import httpx
 
 
@@ -94,9 +95,7 @@ class JaccPhase1Client:
 
         data = response.json()
         if not data:
-            raise JaccPhase1Error(
-                "PROFILE_NOT_FOUND_FOR_TELEGRAM_USER"
-            )
+            raise JaccPhase1Error("PROFILE_NOT_FOUND_FOR_TELEGRAM_USER")
 
         profile = data[0]
         if not profile.get("account_active"):
@@ -110,9 +109,7 @@ class JaccPhase1Client:
         telegram_user_id: int,
         accepting_requests: bool,
     ) -> dict[str, Any]:
-        profile = await self.get_profile_by_telegram_user_id(
-            telegram_user_id
-        )
+        profile = await self.get_profile_by_telegram_user_id(telegram_user_id)
         if profile.get("role") not in {"broker", "lead_broker"}:
             raise JaccPhase1Error("PROFILE_IS_NOT_A_BROKER")
 
@@ -121,10 +118,7 @@ class JaccPhase1Client:
             "user_id": f"eq.{profile['id']}",
             "select": "user_id,broker_code,account_status,accepting_requests",
         }
-        headers = {
-            **self._headers,
-            "Prefer": "return=representation",
-        }
+        headers = {**self._headers, "Prefer": "return=representation"}
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.patch(
@@ -152,10 +146,7 @@ class JaccPhase1Client:
         service_type: str,
         form_data: dict[str, Any],
     ) -> dict[str, Any]:
-        profile = await self.get_profile_by_telegram_user_id(
-            telegram_user_id
-        )
-
+        profile = await self.get_profile_by_telegram_user_id(telegram_user_id)
         return await self.create_request_for_customer(
             customer_id=str(profile["id"]),
             service_type=service_type,
@@ -225,9 +216,7 @@ class JaccPhase1Client:
         )
         if isinstance(request_id, str):
             return request_id
-        raise JaccPhase1Error(
-            "Decline RPC did not return a request id"
-        )
+        raise JaccPhase1Error("Decline RPC did not return a request id")
 
     async def expire_pending_offers(self) -> list[str]:
         data = await self._rpc("jacc_expire_pending_offers", {})
@@ -256,3 +245,41 @@ class JaccPhase1Client:
                 "p_content": content or {},
             },
         )
+
+    async def enqueue_message(
+        self,
+        *,
+        channel: str,
+        payload: dict[str, Any],
+        message_type: str = "text",
+        request_id: str | None = None,
+        recipient_profile_id: str | None = None,
+        dedupe_key: str | None = None,
+        priority: int = 0,
+        max_attempts: int = 5,
+    ) -> str:
+        """Persist an outgoing message for the recovery worker to deliver."""
+        data = await self._rpc(
+            "jacc_enqueue_message",
+            {
+                "p_channel": channel,
+                "p_message_type": message_type,
+                "p_payload": payload,
+                "p_request_id": request_id,
+                "p_recipient_profile_id": recipient_profile_id,
+                "p_dedupe_key": dedupe_key,
+                "p_priority": priority,
+                "p_max_attempts": max_attempts,
+            },
+        )
+        if isinstance(data, str):
+            return data
+        if isinstance(data, list) and data:
+            value = data[0]
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                return str(next(iter(value.values())))
+        if isinstance(data, dict) and data:
+            return str(next(iter(data.values())))
+        raise JaccPhase1Error("Outbox enqueue did not return an id")
