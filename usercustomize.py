@@ -1,12 +1,18 @@
 """Final Telegram runtime command patch for JACC.
 
-Python imports ``usercustomize`` after ``sitecustomize``.  This patch therefore
+Python imports ``usercustomize`` after ``sitecustomize``. This patch therefore
 works whether Railway starts ``bot.py`` directly or uses the Procfile launcher.
 It preserves the Phase 1 queue bridge and adds the missing admin aliases plus a
 clean password-only copy flow.
 """
 
 from __future__ import annotations
+
+import os
+
+# Use the Supabase-generated canonical request code everywhere. Railway can
+# still roll back instantly by explicitly setting PHASE1_SEQUENTIAL_ENABLED=0.
+os.environ.setdefault("PHASE1_SEQUENTIAL_ENABLED", "1")
 
 from telegram import BotCommand, BotCommandScopeChat
 from telegram.ext import ExtBot
