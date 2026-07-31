@@ -330,3 +330,6 @@ _legacy.mystatus_cmd = mystatus_cmd
 _legacy.brokers_cmd = brokers_cmd
 _legacy.CommandHandler = _command_handler_with_queue
 ExtBot.set_my_commands = _set_my_commands_with_admin_queue
+
+# Railway starts bot.py directly, so load the admin/password patch explicitly.
+import usercustomize as _admin_password_runtime_patch  # noqa: F401,E402
