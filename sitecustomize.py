@@ -11,11 +11,13 @@ import os
 from typing import Any
 
 import legacy_bot as _legacy
+from telegram.ext import ExtBot
 
 
 _original_mystatus_cmd = _legacy.mystatus_cmd
 _original_brokers_cmd = _legacy.brokers_cmd
 _original_command_handler = _legacy.CommandHandler
+_original_set_my_commands = ExtBot.set_my_commands
 
 _STATUS_LABELS = {
     "submitted": "📥 Request တင်ပြီး",
@@ -295,6 +297,36 @@ def _command_handler_with_queue(command, callback, *args, **kwargs):
     return _original_command_handler(command, callback, *args, **kwargs)
 
 
+async def _set_my_commands_with_admin_queue(self, commands, *args, **kwargs):
+    """Add /queue to Telegram's visible command menu for admin chat scopes."""
+    scope = kwargs.get("scope")
+    chat_id = getattr(scope, "chat_id", None)
+    try:
+        is_admin_scope = int(chat_id) in _legacy.ADMIN_IDS
+    except (TypeError, ValueError):
+        is_admin_scope = False
+
+    patched_commands = list(commands)
+    if is_admin_scope and not any(
+        getattr(command, "command", "") == "queue"
+        for command in patched_commands
+    ):
+        patched_commands.append(
+            _legacy.BotCommand(
+                "queue",
+                "📋 Waiting Request Queue (Admin)",
+            )
+        )
+
+    return await _original_set_my_commands(
+        self,
+        patched_commands,
+        *args,
+        **kwargs,
+    )
+
+
 _legacy.mystatus_cmd = mystatus_cmd
 _legacy.brokers_cmd = brokers_cmd
 _legacy.CommandHandler = _command_handler_with_queue
+ExtBot.set_my_commands = _set_my_commands_with_admin_queue
