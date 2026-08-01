@@ -1,0 +1,299 @@
+"""JACC Phase 2 membership and Telegram channel safety guard.
+
+This module is intentionally not imported by the production launcher yet.
+It provides tested replacements for legacy membership checks and approval
+persistence. Call ``install()`` only after Phase 1 is merged and the Phase 2
+acceptance tests are ready to run.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
+
+import httpx
+
+import legacy_bot as _legacy
+
+
+_BANGKOK = ZoneInfo("Asia/Bangkok")
+_ALLOWED_PACKAGES = {"CH", "WEB", "PROMO10D"}
+
+
+def normalise_member_id(value: object) -> str:
+    """Return a stable Telegram user ID string from Sheet/API values."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return str(value).strip()
+
+    text = str(value).strip()
+    if text.endswith(".0") and text[:-2].isdigit():
+        return text[:-2]
+    return text
+
+
+def normalise_member_status(value: object) -> str:
+    return str(value or "").strip().upper()
+
+
+def normalise_member_package(value: object) -> str:
+    package = str(value or "CH").strip().upper().replace(" ", "_")
+    aliases = {
+        "STANDARD": "CH",
+        "TELEGRAM": "CH",
+        "CH-PROMO": "CH",
+        "CH_PROMO": "CH",
+        "PREMIUM": "WEB",
+        "WEB-PROMO": "WEB",
+        "WEB_PROMO": "WEB",
+        "WEB_PREMIUM": "WEB",
+        "PROMO-10D": "PROMO10D",
+        "PROMO_10D": "PROMO10D",
+    }
+    return aliases.get(package, package)
+
+
+def parse_expire_date(value: object) -> date | None:
+    """Parse the date formats currently seen in the Members sheet/API."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+        try:
+            return datetime.strptime(text.rstrip("Z"), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def member_row_is_active(member: dict, *, today: date | None = None) -> bool:
+    """Require ACTIVE status and a valid, non-expired membership date."""
+    if normalise_member_status(member.get("status")) != "ACTIVE":
+        return False
+    expiry = parse_expire_date(
+        member.get("expireDate")
+        or member.get("expire_date")
+        or member.get("expiry")
+    )
+    if expiry is None:
+        return False
+    current_day = today or datetime.now(_BANGKOK).date()
+    return expiry >= current_day
+
+
+def member_row_user_id(member: dict) -> str:
+    return normalise_member_id(
+        member.get("userId")
+        or member.get("userID")
+        or member.get("UserID")
+        or member.get("telegramId")
+    )
+
+
+async def _fetch_members() -> list[dict]:
+    if not _legacy.SHEET_WEBHOOK:
+        raise RuntimeError("SHEET_WEBHOOK is not configured")
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+        response = await client.post(
+            _legacy.SHEET_WEBHOOK,
+            json={"action": "getMembers"},
+        )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("status") not in (None, "ok"):
+        raise RuntimeError(f"getMembers failed: {payload}")
+    members = payload.get("members", [])
+    if not isinstance(members, list):
+        raise RuntimeError("getMembers returned a non-list members value")
+    return members
+
+
+async def is_active_member(user_id: int) -> bool:
+    """Customer access check: fail closed when membership cannot be proven."""
+    if user_id in _legacy.ADMIN_IDS:
+        return True
+    try:
+        members = await _fetch_members()
+    except Exception as exc:
+        _legacy.logger.error("membership active check failed: %s", exc)
+        return False
+
+    wanted = str(user_id)
+    return any(
+        member_row_user_id(member) == wanted and member_row_is_active(member)
+        for member in members
+    )
+
+
+async def get_member_package(user_id: int) -> str | None:
+    if user_id in _legacy.ADMIN_IDS:
+        return "WEB"
+    try:
+        members = await _fetch_members()
+    except Exception as exc:
+        _legacy.logger.error("membership package check failed: %s", exc)
+        return None
+
+    wanted = str(user_id)
+    for member in members:
+        if member_row_user_id(member) != wanted:
+            continue
+        if not member_row_is_active(member):
+            return None
+        package = normalise_member_package(member.get("package"))
+        return package if package in _ALLOWED_PACKAGES else None
+    return None
+
+
+async def is_valid_member(user_id: int) -> bool:
+    """Destructive channel-removal check: fail safe on temporary Sheet errors."""
+    if user_id in _legacy.ADMIN_IDS:
+        return True
+    try:
+        members = await _fetch_members()
+    except Exception as exc:
+        _legacy.logger.error("channel membership validation failed: %s", exc)
+        return True
+
+    wanted = str(user_id)
+    for member in members:
+        if member_row_user_id(member) != wanted:
+            continue
+        package = normalise_member_package(member.get("package"))
+        return member_row_is_active(member) and package in _ALLOWED_PACKAGES
+    return False
+
+
+async def activate_promo10d(context, user_id: int, username: str) -> bool:
+    """Use the same canonical saveMember contract as paid memberships."""
+    del context
+    return await _legacy.save_member_to_sheet(
+        str(user_id),
+        str(username or user_id).replace("@", "").strip(),
+        10,
+        _legacy.generate_password(),
+        "PROMO10D",
+    )
+
+
+async def approve_member(update, context) -> None:
+    """Admin approval that never reports success before Sheet persistence."""
+    admin_id = update.effective_user.id
+    if _legacy.ADMIN_IDS and admin_id not in _legacy.ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "❌ Format: `/approve 123456789 1 WEB`",
+            parse_mode="Markdown",
+        )
+        return
+
+    target = str(context.args[0]).replace("@", "").strip()
+    try:
+        months = int(context.args[1])
+    except (TypeError, ValueError):
+        await update.message.reply_text("❌ လ ဂဏန်းထည့်ပါ")
+        return
+    if months < 1 or months > 12:
+        await update.message.reply_text("❌ Membership လကို 1 မှ 12 အတွင်း ထည့်ပါ")
+        return
+
+    package = normalise_member_package(
+        context.args[2] if len(context.args) > 2 else "CH"
+    )
+    if package not in {"CH", "WEB"}:
+        await update.message.reply_text("❌ Package ကို CH သို့မဟုတ် WEB သာ ထည့်ပါ")
+        return
+
+    member_id: int | None
+    member_username = target
+    try:
+        member_id = int(target)
+    except ValueError:
+        member_id = None
+
+    if member_id is not None:
+        try:
+            chat = await context.bot.get_chat(member_id)
+            member_username = (
+                getattr(chat, "username", None)
+                or getattr(chat, "first_name", None)
+                or str(member_id)
+            )
+        except Exception as exc:
+            _legacy.logger.info("approve get_chat %s: %s", member_id, exc)
+
+    password = _legacy.generate_password() if package == "WEB" else ""
+    saved = await _legacy.save_member_to_sheet(
+        str(member_id) if member_id is not None else target,
+        member_username,
+        months * 30,
+        password,
+        package,
+    )
+    if not saved:
+        await update.message.reply_text(
+            "❌ Membership ကို Sheet ထဲ မသိမ်းနိုင်ပါ။\n\n"
+            "Customer ကို approve မလုပ်ရသေးပါ။ Sheet/Webhook စစ်ပြီး ပြန်လုပ်ပါ။"
+        )
+        return
+
+    invite_url = await _legacy.create_invite_link(context, months * 30)
+    if member_id is not None:
+        await _legacy.send_approval_dm(
+            context,
+            member_id,
+            months,
+            password,
+            invite_url,
+            package=package,
+        )
+
+    expire_date = (
+        datetime.now(_BANGKOK).date()
+    ).strftime("%d/%m/%Y")
+    # Keep the admin summary free of the actual credential.
+    password_line = "🔑 Password ကို customer DM ထဲပို့ထားပါသည်။\n" if password else ""
+    text = (
+        "✅ <b>Membership Approved!</b>\n\n"
+        f"👤 @{member_username}\n"
+        f"🆔 <code>{member_id if member_id is not None else 'N/A'}</code>\n"
+        f"📦 Package: {_legacy.PLAN_NAMES.get(package, package)}\n"
+        f"📅 <b>{months} လ</b>\n"
+        f"🗓️ စတင်ရက်: <code>{expire_date}</code>\n"
+        f"{password_line}"
+    )
+    if invite_url:
+        text += "📢 Channel invite ပို့ပြီးပါပြီ။"
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
+def install() -> SimpleNamespace:
+    """Install tested replacements before legacy_bot.main() registers handlers."""
+    replacements = SimpleNamespace(
+        is_active_member=is_active_member,
+        get_member_package=get_member_package,
+        is_valid_member=is_valid_member,
+        activate_promo10d=activate_promo10d,
+        approve_member=approve_member,
+    )
+    for name, value in vars(replacements).items():
+        setattr(_legacy, name, value)
+    return replacements
