@@ -179,3 +179,6 @@ import phase1_resilience_test as _phase1_resilience_test  # noqa: F401,E402
 
 # Add the final isolated restart + 10-request production pilot.
 import phase1_final_pilot as _phase1_final_pilot  # noqa: F401,E402
+
+# Replace raw SQLSTATE errors with a migration-aware admin message.
+import phase1_final_pilot_guard as _phase1_final_pilot_guard  # noqa: F401,E402
