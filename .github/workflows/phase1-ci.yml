@@ -4,6 +4,7 @@ name: Phase 1 CI
 on:
   pull_request:
     paths:
+      - "index.html"
       - "bot.py"
       - "bot_core.py"
       - "legacy_bot.py"
@@ -25,6 +26,7 @@ on:
       - agent/jacc-phase1-foundation
       - agent/jacc-phase2-membership-audit
     paths:
+      - "index.html"
       - "bot.py"
       - "bot_core.py"
       - "legacy_bot.py"
@@ -75,6 +77,7 @@ jobs:
             phase1_final_pilot.py \
             phase1_final_pilot_guard.py \
             phase2_membership_guard.py \
+            phase2/apply_website_device_binding.py \
             queue_launcher.py \
             bot.py \
             bot_core.py \
