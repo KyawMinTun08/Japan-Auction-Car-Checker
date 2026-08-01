@@ -1,4 +1,5 @@
 # One-shot guarded generator. Remove after index.html is committed.
+# Triggered after Phase 2 device-binding contract review.
 name: Phase 2 Generate Website
 
 on:
