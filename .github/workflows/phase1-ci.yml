@@ -12,6 +12,7 @@ on:
       - "phase1_healthcheck.py"
       - "phase1_selftest.py"
       - "phase1_broker_sync.py"
+      - "phase1_resilience_test.py"
       - "phase1/**"
       - ".github/workflows/phase1-ci.yml"
   push:
@@ -27,6 +28,7 @@ on:
       - "phase1_healthcheck.py"
       - "phase1_selftest.py"
       - "phase1_broker_sync.py"
+      - "phase1_resilience_test.py"
       - "phase1/**"
       - ".github/workflows/phase1-ci.yml"
 
@@ -60,6 +62,7 @@ jobs:
             phase1_healthcheck.py \
             phase1_selftest.py \
             phase1_broker_sync.py \
+            phase1_resilience_test.py \
             queue_launcher.py \
             bot.py \
             bot_core.py \
