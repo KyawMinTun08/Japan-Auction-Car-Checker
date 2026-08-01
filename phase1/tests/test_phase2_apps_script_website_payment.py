@@ -69,7 +69,7 @@ def test_membership_activation_precedes_final_approval_and_dm() -> None:
 def test_failed_activation_remains_retryable() -> None:
     source = _adapter()
     failure = source.split("if (!activation || activation.status !== 'ok')", 1)[1]
-    failure = failure.split("paySh.getRange(payRow, 8).setValue('APPROVED')", 1)[0]
+    failure = failure.split("// Registration is written first.", 1)[0]
     assert "ACTIVATION_FAILED:" in failure
     assert "status:'PENDING'" in failure
     assert "setValue('APPROVED')" not in failure
