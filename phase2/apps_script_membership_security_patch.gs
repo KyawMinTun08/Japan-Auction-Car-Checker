@@ -36,6 +36,8 @@ var JACC_PRIVILEGED_MEMBER_ACTIONS = {
   approveMembershipPayment: true,
   approvePayment: true,
   rejectPayment: true,
+  approveWebPayment: true,
+  rejectWebPayment: true,
   getMembers: true,
   getPassword: true,
   resetPassword: true,
