@@ -8,7 +8,8 @@
  * 2. Set the same value as Railway environment variable SHEET_SERVER_KEY.
  * 3. Update every Railway call to a privileged action to send serverKey.
  * 4. Insert the preflight call immediately after parsing data in doPost(e).
- * 5. Deploy a new Apps Script version and run the Phase 2 acceptance tests.
+ * 5. Deploy the payment-approval patch in the same Apps Script version.
+ * 6. Deploy a new Apps Script version and run the Phase 2 acceptance tests.
  *
  * Never put the key in this file, GitHub, the website, Flutter assets, logs,
  * Telegram messages, or Google Sheet cells.
@@ -30,6 +31,7 @@ var JACC_MEMBER_SCHEMA_CANONICAL = [
 
 var JACC_PRIVILEGED_MEMBER_ACTIONS = {
   saveMember: true,
+  approveMembershipPayment: true,
   getMembers: true,
   getPassword: true,
   resetPassword: true,
@@ -170,6 +172,11 @@ function jaccMembershipPreflight_(data) {
  *   var data = JSON.parse(e.postData.contents);
  *   var membershipGuard = jaccMembershipPreflight_(data);
  *   if (membershipGuard) return _json(membershipGuard);
+ *
+ * The doPost switch must also route:
+ *
+ *   case "approveMembershipPayment":
+ *     return _json(jaccApproveMembershipPayment_(data));
  *
  * Keep verifyLogin and verifyToken public. They authenticate with a member
  * password/token and must never receive JACC_SERVER_KEY from browser code.
