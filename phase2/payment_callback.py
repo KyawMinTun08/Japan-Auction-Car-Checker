@@ -1,12 +1,14 @@
 """Telegram callback integration for retry-safe Phase 2 payment approval.
 
-Install this module before ``legacy_bot.main()`` registers handlers. Only the
-``slip_ok_`` callback is intercepted; every other callback is delegated to the
-unchanged legacy handler.
+Install this module before ``legacy_bot.main()`` registers handlers. It handles
+legacy ``slip_ok_`` approvals plus the Apps Script Phase 3
+``webpay_approve_``/``webpay_reject_`` buttons. Every unrelated callback is
+delegated to the unchanged legacy handler.
 """
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable
 
@@ -16,6 +18,9 @@ from phase2 import payment_approval
 
 _legacy: Any | None = None
 _original_button_callback: Callable[..., Awaitable[Any]] | None = None
+_PHASE3_APPROVE_PREFIX = "webpay_approve_"
+_PHASE3_REJECT_PREFIX = "webpay_reject_"
+_PHASE3_PAYMENT_ID = re.compile(r"^WP-[A-Z0-9-]{4,64}$", re.IGNORECASE)
 
 
 def _runtime() -> Any:
@@ -51,6 +56,28 @@ def _approval_error_message(code: str) -> str:
     )
 
 
+def _phase3_error_message(code: str) -> str:
+    messages = {
+        "MEMBERSHIP_ACTIVATION_FAILED": (
+            "❌ Membership activation မအောင်မြင်သေးပါ။\n\n"
+            "Payment ကို PENDING အတိုင်းထားထားပြီး ဒီ button ကို safe retry လုပ်နိုင်ပါတယ်။"
+        ),
+        "PHASE2_PAYMENT_APPROVAL_NOT_AVAILABLE": (
+            "❌ Phase 2 payment module မတက်သေးပါ။ Payment ကို မပြောင်းထားပါ။"
+        ),
+        "PAYMENT_NOT_FOUND": "❌ Payment record မတွေ့ပါ။",
+        "PAYMENT_ALREADY_REVIEWED": "❌ Payment ကို အခြား status နဲ့ review လုပ်ပြီးသားပါ။",
+        "INVALID_STORED_PAYMENT": "❌ Payment row data မမှန်ပါ။ Admin က Sheet ကိုစစ်ပါ။",
+        "PAYMENT_LOCK_BUSY": "⏳ Payment system အလုပ်များနေပါတယ်။ ခဏနေရင် ပြန်နှိပ်ပါ။",
+    }
+    return messages.get(
+        code,
+        "❌ Website payment review မအောင်မြင်ပါ။\n\n"
+        f"Reason: {code or 'unknown'}\n"
+        "Button ကို မဖယ်ထားပါ။ စစ်ဆေးပြီး ပြန်လုပ်နိုင်ပါတယ်။",
+    )
+
+
 async def _remove_approval_buttons(query) -> None:
     try:
         await query.edit_message_reply_markup(reply_markup=None)
@@ -60,13 +87,107 @@ async def _remove_approval_buttons(query) -> None:
         return
 
 
+def _phase3_callback(data: str) -> tuple[str, str] | None:
+    for action, prefix in (
+        ("approveWebPayment", _PHASE3_APPROVE_PREFIX),
+        ("rejectWebPayment", _PHASE3_REJECT_PREFIX),
+    ):
+        if not data.startswith(prefix):
+            continue
+        payment_id = data[len(prefix) :].strip()
+        return action, payment_id
+    return None
+
+
+async def _handle_phase3_payment_callback(query, action: str, payment_id: str):
+    runtime = _runtime()
+    if not _PHASE3_PAYMENT_ID.fullmatch(payment_id):
+        await query.message.reply_text("❌ Website Payment ID မမှန်ပါ")
+        return None
+
+    fields: dict[str, object] = {
+        "paymentId": payment_id,
+        "adminId": str(query.from_user.id),
+    }
+    if action == "rejectWebPayment":
+        fields["reason"] = "Rejected by administrator"
+
+    try:
+        response = await phase2_membership_guard._post_privileged_sheet(
+            action,
+            **fields,
+        )
+    except Exception as exc:
+        runtime.logger.error(
+            "Phase 3 payment callback backend failure for %s: %s",
+            payment_id,
+            exc,
+        )
+        await query.message.reply_text(_phase3_error_message("backend_unavailable"))
+        return None
+
+    if not isinstance(response, dict) or response.get("ok") is not True:
+        code = str(
+            (response or {}).get("error")
+            or (response or {}).get("message")
+            or "backend_rejected"
+        )
+        runtime.logger.warning(
+            "Phase 3 payment callback kept retryable for %s: %s",
+            payment_id,
+            code,
+        )
+        await query.message.reply_text(_phase3_error_message(code))
+        return None
+
+    await _remove_approval_buttons(query)
+
+    status = str(response.get("status") or "").upper()
+    if action == "rejectWebPayment":
+        headline = (
+            "♻️ Website payment ကို Reject လုပ်ပြီးသားပါ။"
+            if response.get("alreadyRejected")
+            else "❌ Website payment ကို Reject လုပ်ပြီးပါပြီ။"
+        )
+        await query.message.reply_text(f"{headline}\n\n🆔 {payment_id}")
+        return response
+
+    activation = response.get("activation") if isinstance(response.get("activation"), dict) else {}
+    duplicate = bool(response.get("alreadyApproved") or activation.get("duplicate"))
+    headline = (
+        "♻️ Website payment ကို အရင်ကတည်းက approve လုပ်ပြီးသားပါ။ "
+        "Membership သက်တမ်း ထပ်မတိုးပါ။"
+        if duplicate
+        else "✅ Website Payment + Membership Approved!"
+    )
+    expiry = str(activation.get("expireDate") or "")
+    package = str(activation.get("package") or "")
+    details = ""
+    if package:
+        details += f"\n📦 Package: {package}"
+    if expiry:
+        details += f"\n⏰ ကုန်ဆုံး: {expiry}"
+    delivery = (
+        "\n⚠️ Membership Active ဖြစ်ပေမယ့် customer DM မပို့နိုင်ပါ။"
+        if response.get("deliveryFailed")
+        else "\n📨 Customer notification ပြီးပါပြီ။"
+    )
+
+    await query.message.reply_text(
+        f"{headline}\n\n🆔 {payment_id}{details}{delivery}"
+    )
+    return response
+
+
 async def button_callback(update, context):
-    """Intercept admin payment approval and delegate all unrelated callbacks."""
+    """Intercept payment callbacks and delegate all unrelated callbacks."""
     runtime = _runtime()
     query = update.callback_query
     data = str(getattr(query, "data", "") or "")
+    phase3 = _phase3_callback(data)
+    is_legacy_approval = data.startswith("slip_ok_")
 
-    if not data.startswith("slip_ok_"):
+    if not is_legacy_approval and phase3 is None:
         if _original_button_callback is None:
             raise RuntimeError("payment callback integration is not installed")
         return await _original_button_callback(update, context)
@@ -75,6 +196,10 @@ async def button_callback(update, context):
         await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
         return None
     await query.answer()
+
+    if phase3 is not None:
+        action, payment_id = phase3
+        return await _handle_phase3_payment_callback(query, action, payment_id)
 
     try:
         member_id = int(data.replace("slip_ok_", "", 1))
