@@ -170,3 +170,6 @@ _health.restoreverify_cmd = restoreverify_cmd
 
 # Load after health/backup command patches so the self-test extends the final chain.
 import phase1_selftest as _phase1_selftest  # noqa: F401,E402
+
+# Keep legacy broker commands synchronized with the Phase 1 broker registry.
+import phase1_broker_sync as _phase1_broker_sync  # noqa: F401,E402
