@@ -137,6 +137,41 @@ async def _fetch_members() -> list[dict]:
     return members
 
 
+async def _fetch_existing_password(user_id: str) -> str:
+    """Read the current credential for WEB renewal/upgrade preservation."""
+    runtime = _runtime()
+    if not runtime.SHEET_WEBHOOK:
+        return ""
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+        response = await client.post(
+            runtime.SHEET_WEBHOOK,
+            json={"action": "getPassword", "userId": str(user_id)},
+        )
+    response.raise_for_status()
+    payload = response.json()
+    status = str(payload.get("status") or "").lower()
+    if status and status != "ok" and not payload.get("ok"):
+        return ""
+    return str(payload.get("password") or "").strip()
+
+
+async def resolve_membership_password(user_id: str, package: str) -> str:
+    """Preserve a WEB member's password; generate only when none exists."""
+    runtime = _runtime()
+    if normalise_member_package(package) != "WEB":
+        return ""
+
+    try:
+        existing = await _fetch_existing_password(str(user_id))
+    except Exception as exc:
+        runtime.logger.warning(
+            "existing password lookup failed for %s: %s", user_id, exc
+        )
+        existing = ""
+    return existing or runtime.generate_password()
+
+
 async def is_active_member(user_id: int) -> bool:
     """Customer access check: fail closed when membership cannot be proven."""
     runtime = _runtime()
@@ -259,9 +294,10 @@ async def approve_member(update, context) -> None:
         except Exception as exc:
             runtime.logger.info("approve get_chat %s: %s", member_id, exc)
 
-    password = runtime.generate_password() if package == "WEB" else ""
+    member_key = str(member_id) if member_id is not None else target
+    password = await resolve_membership_password(member_key, package)
     saved = await runtime.save_member_to_sheet(
-        str(member_id) if member_id is not None else target,
+        member_key,
         member_username,
         months * 30,
         password,
