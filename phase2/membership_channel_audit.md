@@ -1,6 +1,6 @@
 # JACC Membership and Telegram Channel Audit
 
-Status: live schema verified; fixes and security rollout staged but not connected to production.
+Status: live schema verified; membership, payment, channel, and security fixes staged but not connected to production.
 
 ## Sources reviewed
 
@@ -98,39 +98,48 @@ Staged fix:
 - CH membership does not create a WEB password.
 - All privileged reads/writes use the authenticated server-to-server contract.
 
-### MCH-006 — Payment state is removed before persistence succeeds
+### MCH-006 — Payment state was removed before persistence succeeded
 
-The `slip_ok_` callback uses `pending_payment.pop(member_id, {})` before calling the Sheet save.
+The legacy `slip_ok_` callback uses `pending_payment.pop(member_id, {})` before the Sheet save.
 
 Risk:
-- A temporary Sheet failure destroys the in-memory payment context.
-- Admin receives a manual-fix warning but cannot safely retry the same approval.
+- A temporary Sheet failure destroys the payment context.
+- Admin cannot safely retry the same approval.
+- A repeated button tap can extend the member more than once.
 
-Required fix:
-- Read without removing.
-- Persist membership and payment log first.
-- Remove the pending record only after the required write succeeds.
-- Add an idempotency key so repeated approval taps cannot double-extend membership.
+Staged fix in `phase2/payment_approval.py`:
+- Read a copy without deleting the pending state.
+- Build a stable, non-secret idempotency key from the transaction/reference number or immutable payment fields.
+- Send one atomic `approveMembershipPayment` action.
+- Keep the pending state on network error, backend rejection, or missing authoritative expiry.
+- Remove the pending state only after backend `status: ok`.
+- Do not remove a newer payment session that replaced an older in-flight request.
 
-### MCH-007 — New purchase and renewal use the same approval logic
+Persistent backend contract in `phase2/apps_script_payment_approval_patch.gs`:
+- `Membership_Approval_Ledger` records idempotency key, state, target expiry, actual expiry, and package.
+- A completed key returns success without calling `saveMember()` again.
+- A PROCESSING key checks whether the target expiry was already applied before retrying.
+- Finance rows include an idempotency key and are appended once.
+- Script Lock plus the persistent ledger protects restarts and repeated admin taps.
 
-The selected `action` is stored in `pending_payment`, but the final approval path does not use it.
+The legacy callback is not wired to this helper yet, so production remains unchanged.
 
-The uploaded `saveMember()` behavior is clear:
-- Active renewal extends from the existing expiry.
-- Expired renewal starts from approval time.
-- Same-package WEB renewal preserves the existing password.
+### MCH-007 — Bot displayed a guessed expiry instead of the backend expiry
 
-Required bot fix:
-- Define explicit `new`, `renew`, `upgrade`, and optional `downgrade` transitions.
-- Preserve the same row and Telegram ID.
-- Display the backend-returned expiry instead of independently calculating it.
+The legacy approval path calculated `now + months * 30`, which is wrong for an active renewal that extends from the existing expiry.
+
+Staged fix:
+- `approveMembershipPayment` reads the final saved member row.
+- The backend returns `expireDate`, normalized package, and authoritative password.
+- The bot helper refuses to clear payment state or display success when `expireDate` is missing.
+- Admin and customer messages must use the returned expiry, not a local calculation.
 
 ### MCH-008 — Privileged Apps Script membership actions lack server authentication
 
 The reviewed `doPost()` routes privileged operations by action name. The reviewed source does not require a Railway-only credential for actions including:
 
 - `saveMember`
+- `approveMembershipPayment` after Phase 2 integration
 - `getMembers`
 - `getPassword`
 - `resetPassword`
@@ -168,6 +177,19 @@ Required fix:
 - Website includes `{app: "flutter", deviceId: ...}` in both `verifyLogin` and `verifyToken` requests only inside the app.
 - Browser access policy is decided explicitly: unrestricted browser, browser-session limit, or browser device binding.
 - Admin reset is authenticated server-side and audited.
+
+### MCH-010 — Renewed members can remain Telegram-banned
+
+A member can renew successfully in the Sheet and use the website while an old Telegram kick/ban still blocks every new channel invite.
+
+Staged fix in `phase2/channel_reactivation.py`:
+- Check the member's channel status after successful approval/renewal.
+- Use `unban_chat_member(..., only_if_banned=True)` for old kicked/banned states.
+- Never remove a member already inside the channel.
+- Make `/channel` retry the repair before issuing a replacement link.
+- Suppress a known-unusable invite and notify customer/admin when unban fails.
+
+The bot must have Telegram channel permission to ban/unban members.
 
 ## High findings still pending
 
@@ -207,6 +229,14 @@ Contains tested replacements for:
 - Authenticated privileged Apps Script payloads
 - Secure `saveMember` replacement
 
+### `phase2/channel_reactivation.py`
+
+Contains tested Telegram-side renewal repair for old kicked/banned members.
+
+### `phase2/payment_approval.py`
+
+Contains the retry-safe Railway approval contract and authoritative-expiry requirement.
+
 ### `phase2/apps_script_membership_security_patch.gs`
 
 Contains a staged Apps Script preflight for:
@@ -216,7 +246,11 @@ Contains a staged Apps Script preflight for:
 - Privileged action protection
 - Safe `memberSchemaHealth` diagnostic
 
-Neither file is connected to production yet.
+### `phase2/apps_script_payment_approval_patch.gs`
+
+Contains the persistent payment idempotency ledger, partial-completion recovery, one-time Finance logging, and authoritative result response.
+
+None of these files is connected to production yet.
 
 ## Test coverage
 
@@ -235,17 +269,29 @@ Neither file is connected to production yet.
 - `getMembers`, `getPassword`, and `saveMember` use the secure caller
 - Apps Script patch contains no literal credential
 - Privileged action list and A–J schema contract are covered by static tests
+- Old banned member is unbanned before renewal invite delivery
+- Existing channel member is left untouched
+- `/channel` self-repairs an old ban
+- Payment state remains after backend/network failure
+- Missing authoritative expiry remains retryable
+- Successful and duplicate backend responses use the backend expiry
+- A newer payment session is not removed by an older in-flight approval
+- Persistent Apps Script ledger and one-time Finance log contracts
+- PROCESSING recovery checks target expiry before another membership write
 
 ## Coordinated release sequence
 
 1. Keep PR #12 Draft.
-2. Finish payment-state idempotency and authoritative-expiry handling.
+2. Wire the legacy `slip_ok_` callback to `approve_pending_payment()` and use the returned expiry/package/password in all DMs and admin messages.
 3. Add `SHEET_SERVER_KEY` support to every Railway privileged Sheet caller.
 4. Generate a new random secret outside GitHub.
 5. Set the same value in Apps Script Script Properties and Railway environment variables.
-6. Insert the Apps Script preflight into `doPost()`.
-7. Deploy a new Apps Script version without changing the public Web App URL.
-8. Deploy Railway callers in the same maintenance window.
-9. Run schema health and live Standard, WEB, upgrade, renewal, expired, kicked, PROMO, channel, password, and device-binding tests.
-10. Verify no customer data was exposed and no mass channel removal occurred.
-11. Only then mark PR #12 ready for review and request explicit owner approval before merge.
+6. Insert the membership preflight and `approveMembershipPayment` route into `doPost()`.
+7. Deploy both Apps Script patches in one new version without changing the public Web App URL.
+8. Install membership and channel guards before Telegram handlers are registered.
+9. Deploy Railway callers in the same maintenance window.
+10. Confirm the bot has Telegram channel ban/unban permission.
+11. Run schema health and live Standard, WEB, upgrade, renewal, expired, kicked, PROMO, channel, password, payment-retry, duplicate-tap, and device-binding tests.
+12. Include a previously channel-banned account and confirm renewal restores channel entry without admin action.
+13. Verify no customer data was exposed and no mass channel removal occurred.
+14. Only then mark PR #12 ready for review and request explicit owner approval before merge.
