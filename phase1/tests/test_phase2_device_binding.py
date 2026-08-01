@@ -15,6 +15,56 @@ BACKEND = Path("phase2/apps_script_device_binding_patch.gs")
 INDEX = Path("index.html")
 
 
+LEGACY_AUTH_CONTRACT = """</div>
+</div>
+
+<script>
+const SHEET_ID
+-- fixture --
+const SESSION_KEY = 'jan_session';
+const SESSION_VER = 'v3';
+const MAX_LOGIN_TRIES = 5;
+-- fixture --
+body:JSON.stringify({action:'verifyLogin',password:pw})
+-- fixture --
+      if(reason==='wrong_password'||reason.includes('password')){
+-- fixture --
+    SESSION={ver:SESSION_VER,token:result.token,userId:result.userId,username:result.username,package:result.package,expireDate:result.expireDate,loginTime:Date.now()};
+    localStorage.setItem(SESSION_KEY,JSON.stringify(SESSION));
+-- fixture --
+function checkSession(){
+  try{
+    const s=localStorage.getItem(SESSION_KEY);if(!s)return false;
+    const parsed=JSON.parse(s);if(!parsed||!parsed.token)return false;
+    if(parsed.ver!==SESSION_VER){localStorage.removeItem(SESSION_KEY);return false;}
+    SESSION=parsed;return true;
+  }catch(e){return false;}
+}
+-- fixture --
+body:JSON.stringify({action:'getData',token:SESSION.token})
+-- fixture --
+    if(result.status!=='ok')throw new Error(result.msg||'Data fetch failed');
+-- fixture --
+window.addEventListener('DOMContentLoaded',function(){
+  if(checkSession()){showApp();}
+  else{document.getElementById('loginOverlay').style.display='flex';document.getElementById('loadingOverlay').style.display='none';}
+});
+"""
+
+
+def _assert_generated_contract(source: str) -> None:
+    assert 'data-jacc-device-binding="v4"' in source
+    assert "const SESSION_VER = JACCDeviceBinding.SESSION_VERSION" in source
+    assert "JACCDeviceBinding.withDevice('verifyLogin'" in source
+    assert "JACCDeviceBinding.withDevice('getData'" in source
+    assert "async function restoreSession()" in source
+    assert "verifyStoredSession({webhook:WEBHOOK})" in source
+    assert "window.addEventListener('DOMContentLoaded',async function()" in source
+    assert "function checkSession()" not in source
+    assert "JSON.stringify({action:'verifyLogin',password:pw})" not in source
+    assert "JSON.stringify({action:'getData',token:SESSION.token})" not in source
+
+
 def test_frontend_uses_secure_stable_installation_id() -> None:
     source = FRONTEND.read_text(encoding="utf-8")
 
@@ -90,28 +140,18 @@ def test_device_reset_is_server_protected_by_contract() -> None:
     assert "must remain inside JACC_PRIVILEGED_MEMBER_ACTIONS" in source
 
 
-def test_website_patcher_updates_current_index_contract() -> None:
-    original = INDEX.read_text(encoding="utf-8")
-    patched = apply_patch_text(original)
+def test_website_patcher_transforms_legacy_auth_contract() -> None:
+    patched = apply_patch_text(LEGACY_AUTH_CONTRACT)
 
-    assert patched != original
-    assert 'data-jacc-device-binding="v4"' in patched
-    assert "const SESSION_VER = JACCDeviceBinding.SESSION_VERSION" in patched
-    assert "JACCDeviceBinding.withDevice('verifyLogin'" in patched
-    assert "JACCDeviceBinding.withDevice('getData'" in patched
-    assert "async function restoreSession()" in patched
-    assert "verifyStoredSession({webhook:WEBHOOK})" in patched
-    assert "window.addEventListener('DOMContentLoaded',async function()" in patched
-    assert "function checkSession()" not in patched
-    assert "JSON.stringify({action:'verifyLogin',password:pw})" not in patched
-    assert "JSON.stringify({action:'getData',token:SESSION.token})" not in patched
+    assert patched != LEGACY_AUTH_CONTRACT
+    _assert_generated_contract(patched)
 
 
-def test_website_patcher_is_idempotent() -> None:
-    original = INDEX.read_text(encoding="utf-8")
-    once = apply_patch_text(original)
-    twice = apply_patch_text(once)
-    assert twice == once
+def test_current_index_contains_generated_contract_and_is_idempotent() -> None:
+    current = INDEX.read_text(encoding="utf-8")
+
+    _assert_generated_contract(current)
+    assert apply_patch_text(current) == current
 
 
 def test_website_patcher_refuses_unknown_drift() -> None:
