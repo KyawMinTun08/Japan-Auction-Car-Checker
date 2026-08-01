@@ -1,8 +1,8 @@
 # JACC Membership and Telegram Channel Audit
 
 Status: live schema verified; fixes, channel reactivation, payment idempotency,
-callback integration, and privileged caller authentication are staged but not
-connected to production.
+callback integration, privileged caller authentication, and one-installation
+device binding are staged but not connected to production.
 
 ## Sources reviewed
 
@@ -129,11 +129,38 @@ Apps Script must run `jaccMembershipPreflight_` in both `doPost(e)` and
 clients authenticate with member credentials and must never receive the server
 key.
 
-### MCH-009 — One-device backend exists but the current frontend does not activate it
+### MCH-009 — One-device backend existed but the current frontend did not activate it
 
-The uploaded `Code.gs` supports device binding, but the current website does not
-send `deviceId`/`app`. Live DeviceID cells were blank. Client installation-ID
-integration and an explicit browser policy remain required.
+The current production website sends neither `deviceId` nor `app`, trusts a
+local `v3` session without server revalidation, and has blank live DeviceID
+cells.
+
+The staged Phase 2 policy is now explicit:
+
+- WEB access is bound to one browser, installed PWA, or Flutter installation.
+- The client creates a cryptographically random 24-byte installation ID and
+  keeps it in `localStorage` under `jacc_installation_id`.
+- `verifyLogin`, `verifyToken`, and protected `getData` requests send
+  `{app, deviceId}`.
+- Session format moves from `v3` to `v4` so old locally trusted sessions cannot
+  bypass the new server check.
+- Every page startup revalidates the stored token and device before showing the
+  application.
+- Apps Script stores only `v2:<SHA-256>` in Members!J, never the raw ID.
+- The first successful Phase 2 login binds an existing member whose DeviceID is
+  blank.
+- A second installation receives `device_mismatch`.
+- Logout preserves the installation ID; clearing browser/PWA data or changing
+  phones requires an authenticated admin reset.
+- `resetMemberDevice` remains protected by `JACC_SERVER_KEY`.
+- IP address is not used as a device key because the policy is installation
+  binding, not network-location binding.
+
+`phase2/apply_website_device_binding.py` deterministically transforms the
+current large single-file `index.html` and refuses to operate if the expected
+login/session contract has drifted. CI applies that transformation to the
+current website source and verifies idempotence. The generated `index.html`
+diff still must be reviewed and committed before production deployment.
 
 ### MCH-010 — Expired/kicked members could not rejoin after renewal
 
@@ -151,28 +178,39 @@ and makes `/channel` retry the repair before issuing an invite.
 - `phase2/install.py` — ordered membership → Sheet auth → channel → payment installation
 - `phase2/apps_script_membership_security_patch.gs` — POST/GET server-key and schema preflight
 - `phase2/apps_script_payment_approval_patch.gs` — atomic approval ledger and authoritative response
+- `phase2/website_device_binding.js` — stable client installation ID and startup token/device verification
+- `phase2/apps_script_device_binding_patch.gs` — hashed Members!J binding and protected reset
+- `phase2/apply_website_device_binding.py` — guarded, idempotent `index.html` integration
 
-None of these files is connected to the production launcher yet.
+None of these files is connected to the production launcher or deployed Apps
+Script yet. The repository `index.html` has not yet been replaced by the
+generated Phase 2 version.
 
 ## Coordinated release sequence
 
 1. Keep PR #12 Draft.
-2. Generate a new random secret outside GitHub.
-3. Set the same value in Apps Script Script Properties and Railway environment variables.
-4. Insert Apps Script membership preflight into both POST and GET routes.
-5. Insert the Apps Script payment approval route/functions.
-6. Deploy a new Apps Script version without changing the public Web App URL.
-7. Import and run `phase2.install()` before `legacy_bot.main()` registers handlers.
-8. Confirm Telegram bot ban/unban permission.
-9. Deploy Railway in the same maintenance window.
-10. Run live Standard, WEB, upgrade, renewal, expired, kicked, promo, channel, password, payment-retry, duplicate-tap and device-binding tests.
-11. Verify a previously kicked/banned account can renew and rejoin without admin action.
-12. Only then mark PR #12 Ready and request explicit owner approval before merge.
+2. Run `python phase2/apply_website_device_binding.py index.html`, review the
+   generated website diff, and commit it to the Phase 2 branch.
+3. Generate a new random secret outside GitHub.
+4. Set the same value in Apps Script Script Properties and Railway environment variables.
+5. Insert Apps Script membership preflight into both POST and GET routes.
+6. Insert Apps Script payment approval and hashed device-binding route/functions.
+7. Deploy a new Apps Script version without changing the public Web App URL.
+8. Import and run `phase2.install()` before `legacy_bot.main()` registers handlers.
+9. Confirm Telegram bot ban/unban permission.
+10. Deploy Railway and the website in the same maintenance window.
+11. Run live Standard, WEB, upgrade, renewal, expired, kicked, promo, channel,
+    password, payment-retry, duplicate-tap and device-binding tests.
+12. Verify the same device can log out/log in, a second device is rejected, an
+    admin reset permits a replacement device, and an old kicked/banned account
+    can renew and rejoin without admin channel action.
+13. Only then mark PR #12 Ready and request explicit owner approval before merge.
 
 ## Current release state
 
 - PR #12 remains Draft.
 - Production launcher does not import Phase 2.
 - Apps Script patches are not deployed.
+- Generated Phase 2 `index.html` is not committed or deployed yet.
 - No server key is committed.
 - Production behavior remains unchanged.
