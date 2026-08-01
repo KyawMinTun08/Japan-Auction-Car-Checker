@@ -8,24 +8,32 @@ acceptance tests are ready to run.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
 
-import legacy_bot as _legacy
-
 
 _BANGKOK = ZoneInfo("Asia/Bangkok")
 _ALLOWED_PACKAGES = {"CH", "WEB", "PROMO10D"}
+_legacy: Any | None = None
+
+
+def _runtime() -> Any:
+    """Load the production bot lazily so pure tests need no bot dependencies."""
+    global _legacy
+    if _legacy is None:
+        import legacy_bot
+
+        _legacy = legacy_bot
+    return _legacy
 
 
 def normalise_member_id(value: object) -> str:
     """Return a stable Telegram user ID string from Sheet/API values."""
-    if value is None:
-        return ""
-    if isinstance(value, bool):
+    if value is None or isinstance(value, bool):
         return ""
     if isinstance(value, int):
         return str(value)
@@ -72,7 +80,12 @@ def parse_expire_date(value: object) -> date | None:
     if not text:
         return None
 
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+    for fmt in (
+        "%d/%m/%Y",
+        "%Y-%m-%d",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%f",
+    ):
         try:
             return datetime.strptime(text.rstrip("Z"), fmt).date()
         except ValueError:
@@ -105,12 +118,13 @@ def member_row_user_id(member: dict) -> str:
 
 
 async def _fetch_members() -> list[dict]:
-    if not _legacy.SHEET_WEBHOOK:
+    runtime = _runtime()
+    if not runtime.SHEET_WEBHOOK:
         raise RuntimeError("SHEET_WEBHOOK is not configured")
 
     async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
         response = await client.post(
-            _legacy.SHEET_WEBHOOK,
+            runtime.SHEET_WEBHOOK,
             json={"action": "getMembers"},
         )
     response.raise_for_status()
@@ -125,12 +139,13 @@ async def _fetch_members() -> list[dict]:
 
 async def is_active_member(user_id: int) -> bool:
     """Customer access check: fail closed when membership cannot be proven."""
-    if user_id in _legacy.ADMIN_IDS:
+    runtime = _runtime()
+    if user_id in runtime.ADMIN_IDS:
         return True
     try:
         members = await _fetch_members()
     except Exception as exc:
-        _legacy.logger.error("membership active check failed: %s", exc)
+        runtime.logger.error("membership active check failed: %s", exc)
         return False
 
     wanted = str(user_id)
@@ -141,12 +156,13 @@ async def is_active_member(user_id: int) -> bool:
 
 
 async def get_member_package(user_id: int) -> str | None:
-    if user_id in _legacy.ADMIN_IDS:
+    runtime = _runtime()
+    if user_id in runtime.ADMIN_IDS:
         return "WEB"
     try:
         members = await _fetch_members()
     except Exception as exc:
-        _legacy.logger.error("membership package check failed: %s", exc)
+        runtime.logger.error("membership package check failed: %s", exc)
         return None
 
     wanted = str(user_id)
@@ -162,12 +178,13 @@ async def get_member_package(user_id: int) -> str | None:
 
 async def is_valid_member(user_id: int) -> bool:
     """Destructive channel-removal check: fail safe on temporary Sheet errors."""
-    if user_id in _legacy.ADMIN_IDS:
+    runtime = _runtime()
+    if user_id in runtime.ADMIN_IDS:
         return True
     try:
         members = await _fetch_members()
     except Exception as exc:
-        _legacy.logger.error("channel membership validation failed: %s", exc)
+        runtime.logger.error("channel membership validation failed: %s", exc)
         return True
 
     wanted = str(user_id)
@@ -182,19 +199,21 @@ async def is_valid_member(user_id: int) -> bool:
 async def activate_promo10d(context, user_id: int, username: str) -> bool:
     """Use the same canonical saveMember contract as paid memberships."""
     del context
-    return await _legacy.save_member_to_sheet(
+    runtime = _runtime()
+    return await runtime.save_member_to_sheet(
         str(user_id),
         str(username or user_id).replace("@", "").strip(),
         10,
-        _legacy.generate_password(),
+        runtime.generate_password(),
         "PROMO10D",
     )
 
 
 async def approve_member(update, context) -> None:
     """Admin approval that never reports success before Sheet persistence."""
+    runtime = _runtime()
     admin_id = update.effective_user.id
-    if _legacy.ADMIN_IDS and admin_id not in _legacy.ADMIN_IDS:
+    if runtime.ADMIN_IDS and admin_id not in runtime.ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
 
@@ -238,10 +257,10 @@ async def approve_member(update, context) -> None:
                 or str(member_id)
             )
         except Exception as exc:
-            _legacy.logger.info("approve get_chat %s: %s", member_id, exc)
+            runtime.logger.info("approve get_chat %s: %s", member_id, exc)
 
-    password = _legacy.generate_password() if package == "WEB" else ""
-    saved = await _legacy.save_member_to_sheet(
+    password = runtime.generate_password() if package == "WEB" else ""
+    saved = await runtime.save_member_to_sheet(
         str(member_id) if member_id is not None else target,
         member_username,
         months * 30,
@@ -255,9 +274,9 @@ async def approve_member(update, context) -> None:
         )
         return
 
-    invite_url = await _legacy.create_invite_link(context, months * 30)
+    invite_url = await runtime.create_invite_link(context, months * 30)
     if member_id is not None:
-        await _legacy.send_approval_dm(
+        await runtime.send_approval_dm(
             context,
             member_id,
             months,
@@ -266,18 +285,17 @@ async def approve_member(update, context) -> None:
             package=package,
         )
 
-    expire_date = (
-        datetime.now(_BANGKOK).date()
-    ).strftime("%d/%m/%Y")
-    # Keep the admin summary free of the actual credential.
-    password_line = "🔑 Password ကို customer DM ထဲပို့ထားပါသည်။\n" if password else ""
+    expiry = datetime.now(_BANGKOK).date() + timedelta(days=months * 30)
+    password_line = (
+        "🔑 Password ကို customer DM ထဲပို့ထားပါသည်။\n" if password else ""
+    )
     text = (
         "✅ <b>Membership Approved!</b>\n\n"
         f"👤 @{member_username}\n"
         f"🆔 <code>{member_id if member_id is not None else 'N/A'}</code>\n"
-        f"📦 Package: {_legacy.PLAN_NAMES.get(package, package)}\n"
+        f"📦 Package: {runtime.PLAN_NAMES.get(package, package)}\n"
         f"📅 <b>{months} လ</b>\n"
-        f"🗓️ စတင်ရက်: <code>{expire_date}</code>\n"
+        f"⏰ ကုန်ဆုံး: <code>{expiry.strftime('%d/%m/%Y')}</code>\n"
         f"{password_line}"
     )
     if invite_url:
@@ -287,6 +305,7 @@ async def approve_member(update, context) -> None:
 
 def install() -> SimpleNamespace:
     """Install tested replacements before legacy_bot.main() registers handlers."""
+    runtime = _runtime()
     replacements = SimpleNamespace(
         is_active_member=is_active_member,
         get_member_package=get_member_package,
@@ -295,5 +314,5 @@ def install() -> SimpleNamespace:
         approve_member=approve_member,
     )
     for name, value in vars(replacements).items():
-        setattr(_legacy, name, value)
+        setattr(runtime, name, value)
     return replacements
