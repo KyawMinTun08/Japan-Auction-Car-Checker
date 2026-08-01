@@ -4,8 +4,8 @@ Status: staged only. Do not deploy one component by itself.
 
 ## Current source evidence
 
-The owner supplied the current `Code.gs` and `Payment.gs` sources on 1 August
-2026.
+The owner supplied the current `Code.gs`, `Payment.gs`, and `Registration.gs`
+sources on 1 August 2026.
 
 Current `Code.gs`:
 
@@ -25,6 +25,18 @@ Current `Payment.gs`:
 - sends the customer an approval message without checking activation success;
 - exposes Telegram ID, slip URL, and admin note through public `checkPayment`;
 - routes `approvePayment` and `rejectPayment` without a server-key requirement.
+
+Current `Registration.gs`:
+
+- normalizes registration packages to `STANDARD` or `WEB_PREMIUM`;
+- acquires its own ScriptLock inside `createRegistration` and
+  `connectTelegram`, which conflicts with the current outer doPost lock;
+- treats a previous completed `APPROVED` registration as an active conflict,
+  preventing the same Telegram user from linking a new renewal registration;
+- omits the `WEB_PROMO` alias;
+- exposes Telegram ID, username, and stored package through public
+  `checkRegistration`;
+- exposes linked Telegram/registration identifiers in conflict responses.
 
 The owner-supplied production sources are evidence only and are not committed to
 the public repository.
@@ -83,6 +95,30 @@ The guarded transformer performs two changes:
 
 It refuses unknown source drift and is idempotent.
 
+## Generate the reviewed Registration.gs candidate
+
+```bash
+python phase2/apply_apps_script_registration_gs.py Current_Registration.gs \
+  --output Registration_Phase2_Candidate.gs
+python phase2/apply_apps_script_registration_gs.py \
+  Registration_Phase2_Candidate.gs --check
+```
+
+The guarded transformer:
+
+- reuses the outer doPost ScriptLock and releases a lock only when the
+  registration function acquired it itself;
+- allows previous completed `APPROVED`, `REJECTED`, or `EXPIRED` registrations
+  while still blocking another open registration for the same Telegram user;
+- accepts `WEB_PROMO` and keeps the canonical stored value `WEB_PREMIUM`;
+- redacts Telegram ID, username, and stored package from public
+  `checkRegistration`;
+- removes linked Telegram/registration identifiers from conflict responses.
+
+`createRegistration`, `connectTelegram`, and the redacted
+`checkRegistration` remain customer-facing. `repairRegistrationPackages` is an
+editor-only maintenance function and must not be exposed by the webhook router.
+
 ## Website-payment approval semantics
 
 The Phase 2 adapter uses the payment ID to derive a stable
@@ -94,8 +130,9 @@ Approval order is now:
 1. Validate payment and registration rows.
 2. Run retry-safe membership activation.
 3. Verify authoritative backend success.
-4. Write payment and registration status `APPROVED`.
-5. Send the customer approval message.
+4. Write registration status `APPROVED`.
+5. Write payment status `APPROVED` as the final completion marker.
+6. Send the customer approval message.
 
 When activation fails:
 
@@ -105,8 +142,8 @@ When activation fails:
 - the admin can retry;
 - the membership ledger prevents a partial write from extending twice.
 
-A completed `APPROVED` payment returns an idempotent duplicate success rather
-than applying another membership period.
+A completed `APPROVED` payment returns an idempotent duplicate success and
+repairs Registration status when needed rather than applying another period.
 
 The current website-payment contract still represents one month as 30 days,
 matching the existing `activateMemberFromPayment()` default. Changing package
@@ -162,20 +199,19 @@ JavaScript, Flutter assets, Telegram messages, logs, URLs, or Sheet cells.
 
 Before declaring the Apps Script project release-ready, export and review:
 
-- `Registration.gs`;
 - every file defining `handlePhase3PaymentAction_`;
 - any separate Telegram callback handler that calls `approvePayment` or
   `rejectPayment`.
 
-The supplied `Payment.gs` defines submit/check/approve/reject functions but does
-not define `handlePhase3PaymentAction_`.
+The supplied `Code.gs`, `Payment.gs`, and `Registration.gs` do not define the
+Phase 3 router itself.
 
 ## Atomic deployment order
 
 1. Export/backup every Apps Script file and the Members sheet.
-2. Review the remaining Registration/Phase 3 router files.
+2. Review the remaining Phase 3 router/callback files.
 3. Add the six Phase 2 `.gs` modules.
-4. Generate and review Code.gs and Payment.gs candidates.
+4. Generate and review Code.gs, Payment.gs, and Registration.gs candidates.
 5. Audit/disable the monthly password reset trigger as decided.
 6. Set `JACC_SERVER_KEY` in Apps Script properties.
 7. Confirm Telegram bot ban/unban permission.
@@ -197,6 +233,10 @@ Deploying only one component can break membership operations.
 - Expired renewal.
 - Previously kicked/banned member auto-rejoins.
 - Promo activation.
+- New registration supports `WEB_PROMO`.
+- A prior completed registration does not block a new renewal registration.
+- Another open registration for the same Telegram user remains blocked.
+- Public `checkRegistration` excludes Telegram ID, username, and stored package.
 - Website payment activation failure remains PENDING and retryable.
 - Retry after partial member write does not extend twice.
 - Duplicate website payment approval does not extend twice.
