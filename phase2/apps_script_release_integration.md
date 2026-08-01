@@ -26,9 +26,9 @@ on the older browser MHTML snapshot.
 The uploaded source is evidence only and is not committed to the public
 repository.
 
-## Add these four Apps Script files
+## Add these five Apps Script files
 
-Create four new Script files in the existing Apps Script project and paste the
+Create five new Script files in the existing Apps Script project and paste the
 corresponding repository contents:
 
 1. `Phase2MembershipSecurity.gs`
@@ -39,6 +39,8 @@ corresponding repository contents:
    - source: `phase2/apps_script_device_binding_patch.gs`
 4. `Phase2Routes.gs`
    - source: `phase2/apps_script_release_routes.gs`
+5. `Phase2TriggerGuard.gs`
+   - source: `phase2/apps_script_trigger_guard.gs`
 
 These files contain no production secret.
 
@@ -171,13 +173,28 @@ the separate website registration/payment system. Its defining `Payment.gs`
 and `Registration.gs` sources still need review before the full Apps Script
 project can be declared release-ready.
 
-## Monthly password reset check
+## Monthly password reset trigger policy
 
 The current Code.gs contains `monthlyPasswordReset()`, which changes every
-active WEB member password and clears the token. Before rollout, inspect Apps
-Script Triggers and decide explicitly whether this trigger should remain.
-Leaving an unintended trigger active would override the password-preserving
-renewal policy.
+active WEB member password and clears the token. That conflicts with the Phase 2
+password-preserving renewal policy and can unexpectedly lock members out.
+
+The additive `Phase2TriggerGuard.gs` file provides two manual editor functions:
+
+1. Run `jaccPhase2TriggerHealth_()` and confirm whether an exact
+   `monthlyPasswordReset` trigger exists.
+2. When the result is unsafe, run
+   `jaccDisableMonthlyPasswordResetTriggers_()` once.
+3. Run `jaccPhase2TriggerHealth_()` again and require:
+   - `safe: true`
+   - `monthlyPasswordResetTriggerCount: 0`
+
+The disable helper deletes only triggers whose handler is exactly
+`monthlyPasswordReset`. It does not read or modify Members rows and leaves every
+unrelated trigger untouched.
+
+Do not delete the legacy function during the rollout. Removing only its trigger
+keeps rollback simple while preventing unexpected password rotation.
 
 ## Secret setup
 
@@ -195,15 +212,17 @@ parameters or Sheet cells.
 1. Export/backup every current Apps Script file and the Members sheet.
 2. Review the current `Payment.gs`, `Registration.gs`, and any file defining
    `handlePhase3PaymentAction_`.
-3. Add the four Phase 2 `.gs` files.
+3. Add the five Phase 2 `.gs` files.
 4. Generate and review `Code_Phase2_Candidate.gs`.
-5. Set `JACC_SERVER_KEY` in Apps Script properties.
-6. Confirm Telegram bot has ban/restrict permission in the channel.
-7. Set matching `SHEET_SERVER_KEY` in Railway without deploying yet.
-8. Import and run `phase2.install()` before legacy handler registration.
-9. Deploy Apps Script, Railway, and the generated Phase 2 website in one
-   maintenance window.
-10. Run the live acceptance matrix before marking PR #12 Ready.
+5. Run `jaccPhase2TriggerHealth_()` and disable the exact legacy monthly reset
+   trigger when present; require a safe follow-up result.
+6. Set `JACC_SERVER_KEY` in Apps Script properties.
+7. Confirm Telegram bot has ban/restrict permission in the channel.
+8. Set matching `SHEET_SERVER_KEY` in Railway without deploying yet.
+9. Import and run `phase2.install()` before legacy handler registration.
+10. Deploy Apps Script, Railway, and the generated Phase 2 website in one
+    maintenance window.
+11. Run the live acceptance matrix before marking PR #12 Ready.
 
 Enabling only Apps Script, Railway, or website by itself can break membership
 operations. Treat the release as one coordinated change.
@@ -226,7 +245,7 @@ operations. Treat the release as one coordinated change.
 - Admin device reset allows one replacement installation to bind.
 - Expired token/session is rejected at page startup.
 - Existing website registration/payment approval still behaves correctly.
-- Monthly password reset trigger state matches the chosen policy.
+- Trigger health reports `safe: true` and zero monthly reset triggers.
 
 ## Rollback boundary
 
