@@ -52,13 +52,49 @@ Required before release:
 - Add a schema/version health action.
 - Refuse membership writes when the schema is not the expected version.
 
+### MCH-005 — WEB renewals rotated the password
+
+The manual and payment approval paths generated a fresh WEB password instead of preserving the member's current password. This breaks saved logins and contradicts the intended renewal behavior.
+
+Staged fix in the guard:
+- WEB → WEB renewal preserves the existing password.
+- CH → WEB generates a password only when none exists.
+- CH membership does not create a WEB password.
+
+The payment callback still needs to call the staged policy before production activation.
+
+### MCH-006 — Payment state is removed before persistence succeeds
+
+The `slip_ok_` callback uses `pending_payment.pop(member_id, {})` before calling `save_member_to_sheet()`.
+
+Risk:
+- A temporary Sheet failure destroys the in-memory payment context.
+- Admin receives a manual-fix warning but cannot safely retry the same approval.
+
+Required fix:
+- Read without removing.
+- Persist membership and payment log first.
+- Remove the pending record only after the required write succeeds.
+- Add an idempotency key so repeated approval taps cannot double-extend membership.
+
+### MCH-007 — New purchase and renewal use the same approval logic
+
+The selected `action` is stored in `pending_payment`, but the final approval path does not use it. The client also displays an expiry calculated from the current date; the real extension behavior depends on the deployed Apps Script `saveMember()` implementation, which is not visible in the historical snapshot.
+
+Required fix:
+- Define explicit `new`, `renew`, `upgrade`, and optional `downgrade` transitions.
+- Extend from the later of today or the current expiry for renewals.
+- Preserve the same member row and Telegram ID.
+- Verify the final expiry returned by the backend instead of calculating a separate display-only date in the bot.
+
 ## High findings still pending
 
 - Package aliases are inconsistent across code paths (`WEB`, `WEB-PROMO`, `WEB_PREMIUM`, `CH-PROMO`, `STANDARD`, `PROMO10D`).
-- Current approval messages can expose website passwords in formatted Telegram messages and screenshots.
+- Current payment/admin approval summaries can expose website passwords in formatted Telegram messages and screenshots.
 - Channel validation previously treated `PROMO10D` as a possible status although it is used as a package elsewhere.
 - The 3-day expiry warning creates an HTTP client without a context manager.
-- Renewal/upgrade password-preservation policy needs an explicit rule and tests.
+- Username-only approval cannot reliably DM the member because no Telegram numeric ID is resolved.
+- The website stores its session token in `localStorage`. `getData` sends the token back to the backend, but server-side expiry, revocation, and one-device enforcement cannot be confirmed without the deployed Apps Script source.
 
 ## Positive controls already present
 
@@ -67,6 +103,7 @@ Required before release:
 - Channel ID check and admin exemption in the join guard.
 - Periodic removal of non-active members.
 - Temporary Sheet failure does not trigger a mass kick.
+- Website data loading sends the session token to the backend.
 
 ## Staged code
 
@@ -78,6 +115,7 @@ Required before release:
 - Channel membership validation
 - Promo activation contract
 - Admin approval persistence gate
+- WEB password preservation policy
 
 The module is deliberately not imported by the production launcher yet.
 
@@ -90,13 +128,16 @@ The module is deliberately not imported by the production launcher yet.
 - Channel-removal fail-safe policy
 - No invite or DM after failed Sheet save
 - Canonical 10-day promo save payload
+- WEB renewal preserves the existing password
+- CH → WEB generates a password only when missing
+- CH does not create a WEB password
 
 ## Required release sequence
 
 1. Finish and merge Phase 1 PR #8.
 2. Apply and verify Supabase migration 008 and final pilot.
-3. Export/verify the deployed Apps Script membership schema.
+3. Export/verify the deployed Apps Script membership schema and renewal behavior.
 4. Retarget Phase 2 PR to `main`.
-5. Connect the guard module to the launcher.
+5. Fix payment-state idempotency and connect the guard module to the launcher.
 6. Run live Standard, WEB, upgrade, renewal, expired, kicked and PROMO10D tests.
 7. Only then mark the Phase 2 PR ready for review.
