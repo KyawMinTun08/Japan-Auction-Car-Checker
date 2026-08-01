@@ -24,6 +24,7 @@ def test_privileged_member_actions_are_protected() -> None:
     source = _source()
     actions = {
         "saveMember",
+        "approveMembershipPayment",
         "getMembers",
         "getPassword",
         "resetPassword",
@@ -81,4 +82,6 @@ def test_patch_documents_atomic_rollout_contract() -> None:
     assert "Railway environment variable SHEET_SERVER_KEY" in source
     assert "Update every Railway call" in source
     assert "doPost(e)" in source
+    assert 'case "approveMembershipPayment"' in source
+    assert "jaccApproveMembershipPayment_(data)" in source
     assert "Never put the key" in source
