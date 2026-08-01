@@ -6,10 +6,12 @@
  * Deployment contract:
  * 1. Set Script Property JACC_SERVER_KEY to a new random secret.
  * 2. Set the same value as Railway environment variable SHEET_SERVER_KEY.
- * 3. Update every Railway call to a privileged action to send serverKey.
+ * 3. Install the scoped Railway legacy Sheet-auth proxy.
  * 4. Insert the preflight call immediately after parsing data in doPost(e).
- * 5. Deploy the payment-approval patch in the same Apps Script version.
- * 6. Deploy a new Apps Script version and run the Phase 2 acceptance tests.
+ * 5. Insert the same preflight at the start of doGet(e) because the legacy
+ *    broadcast-photo path reads getMembers with query parameters.
+ * 6. Deploy the payment-approval patch in the same Apps Script version.
+ * 7. Deploy a new Apps Script version and run the Phase 2 acceptance tests.
  *
  * Never put the key in this file, GitHub, the website, Flutter assets, logs,
  * Telegram messages, or Google Sheet cells.
@@ -143,7 +145,7 @@ function jaccMemberSchemaHealth_() {
 
 /**
  * Return null when the request may continue. Return a JSON response object when
- * doPost(e) must stop immediately.
+ * doPost(e) or doGet(e) must stop immediately.
  */
 function jaccMembershipPreflight_(data) {
   var action = String((data && data.action) || "").trim();
@@ -170,6 +172,12 @@ function jaccMembershipPreflight_(data) {
  * REQUIRED doPost(e) integration, immediately after JSON.parse:
  *
  *   var data = JSON.parse(e.postData.contents);
+ *   var membershipGuard = jaccMembershipPreflight_(data);
+ *   if (membershipGuard) return _json(membershipGuard);
+ *
+ * REQUIRED doGet(e) integration, before routing e.parameter actions:
+ *
+ *   var data = (e && e.parameter) ? e.parameter : {};
  *   var membershipGuard = jaccMembershipPreflight_(data);
  *   if (membershipGuard) return _json(membershipGuard);
  *
