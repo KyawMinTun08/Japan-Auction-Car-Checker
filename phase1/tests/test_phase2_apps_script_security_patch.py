@@ -48,7 +48,7 @@ def test_member_schema_preflight_requires_live_a_to_j_contract() -> None:
         "USERID",
         "USERNAME",
         "STARTDATE",
-        "EXPIREDDATE",
+        "EXPIREDATE",
         "STATUS",
         "CANCELCOUNT",
         "PASSWORD",
@@ -59,6 +59,7 @@ def test_member_schema_preflight_requires_live_a_to_j_contract() -> None:
     for header in expected:
         assert f'"{header}"' in source
 
+    assert '"EXPIREDDATE"' not in source
     assert 'schemaVersion: "JACC_MEMBERS_V2_AJ"' in source
     assert 'message: "member_schema_mismatch"' in source
     assert 'action === "memberSchemaHealth"' in source
