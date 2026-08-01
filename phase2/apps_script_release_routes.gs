@@ -33,19 +33,19 @@ function jaccPhase2PreflightAndRoute_(data) {
 }
 
 /**
- * REQUIRED doPost integration immediately after parsing request data:
+ * REQUIRED doPost integration immediately after parsing request data and
+ * before handlePhase3PaymentAction_(data):
  *
  *   var data = JSON.parse(e.postData.contents);
  *   var phase2 = jaccPhase2PreflightAndRoute_(data);
  *   if (phase2.handled) return _json(phase2.response);
  *
- * Existing legacy switch/cases remain below those three lines unchanged.
+ * Existing legacy switch/cases remain below those lines unchanged.
  *
- * REQUIRED doGet integration before any e.parameter membership action routing:
+ * Keep the current production doGet(e) unchanged. It is the public price-data
+ * endpoint. The Railway compatibility proxy converts the one historical GET
+ * getMembers caller into authenticated POST JSON before network access.
  *
- *   var queryData = (e && e.parameter) ? e.parameter : {};
- *   var membershipGuard = jaccMembershipPreflight_(queryData);
- *   if (membershipGuard) return _json(membershipGuard);
- *
- * Do not send JACC_SERVER_KEY from browser, PWA, or Flutter code.
+ * Do not send JACC_SERVER_KEY from browser, PWA, or Flutter code and do not put
+ * it in URL query parameters.
  */
