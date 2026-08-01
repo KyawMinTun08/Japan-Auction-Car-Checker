@@ -106,7 +106,7 @@ function connectTelegram(data) {
 function checkRegistration(data) {
   const r = [];
   const storedPackage = 'WEB_PREMIUM';
-  return {
+    return {
       ok: true,
       registrationCode: r[0],
       telegramId: r[1],
