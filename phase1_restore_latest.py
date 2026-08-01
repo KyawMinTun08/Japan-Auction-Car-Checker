@@ -176,3 +176,6 @@ import phase1_broker_sync as _phase1_broker_sync  # noqa: F401,E402
 
 # Add the real worker/database resilience test after the prior command patches.
 import phase1_resilience_test as _phase1_resilience_test  # noqa: F401,E402
+
+# Add the final isolated restart + 10-request production pilot.
+import phase1_final_pilot as _phase1_final_pilot  # noqa: F401,E402
