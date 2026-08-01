@@ -80,8 +80,10 @@ def test_patch_documents_atomic_rollout_contract() -> None:
     source = _source()
     assert "Set Script Property JACC_SERVER_KEY" in source
     assert "Railway environment variable SHEET_SERVER_KEY" in source
-    assert "Update every Railway call" in source
+    assert "scoped Railway legacy Sheet-auth proxy" in source
     assert "doPost(e)" in source
+    assert "doGet(e)" in source
+    assert "e.parameter" in source
     assert 'case "approveMembershipPayment"' in source
     assert "jaccApproveMembershipPayment_(data)" in source
     assert "Never put the key" in source
