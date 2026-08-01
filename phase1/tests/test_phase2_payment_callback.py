@@ -275,4 +275,5 @@ def test_non_admin_cannot_approve(monkeypatch) -> None:
     asyncio.run(runtime.button_callback(update, SimpleNamespace()))
 
     assert 123 in pending
-    assert any(kwargs.get("show_alert") for _, kwargs in query.answers)
+    assert len(query.answers) == 1
+    assert query.answers[0][1].get("show_alert") is True
