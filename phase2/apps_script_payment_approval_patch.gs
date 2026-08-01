@@ -1,11 +1,14 @@
 /**
  * JACC Phase 2 atomic membership-payment approval.
  *
- * STAGED ONLY — deploy together with apps_script_membership_security_patch.gs
- * and the Railway Phase 2 caller. The action must run under the existing
- * doPost ScriptLock and after jaccMembershipPreflight_(data).
+ * STAGED ONLY — deploy together with apps_script_membership_security_patch.gs,
+ * apps_script_device_binding_patch.gs, and the Railway Phase 2 caller.
  *
- * Required doPost route:
+ * This implementation does not depend on the legacy saveMember() renewal
+ * semantics. It writes the canonical A–J member row to one exact target expiry,
+ * so a retry cannot extend membership twice.
+ *
+ * Required doPost route, after jaccMembershipPreflight_(data):
  *
  *   case "approveMembershipPayment":
  *     return _json(jaccApproveMembershipPayment_(data));
@@ -86,13 +89,93 @@ function jaccPaymentMemberSnapshot_(userId) {
       row: i + 2,
       userId: rowId,
       username: jaccPaymentText_(rows[i][1]),
+      startDate: jaccPaymentFormatDate_(rows[i][2]),
       expireDate: jaccPaymentFormatDate_(rows[i][3]),
       status: jaccPaymentText_(rows[i][4]).toUpperCase(),
+      cancelCount: parseInt(rows[i][5], 10) || 0,
       password: jaccPaymentText_(rows[i][6]),
-      package: jaccPaymentPackage_(rows[i][7])
+      package: jaccPaymentPackage_(rows[i][7]),
+      token: jaccPaymentText_(rows[i][8]),
+      deviceId: jaccPaymentText_(rows[i][9])
     };
   }
   return null;
+}
+
+function jaccPaymentDateAtLeast_(actual, expected) {
+  var actualDate = jaccPaymentDate_(actual);
+  var expectedDate = jaccPaymentDate_(expected);
+  return Boolean(actualDate && expectedDate && actualDate.getTime() >= expectedDate.getTime());
+}
+
+/**
+ * Write one exact canonical A–J row. Repeating this function with the same
+ * targetExpireDate is idempotent and cannot add another membership period.
+ */
+function jaccPaymentApplyMemberWrite_(data, currentMember, targetExpireDate, packageName) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName(MEMBERS);
+  if (!sheet) return {status: "error", message: "members_sheet_missing"};
+
+  var userId = jaccPaymentText_(data.userId).replace(/\.0$/, "");
+  var today = jaccPaymentToday_();
+  var todayText = jaccPaymentFormatDate_(today);
+  var currentExpiry = currentMember ? jaccPaymentDate_(currentMember.expireDate) : null;
+  var continuing = Boolean(
+    currentMember &&
+    currentMember.status === "ACTIVE" &&
+    currentExpiry &&
+    currentExpiry.getTime() >= today.getTime()
+  );
+
+  var username = jaccPaymentText_(data.username) ||
+    (currentMember ? currentMember.username : "");
+  var startDate = continuing && currentMember.startDate
+    ? currentMember.startDate
+    : todayText;
+  var cancelCount = currentMember ? currentMember.cancelCount : 0;
+  var token = currentMember ? currentMember.token : "";
+  var deviceId = currentMember ? currentMember.deviceId : "";
+  var password = "";
+
+  if (packageName === "WEB") {
+    password = jaccPaymentText_(data.password) ||
+      (currentMember ? currentMember.password : "");
+    if (!password) return {status: "error", message: "web_password_required"};
+  }
+
+  var values = [[
+    userId,
+    username,
+    startDate,
+    targetExpireDate,
+    "ACTIVE",
+    cancelCount,
+    password,
+    packageName,
+    token,
+    deviceId
+  ]];
+
+  if (currentMember && currentMember.row) {
+    sheet.getRange(currentMember.row, 1, 1, 10).setValues(values);
+  } else {
+    sheet.appendRow(values[0]);
+  }
+  SpreadsheetApp.flush();
+
+  var authoritative = jaccPaymentMemberSnapshot_(userId);
+  if (!authoritative) {
+    return {status: "error", message: "authoritative_member_missing"};
+  }
+  if (!jaccPaymentDateAtLeast_(authoritative.expireDate, targetExpireDate)) {
+    return {status: "error", message: "authoritative_expiry_mismatch"};
+  }
+  if (authoritative.package !== packageName) {
+    return {status: "error", message: "authoritative_package_mismatch"};
+  }
+
+  return {status: "ok", member: authoritative};
 }
 
 function jaccPaymentEnsureLedger_() {
@@ -162,12 +245,6 @@ function jaccPaymentWriteLedger_(sheet, existing, values) {
   return jaccPaymentFindLedger_(sheet, values.key || existing.key);
 }
 
-function jaccPaymentDateAtLeast_(actual, expected) {
-  var actualDate = jaccPaymentDate_(actual);
-  var expectedDate = jaccPaymentDate_(expected);
-  return Boolean(actualDate && expectedDate && actualDate.getTime() >= expectedDate.getTime());
-}
-
 function jaccPaymentAppendFinanceOnce_(idempotencyKey, payment) {
   var ss = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName("Finance");
@@ -222,6 +299,25 @@ function jaccPaymentSuccessResponse_(ledger, member, duplicate, recovered) {
 }
 
 function jaccApproveMembershipPayment_(data) {
+  var lock = LockService.getScriptLock();
+  var releaseHere = false;
+  try {
+    if (!lock.hasLock()) {
+      lock.waitLock(30000);
+      releaseHere = true;
+    }
+  } catch (lockError) {
+    return {status: "error", message: "payment_lock_busy"};
+  }
+
+  try {
+    return jaccApproveMembershipPaymentLocked_(data);
+  } finally {
+    if (releaseHere) lock.releaseLock();
+  }
+}
+
+function jaccApproveMembershipPaymentLocked_(data) {
   var key = jaccPaymentText_(data.idempotencyKey);
   if (!/^JACC-PAY-[a-f0-9]{32}$/i.test(key)) {
     return {status: "error", message: "invalid_idempotency_key"};
@@ -252,8 +348,13 @@ function jaccApproveMembershipPayment_(data) {
     return jaccPaymentSuccessResponse_(existing, currentMember, true, false);
   }
 
-  if (existing && existing.status === "PROCESSING" && currentMember &&
-      jaccPaymentDateAtLeast_(currentMember.expireDate, existing.targetExpireDate)) {
+  if (
+    existing &&
+    existing.status === "PROCESSING" &&
+    currentMember &&
+    currentMember.package === existing.package &&
+    jaccPaymentDateAtLeast_(currentMember.expireDate, existing.targetExpireDate)
+  ) {
     jaccPaymentAppendFinanceOnce_(key, data.payment || {});
     existing = jaccPaymentWriteLedger_(ledgerSheet, existing, {
       key: key,
@@ -280,47 +381,18 @@ function jaccApproveMembershipPayment_(data) {
     actualExpireDate: "",
     package: packageName,
     membershipAction: membershipAction,
-    lastMessage: "membership_write_started"
+    lastMessage: "canonical_member_write_started"
   });
 
-  var saved;
+  var writeResult;
   try {
-    saved = saveMember(
-      userId,
-      jaccPaymentText_(data.username),
-      days,
-      jaccPaymentText_(data.password),
+    writeResult = jaccPaymentApplyMemberWrite_(
+      data,
+      currentMember,
+      targetExpireDate,
       packageName
     );
   } catch (err) {
-    jaccPaymentWriteLedger_(ledgerSheet, existing, {
-      key: key,
-      userId: userId,
-      status: "RETRYABLE",
-      targetExpireDate: targetExpireDate,
-      package: packageName,
-      membershipAction: membershipAction,
-      lastMessage: "save_exception:" + String(err)
-    });
-    return {status: "error", message: "membership_save_exception"};
-  }
-
-  if (!saved || jaccPaymentText_(saved.status).toLowerCase() !== "ok") {
-    jaccPaymentWriteLedger_(ledgerSheet, existing, {
-      key: key,
-      userId: userId,
-      status: "RETRYABLE",
-      targetExpireDate: targetExpireDate,
-      package: packageName,
-      membershipAction: membershipAction,
-      lastMessage: "membership_save_rejected"
-    });
-    return {status: "error", message: "membership_save_rejected"};
-  }
-
-  currentMember = jaccPaymentMemberSnapshot_(userId);
-  if (!currentMember || !currentMember.expireDate) {
-    // Keep PROCESSING. A retry checks the target expiry before writing again.
     jaccPaymentWriteLedger_(ledgerSheet, existing, {
       key: key,
       userId: userId,
@@ -328,11 +400,28 @@ function jaccApproveMembershipPayment_(data) {
       targetExpireDate: targetExpireDate,
       package: packageName,
       membershipAction: membershipAction,
-      lastMessage: "authoritative_member_read_pending"
+      lastMessage: "member_write_exception:" + String(err)
     });
-    return {status: "error", message: "authoritative_expiry_missing"};
+    return {status: "error", message: "membership_write_exception"};
   }
 
+  if (!writeResult || writeResult.status !== "ok" || !writeResult.member) {
+    var writeMessage = writeResult && writeResult.message
+      ? writeResult.message
+      : "membership_write_rejected";
+    jaccPaymentWriteLedger_(ledgerSheet, existing, {
+      key: key,
+      userId: userId,
+      status: "PROCESSING",
+      targetExpireDate: targetExpireDate,
+      package: packageName,
+      membershipAction: membershipAction,
+      lastMessage: writeMessage
+    });
+    return {status: "error", message: writeMessage};
+  }
+
+  currentMember = writeResult.member;
   jaccPaymentAppendFinanceOnce_(key, data.payment || {});
   existing = jaccPaymentWriteLedger_(ledgerSheet, existing, {
     key: key,
