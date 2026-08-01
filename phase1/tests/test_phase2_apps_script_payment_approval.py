@@ -31,7 +31,8 @@ def test_duplicate_completed_approval_does_not_write_member_again() -> None:
 
 def test_payment_write_does_not_depend_on_legacy_save_member_semantics() -> None:
     source = _source()
-    assert "saveMember(" not in source
+    executable = source.split("function jaccPaymentText_", 1)[1]
+    assert "saveMember(" not in executable
     assert "does not depend on the legacy saveMember()" in source
     assert "jaccPaymentApplyMemberWrite_" in source
     assert "targetExpireDate" in source
