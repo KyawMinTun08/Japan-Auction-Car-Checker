@@ -120,11 +120,12 @@ def test_builder_rejects_literal_credentials(
     project = tmp_path / "repo"
     _fake_project(project)
     sources = _sources(tmp_path)
+    token_shaped_value = "123456789:" + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
 
     monkeypatch.setattr(
         bundle,
         "patch_code",
-        lambda text: 'var BOT_TOKEN = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi";\n',
+        lambda text: f'var BOT_TOKEN = "{token_shaped_value}";\n',
     )
     monkeypatch.setattr(bundle, "patch_payment", lambda text: text)
     monkeypatch.setattr(bundle, "patch_registration", lambda text: text)
