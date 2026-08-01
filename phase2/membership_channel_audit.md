@@ -1,15 +1,54 @@
 # JACC Membership and Telegram Channel Audit
 
-Status: initial audit completed; fixes staged but not connected to production.
+Status: live schema verified; fixes and security rollout staged but not connected to production.
 
 ## Sources reviewed
 
 - Current `legacy_bot.py` production-path code
-- Current website login/package flow
+- Current `index.html` website login/package flow
 - Uploaded bot snapshots
-- Uploaded Apps Script editor snapshot dated 2026-07-14
+- Uploaded `Code.gs` source with A–J member/device support
+- Live production Google Sheet metadata and bounded `Members` ranges
+- Historical `Members_Backup_20260716_pre_package_fix` tab
 
-The Apps Script upload is a historical browser snapshot with only the visible editor region. The deployed `Code.gs` must still be exported or checked directly before Phase 2 release.
+Important evidence boundary:
+- The live Sheet structure was read directly.
+- The Apps Script source was reviewed from the uploaded `Code.gs` snapshot.
+- A new Apps Script deployment has not been performed during this audit.
+
+## Live production evidence
+
+### Members schema
+
+The live `Members` tab currently uses ten columns:
+
+`UserID, Username, StartDate, ExpireDate, Status, CancelCount, Password, Package, Token, DeviceID`
+
+This matches the uploaded `Code.gs` constants:
+
+- A / index 0 — UserID
+- B / index 1 — Username
+- C / index 2 — StartDate
+- D / index 3 — ExpireDate
+- E / index 4 — Status
+- F / index 5 — CancelCount
+- G / index 6 — Password
+- H / index 7 — Package
+- I / index 8 — Token
+- J / index 9 — DeviceID
+
+The historical backup tab is an older A–I snapshot without DeviceID. It must not be used as the current production schema contract.
+
+### Aggregate active-member state
+
+At audit time, the live Sheet contained 15 ACTIVE rows:
+
+- 5 normalized Standard/CH
+- 10 normalized Web-capable rows, including one historical WEB-PROMO alias
+- 1 populated token
+- 0 populated DeviceID values
+
+No member IDs, usernames, passwords, or tokens are recorded in this audit document.
 
 ## Critical findings
 
@@ -31,41 +70,36 @@ Policy:
 
 ### MCH-003 — Promo save payload differed from paid membership payload
 
-`activate_promo10d()` sent `startDate`, `expireDate` and `status`, while the normal save contract sends `days`.
+`activate_promo10d()` sent a different payload from the paid membership path.
 
-Staged fix: route promo through the canonical `save_member_to_sheet(..., days=10, package="PROMO10D")` contract.
+Staged fix: route promo through the canonical authenticated `saveMember` contract.
 
-### MCH-004 — Historical Apps Script schema differs from current documented schema
+Note: the current Apps Script package normalizer maps names containing `WEB` or `PREMIUM` to WEB. Promo package naming must remain consistent with that backend rule.
 
-Historical snapshot:
+### MCH-004 — Schema history could shift password/package/token indexes
 
-`UserID, Username, StartDate, ExpireDate, Status, Password, Package, Token`
+The live A–J schema is now verified and matches the uploaded Code.gs constants. The older backup is A–I.
 
-Current documented schema:
+Remaining risk: future manual column insertion could silently shift fields.
 
-`UserID, Username, StartDate, ExpireDate, Status, CancelCount, Password, Package, Token`
+Staged fix:
+- Add `memberSchemaHealth` returning schema version `JACC_MEMBERS_V2_AJ`.
+- Check exact A–J headers before privileged membership reads/writes.
+- Refuse privileged operations when the schema does not match.
 
-Risk: password/package/token columns can shift, causing Premium→Standard mismatches and wrong credentials.
+### MCH-005 — WEB renewals rotated the password in legacy bot paths
 
-Required before release:
-- Verify the actual deployed Apps Script source.
-- Add a schema/version health action.
-- Refuse membership writes when the schema is not the expected version.
+The legacy approval path generated a fresh WEB password before every save. The uploaded Apps Script already preserves the existing password for WEB → WEB renewal, but the bot could still display or DM the newly generated value rather than the authoritative preserved value.
 
-### MCH-005 — WEB renewals rotated the password
-
-The manual and payment approval paths generated a fresh WEB password instead of preserving the member's current password. This breaks saved logins and contradicts the intended renewal behavior.
-
-Staged fix in the guard:
-- WEB → WEB renewal preserves the existing password.
+Staged fix:
+- WEB → WEB renewal fetches and preserves the existing password.
 - CH → WEB generates a password only when none exists.
 - CH membership does not create a WEB password.
-
-The payment callback still needs to call the staged policy before production activation.
+- All privileged reads/writes use the authenticated server-to-server contract.
 
 ### MCH-006 — Payment state is removed before persistence succeeds
 
-The `slip_ok_` callback uses `pending_payment.pop(member_id, {})` before calling `save_member_to_sheet()`.
+The `slip_ok_` callback uses `pending_payment.pop(member_id, {})` before calling the Sheet save.
 
 Risk:
 - A temporary Sheet failure destroys the in-memory payment context.
@@ -79,25 +113,76 @@ Required fix:
 
 ### MCH-007 — New purchase and renewal use the same approval logic
 
-The selected `action` is stored in `pending_payment`, but the final approval path does not use it. The client also displays an expiry calculated from the current date; the real extension behavior depends on the deployed Apps Script `saveMember()` implementation, which is not visible in the historical snapshot.
+The selected `action` is stored in `pending_payment`, but the final approval path does not use it.
+
+The uploaded `saveMember()` behavior is clear:
+- Active renewal extends from the existing expiry.
+- Expired renewal starts from approval time.
+- Same-package WEB renewal preserves the existing password.
+
+Required bot fix:
+- Define explicit `new`, `renew`, `upgrade`, and optional `downgrade` transitions.
+- Preserve the same row and Telegram ID.
+- Display the backend-returned expiry instead of independently calculating it.
+
+### MCH-008 — Privileged Apps Script membership actions lack server authentication
+
+The reviewed `doPost()` routes privileged operations by action name. The reviewed source does not require a Railway-only credential for actions including:
+
+- `saveMember`
+- `getMembers`
+- `getPassword`
+- `resetPassword`
+- `updateMemberId`
+- `getBackupCSV`
+- `updateStatus`
+- `resetMemberDevice`
+
+Because the web app endpoint is reachable from browser code, these actions must not rely on the URL being secret.
+
+Staged fix:
+- Apps Script Script Property: `JACC_SERVER_KEY`
+- Railway environment variable: `SHEET_SERVER_KEY`
+- Constant-time credential comparison before privileged actions
+- Fail closed when the key is missing or invalid
+- Keep `verifyLogin` and `verifyToken` public because they authenticate through member password/token
+
+This must be deployed atomically. Enabling Apps Script protection before Railway sends the key would break membership checks and approvals.
+
+### MCH-009 — One-device backend exists but the current frontend does not activate it
+
+The uploaded `Code.gs` supports Flutter binding when both conditions are present:
+
+- `app` equals `flutter`
+- a non-empty `deviceId` is sent
+
+The current repository `index.html` sends only the password during `verifyLogin` and does not reference `jacc_installation_id` or `deviceId`.
+
+Live evidence: all active member DeviceID cells were blank at audit time.
+
+Conclusion: one-device enforcement is not proven active in the current customer flow.
 
 Required fix:
-- Define explicit `new`, `renew`, `upgrade`, and optional `downgrade` transitions.
-- Extend from the later of today or the current expiry for renewals.
-- Preserve the same member row and Telegram ID.
-- Verify the final expiry returned by the backend instead of calculating a separate display-only date in the bot.
+- Flutter/WebView exposes its secure installation ID.
+- Website includes `{app: "flutter", deviceId: ...}` in both `verifyLogin` and `verifyToken` requests only inside the app.
+- Browser access policy is decided explicitly: unrestricted browser, browser-session limit, or browser device binding.
+- Admin reset is authenticated server-side and audited.
 
 ## High findings still pending
 
-- Package aliases are inconsistent across code paths (`WEB`, `WEB-PROMO`, `WEB_PREMIUM`, `CH-PROMO`, `STANDARD`, `PROMO10D`).
-- Current payment/admin approval summaries can expose website passwords in formatted Telegram messages and screenshots.
-- Channel validation previously treated `PROMO10D` as a possible status although it is used as a package elsewhere.
+- Package aliases remain historically inconsistent across code paths, though the Apps Script normalizer reduces the impact.
+- Current payment/admin summaries can expose website passwords in Telegram messages and screenshots.
 - The 3-day expiry warning creates an HTTP client without a context manager.
-- Username-only approval cannot reliably DM the member because no Telegram numeric ID is resolved.
-- The website stores its session token in `localStorage`. `getData` sends the token back to the backend, but server-side expiry, revocation, and one-device enforcement cannot be confirmed without the deployed Apps Script source.
+- Username-only approval cannot reliably DM the member because no numeric Telegram ID is resolved.
+- The unknown-action default branch in Apps Script appends car data; changing this requires a compatibility review of all legacy clients.
+- The spreadsheet metadata timezone is `Etc/UTC` while business date formatting uses `Asia/Bangkok`; date parsing and trigger schedules need an explicit timezone test.
 
 ## Positive controls already present
 
+- Live A–J schema now includes CancelCount and DeviceID.
+- Uploaded Apps Script uses constants rather than hard-coded membership indexes.
+- Uploaded `saveMember()` extends active expiry and preserves same-package WEB passwords.
+- Uploaded login/token/password functions check normalized package, status, and expiry.
 - Single-use Telegram invite links.
 - `/channel` replacement-link command for active members.
 - Channel ID check and admin exemption in the join guard.
@@ -107,7 +192,9 @@ Required fix:
 
 ## Staged code
 
-`phase2_membership_guard.py` contains tested replacements for:
+### `phase2_membership_guard.py`
+
+Contains tested replacements for:
 
 - ID/status/package normalization
 - Expiry-aware active checks
@@ -116,8 +203,19 @@ Required fix:
 - Promo activation contract
 - Admin approval persistence gate
 - WEB password preservation policy
+- Authenticated privileged Apps Script payloads
+- Secure `saveMember` replacement
 
-The module is deliberately not imported by the production launcher yet.
+### `phase2/apps_script_membership_security_patch.gs`
+
+Contains a staged Apps Script preflight for:
+
+- Railway-only server credential validation
+- A–J schema/version validation
+- Privileged action protection
+- Safe `memberSchemaHealth` diagnostic
+
+Neither file is connected to production yet.
 
 ## Test coverage
 
@@ -127,17 +225,26 @@ The module is deliberately not imported by the production launcher yet.
 - Customer access fail-closed policy
 - Channel-removal fail-safe policy
 - No invite or DM after failed Sheet save
-- Canonical 10-day promo save payload
+- Canonical promo save payload
 - WEB renewal preserves the existing password
 - CH → WEB generates a password only when missing
 - CH does not create a WEB password
+- Privileged payload contains `serverKey`
+- Missing `SHEET_SERVER_KEY` fails before any HTTP request
+- `getMembers`, `getPassword`, and `saveMember` use the secure caller
+- Apps Script patch contains no literal credential
+- Privileged action list and A–J schema contract are covered by static tests
 
-## Required release sequence
+## Coordinated release sequence
 
-1. Finish and merge Phase 1 PR #8.
-2. Apply and verify Supabase migration 008 and final pilot.
-3. Export/verify the deployed Apps Script membership schema and renewal behavior.
-4. Retarget Phase 2 PR to `main`.
-5. Fix payment-state idempotency and connect the guard module to the launcher.
-6. Run live Standard, WEB, upgrade, renewal, expired, kicked and PROMO10D tests.
-7. Only then mark the Phase 2 PR ready for review.
+1. Keep PR #12 Draft.
+2. Finish payment-state idempotency and authoritative-expiry handling.
+3. Add `SHEET_SERVER_KEY` support to every Railway privileged Sheet caller.
+4. Generate a new random secret outside GitHub.
+5. Set the same value in Apps Script Script Properties and Railway environment variables.
+6. Insert the Apps Script preflight into `doPost()`.
+7. Deploy a new Apps Script version without changing the public Web App URL.
+8. Deploy Railway callers in the same maintenance window.
+9. Run schema health and live Standard, WEB, upgrade, renewal, expired, kicked, PROMO, channel, password, and device-binding tests.
+10. Verify no customer data was exposed and no mass channel removal occurred.
+11. Only then mark PR #12 ready for review and request explicit owner approval before merge.
