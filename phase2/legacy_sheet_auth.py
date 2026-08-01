@@ -8,7 +8,7 @@ at once would increase rollout risk, so this module replaces only the
 The proxy injects ``SHEET_SERVER_KEY`` only when all of these are true:
 
 * the request URL is the configured JACC ``SHEET_WEBHOOK``;
-* the request payload contains a protected membership action; and
+* the request payload contains a protected membership/payment-review action; and
 * the request uses JSON, query parameters, or form data.
 
 The current production Apps Script ``doGet`` is price-data only. One historical
@@ -34,6 +34,8 @@ _PROTECTED_ACTIONS = frozenset(
         "approveMembershipPayment",
         "approvePayment",
         "rejectPayment",
+        "approveWebPayment",
+        "rejectWebPayment",
         "getMembers",
         "getPassword",
         "resetPassword",
