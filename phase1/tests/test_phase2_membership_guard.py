@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from types import SimpleNamespace
-
-import pytest
 
 import phase2_membership_guard as guard
 
@@ -43,27 +42,25 @@ def test_active_row_requires_status_and_non_expired_date() -> None:
     )
 
 
-@pytest.mark.asyncio
-async def test_customer_access_fails_closed_when_sheet_is_unavailable(monkeypatch) -> None:
+def test_customer_access_fails_closed_when_sheet_is_unavailable(monkeypatch) -> None:
     monkeypatch.setattr(guard._legacy, "ADMIN_IDS", [])
 
     async def broken_fetch():
         raise RuntimeError("sheet unavailable")
 
     monkeypatch.setattr(guard, "_fetch_members", broken_fetch)
-    assert await guard.is_active_member(123) is False
-    assert await guard.get_member_package(123) is None
+    assert asyncio.run(guard.is_active_member(123)) is False
+    assert asyncio.run(guard.get_member_package(123)) is None
 
 
-@pytest.mark.asyncio
-async def test_channel_removal_check_fails_safe_when_sheet_is_unavailable(monkeypatch) -> None:
+def test_channel_removal_check_fails_safe_when_sheet_is_unavailable(monkeypatch) -> None:
     monkeypatch.setattr(guard._legacy, "ADMIN_IDS", [])
 
     async def broken_fetch():
         raise RuntimeError("sheet unavailable")
 
     monkeypatch.setattr(guard, "_fetch_members", broken_fetch)
-    assert await guard.is_valid_member(123) is True
+    assert asyncio.run(guard.is_valid_member(123)) is True
 
 
 class _Message:
@@ -79,8 +76,7 @@ class _Bot:
         return SimpleNamespace(username="member", first_name="Member")
 
 
-@pytest.mark.asyncio
-async def test_approval_stops_when_sheet_save_fails(monkeypatch) -> None:
+def test_approval_stops_when_sheet_save_fails(monkeypatch) -> None:
     message = _Message()
     update = SimpleNamespace(
         effective_user=SimpleNamespace(id=1),
@@ -107,14 +103,13 @@ async def test_approval_stops_when_sheet_save_fails(monkeypatch) -> None:
     monkeypatch.setattr(guard._legacy, "create_invite_link", create_invite)
     monkeypatch.setattr(guard._legacy, "send_approval_dm", send_dm)
 
-    await guard.approve_member(update, context)
+    asyncio.run(guard.approve_member(update, context))
 
     assert calls == {"invite": 0, "dm": 0}
     assert any("approve မလုပ်ရသေး" in text for text, _ in message.messages)
 
 
-@pytest.mark.asyncio
-async def test_promo_uses_canonical_save_member_contract(monkeypatch) -> None:
+def test_promo_uses_canonical_save_member_contract(monkeypatch) -> None:
     captured = {}
 
     async def save_member(user_id, username, days, password, package):
@@ -130,7 +125,7 @@ async def test_promo_uses_canonical_save_member_contract(monkeypatch) -> None:
     monkeypatch.setattr(guard._legacy, "save_member_to_sheet", save_member)
     monkeypatch.setattr(guard._legacy, "generate_password", lambda: "KMT-PROMO")
 
-    assert await guard.activate_promo10d(None, 123, "@member") is True
+    assert asyncio.run(guard.activate_promo10d(None, 123, "@member")) is True
     assert captured == {
         "user_id": "123",
         "username": "member",
