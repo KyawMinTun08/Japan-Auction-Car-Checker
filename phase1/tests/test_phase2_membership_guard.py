@@ -75,6 +75,46 @@ def test_channel_removal_check_fails_safe_when_sheet_is_unavailable(monkeypatch)
     assert asyncio.run(guard.is_valid_member(123)) is True
 
 
+def test_web_renewal_preserves_existing_password(monkeypatch) -> None:
+    runtime = _runtime_stub(
+        generate_password=lambda: (_ for _ in ()).throw(
+            AssertionError("password must not rotate")
+        )
+    )
+    monkeypatch.setattr(guard, "_legacy", runtime)
+
+    async def existing_password(user_id: str) -> str:
+        assert user_id == "123"
+        return "KMT-EXISTING"
+
+    monkeypatch.setattr(guard, "_fetch_existing_password", existing_password)
+    assert (
+        asyncio.run(guard.resolve_membership_password("123", "WEB"))
+        == "KMT-EXISTING"
+    )
+
+
+def test_web_upgrade_generates_password_only_when_missing(monkeypatch) -> None:
+    runtime = _runtime_stub(generate_password=lambda: "KMT-NEW")
+    monkeypatch.setattr(guard, "_legacy", runtime)
+
+    async def no_password(user_id: str) -> str:
+        return ""
+
+    monkeypatch.setattr(guard, "_fetch_existing_password", no_password)
+    assert asyncio.run(guard.resolve_membership_password("123", "WEB")) == "KMT-NEW"
+
+
+def test_standard_membership_has_no_web_password(monkeypatch) -> None:
+    runtime = _runtime_stub(
+        generate_password=lambda: (_ for _ in ()).throw(
+            AssertionError("CH must not create a web password")
+        )
+    )
+    monkeypatch.setattr(guard, "_legacy", runtime)
+    assert asyncio.run(guard.resolve_membership_password("123", "CH")) == ""
+
+
 class _Message:
     def __init__(self) -> None:
         self.messages: list[tuple[str, dict]] = []
@@ -108,6 +148,9 @@ def test_approval_stops_when_sheet_save_fails(monkeypatch) -> None:
     async def send_dm(*args, **kwargs):
         calls["dm"] += 1
 
+    async def password_policy(*args, **kwargs):
+        return "KMT-TEST"
+
     runtime = _runtime_stub(
         ADMIN_IDS=[1],
         generate_password=lambda: "KMT-TEST",
@@ -116,6 +159,7 @@ def test_approval_stops_when_sheet_save_fails(monkeypatch) -> None:
         send_approval_dm=send_dm,
     )
     monkeypatch.setattr(guard, "_legacy", runtime)
+    monkeypatch.setattr(guard, "resolve_membership_password", password_policy)
 
     asyncio.run(guard.approve_member(update, context))
 
