@@ -173,3 +173,6 @@ import phase1_selftest as _phase1_selftest  # noqa: F401,E402
 
 # Keep legacy broker commands synchronized with the Phase 1 broker registry.
 import phase1_broker_sync as _phase1_broker_sync  # noqa: F401,E402
+
+# Add the real worker/database resilience test after the prior command patches.
+import phase1_resilience_test as _phase1_resilience_test  # noqa: F401,E402
