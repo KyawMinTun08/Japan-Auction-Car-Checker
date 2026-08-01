@@ -5,6 +5,8 @@ import logging
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 import phase2_membership_guard as guard
 
 
@@ -12,6 +14,7 @@ def _runtime_stub(**overrides):
     values = {
         "ADMIN_IDS": [],
         "SHEET_WEBHOOK": "https://example.invalid/webhook",
+        "SHEET_SERVER_KEY": "test-server-key",
         "logger": logging.getLogger("phase2-membership-test"),
         "PLAN_NAMES": {"CH": "Standard", "WEB": "Web Premium"},
     }
@@ -52,6 +55,93 @@ def test_active_row_requires_status_and_non_expired_date() -> None:
         {"status": "ACTIVE", "expireDate": "not-a-date"},
         today=today,
     )
+
+
+def test_privileged_payload_includes_server_key(monkeypatch) -> None:
+    monkeypatch.setattr(guard, "_legacy", _runtime_stub())
+    payload = guard.build_privileged_sheet_payload(
+        "getPassword", userId="123"
+    )
+    assert payload == {
+        "action": "getPassword",
+        "serverKey": "test-server-key",
+        "userId": "123",
+    }
+
+
+def test_missing_server_key_fails_before_http(monkeypatch) -> None:
+    monkeypatch.setattr(
+        guard,
+        "_legacy",
+        _runtime_stub(SHEET_SERVER_KEY=""),
+    )
+    monkeypatch.delenv("SHEET_SERVER_KEY", raising=False)
+
+    class ExplodingClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("HTTP client must not be created without a key")
+
+    monkeypatch.setattr(guard.httpx, "AsyncClient", ExplodingClient)
+    with pytest.raises(RuntimeError, match="SHEET_SERVER_KEY"):
+        asyncio.run(guard._post_privileged_sheet("getMembers"))
+
+
+def test_get_members_uses_authenticated_payload(monkeypatch) -> None:
+    captured = {}
+
+    async def post(action: str, **fields):
+        captured.update(action=action, fields=fields)
+        return {
+            "status": "ok",
+            "members": [{"userId": "123", "status": "ACTIVE"}],
+        }
+
+    monkeypatch.setattr(guard, "_post_privileged_sheet", post)
+    members = asyncio.run(guard._fetch_members())
+    assert captured == {"action": "getMembers", "fields": {}}
+    assert members[0]["userId"] == "123"
+
+
+def test_get_password_uses_authenticated_payload(monkeypatch) -> None:
+    captured = {}
+
+    async def post(action: str, **fields):
+        captured.update(action=action, fields=fields)
+        return {"status": "ok", "password": "KMT-EXISTING"}
+
+    monkeypatch.setattr(guard, "_post_privileged_sheet", post)
+    password = asyncio.run(guard._fetch_existing_password("123"))
+    assert captured == {
+        "action": "getPassword",
+        "fields": {"userId": "123"},
+    }
+    assert password == "KMT-EXISTING"
+
+
+def test_secure_save_uses_canonical_authenticated_contract(monkeypatch) -> None:
+    captured = {}
+
+    async def post(action: str, **fields):
+        captured.update(action=action, fields=fields)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(guard, "_post_privileged_sheet", post)
+    saved = asyncio.run(
+        guard.save_member_to_sheet_secure(
+            "123", "@member", 30, " KMT-NEW ", "premium"
+        )
+    )
+    assert saved is True
+    assert captured == {
+        "action": "saveMember",
+        "fields": {
+            "userId": "123",
+            "username": "member",
+            "days": 30,
+            "password": "KMT-NEW",
+            "package": "WEB",
+        },
+    }
 
 
 def test_customer_access_fails_closed_when_sheet_is_unavailable(monkeypatch) -> None:
@@ -154,12 +244,12 @@ def test_approval_stops_when_sheet_save_fails(monkeypatch) -> None:
     runtime = _runtime_stub(
         ADMIN_IDS=[1],
         generate_password=lambda: "KMT-TEST",
-        save_member_to_sheet=save_failed,
         create_invite_link=create_invite,
         send_approval_dm=send_dm,
     )
     monkeypatch.setattr(guard, "_legacy", runtime)
     monkeypatch.setattr(guard, "resolve_membership_password", password_policy)
+    monkeypatch.setattr(guard, "save_member_to_sheet_secure", save_failed)
 
     asyncio.run(guard.approve_member(update, context))
 
@@ -180,11 +270,9 @@ def test_promo_uses_canonical_save_member_contract(monkeypatch) -> None:
         )
         return True
 
-    runtime = _runtime_stub(
-        save_member_to_sheet=save_member,
-        generate_password=lambda: "KMT-PROMO",
-    )
+    runtime = _runtime_stub(generate_password=lambda: "KMT-PROMO")
     monkeypatch.setattr(guard, "_legacy", runtime)
+    monkeypatch.setattr(guard, "save_member_to_sheet_secure", save_member)
 
     assert asyncio.run(guard.activate_promo10d(None, 123, "@member")) is True
     assert captured == {
@@ -194,3 +282,11 @@ def test_promo_uses_canonical_save_member_contract(monkeypatch) -> None:
         "password": "KMT-PROMO",
         "package": "PROMO10D",
     }
+
+
+def test_install_replaces_legacy_save_with_secure_version(monkeypatch) -> None:
+    runtime = _runtime_stub()
+    monkeypatch.setattr(guard, "_legacy", runtime)
+    installed = guard.install()
+    assert installed.save_member_to_sheet is guard.save_member_to_sheet_secure
+    assert runtime.save_member_to_sheet is guard.save_member_to_sheet_secure
