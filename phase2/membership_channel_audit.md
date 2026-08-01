@@ -43,8 +43,9 @@ The historical backup tab is an older A–I snapshot without DeviceID. It must n
 
 At audit time, the live Sheet contained 15 ACTIVE rows:
 
-- 5 normalized Standard/CH
-- 10 normalized Web-capable rows, including one historical WEB-PROMO alias
+- 5 Standard/CH rows
+- 9 WEB rows
+- 1 historical WEB-PROMO row, which the Apps Script normalizer treats as WEB
 - 1 populated token
 - 0 populated DeviceID values
 
