@@ -32,6 +32,8 @@ _PROTECTED_ACTIONS = frozenset(
     {
         "saveMember",
         "approveMembershipPayment",
+        "approvePayment",
+        "rejectPayment",
         "getMembers",
         "getPassword",
         "resetPassword",
