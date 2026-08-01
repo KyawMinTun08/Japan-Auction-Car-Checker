@@ -29,12 +29,14 @@ def test_release_router_handles_only_new_phase2_actions() -> None:
         assert f'case "{legacy_action}"' not in source
 
 
-def test_release_router_documents_minimal_post_and_get_integration() -> None:
+def test_release_router_documents_minimal_post_only_integration() -> None:
     source = _source()
     assert "var phase2 = jaccPhase2PreflightAndRoute_(data)" in source
     assert "if (phase2.handled) return _json(phase2.response)" in source
-    assert "var queryData = (e && e.parameter) ? e.parameter : {}" in source
-    assert "jaccMembershipPreflight_(queryData)" in source
+    assert "before handlePhase3PaymentAction_(data)" in source
+    assert "current production doGet(e) unchanged" in source
+    assert "authenticated POST JSON" in source
+    assert "URL query parameters" in source
     assert "Existing legacy switch/cases remain" in source
 
 
