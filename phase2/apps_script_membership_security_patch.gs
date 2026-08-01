@@ -34,6 +34,8 @@ var JACC_MEMBER_SCHEMA_CANONICAL = [
 var JACC_PRIVILEGED_MEMBER_ACTIONS = {
   saveMember: true,
   approveMembershipPayment: true,
+  approvePayment: true,
+  rejectPayment: true,
   getMembers: true,
   getPassword: true,
   resetPassword: true,
