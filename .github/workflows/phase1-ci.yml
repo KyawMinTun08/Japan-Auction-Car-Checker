@@ -82,6 +82,7 @@ jobs:
             phase2/apply_apps_script_registration_gs.py \
             phase2/apply_apps_script_phase3_payments_gs.py \
             phase2/apply_website_device_binding.py \
+            phase2/build_release_candidate_bundle.py \
             queue_launcher.py \
             bot.py \
             bot_core.py \
