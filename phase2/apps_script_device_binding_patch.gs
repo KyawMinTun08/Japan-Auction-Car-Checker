@@ -89,19 +89,23 @@ function jaccDeviceConstantTimeEqual_(left, right) {
   return difference === 0;
 }
 
-function jaccDeviceSuccess_(app, fingerprint, boundNow) {
+function jaccDeviceSuccess_(app, boundNow) {
   return {
     ok: true,
     status: "ok",
     deviceBound: true,
     deviceBoundNow: !!boundNow,
-    clientApp: app,
-    deviceFingerprint: fingerprint.slice(0, 15)
+    clientApp: app
   };
 }
 
 /**
  * Enforce binding for one known member row.
+ *
+ * The deployed doPost currently holds a ScriptLock around action routing. This
+ * helper therefore reuses an already-held lock instead of waiting on the same
+ * non-reentrant lock and timing out. When called outside that router it safely
+ * acquires and releases the lock itself.
  *
  * sheet: Members sheet
  * rowNumber: 1-based sheet row (not array index)
@@ -117,8 +121,12 @@ function jaccEnforceDeviceBinding_(sheet, rowNumber, data, packageValue) {
   if (!request.ok) return request;
 
   var lock = LockService.getScriptLock();
+  var releaseHere = false;
   try {
-    lock.waitLock(10000);
+    if (!lock.hasLock()) {
+      lock.waitLock(10000);
+      releaseHere = true;
+    }
   } catch (lockError) {
     return {
       ok: false,
@@ -135,12 +143,12 @@ function jaccEnforceDeviceBinding_(sheet, rowNumber, data, packageValue) {
     if (!stored) {
       cell.setValue(fingerprint);
       SpreadsheetApp.flush();
-      return jaccDeviceSuccess_(request.app, fingerprint, true);
+      return jaccDeviceSuccess_(request.app, true);
     }
 
     if (stored.indexOf(JACC_DEVICE_PREFIX) === 0) {
       if (jaccDeviceConstantTimeEqual_(stored, fingerprint)) {
-        return jaccDeviceSuccess_(request.app, fingerprint, false);
+        return jaccDeviceSuccess_(request.app, false);
       }
       return {
         ok: false,
@@ -154,7 +162,7 @@ function jaccEnforceDeviceBinding_(sheet, rowNumber, data, packageValue) {
     if (jaccDeviceConstantTimeEqual_(stored, request.deviceId)) {
       cell.setValue(fingerprint);
       SpreadsheetApp.flush();
-      return jaccDeviceSuccess_(request.app, fingerprint, false);
+      return jaccDeviceSuccess_(request.app, false);
     }
 
     return {
@@ -163,7 +171,7 @@ function jaccEnforceDeviceBinding_(sheet, rowNumber, data, packageValue) {
       message: "device_mismatch"
     };
   } finally {
-    lock.releaseLock();
+    if (releaseHere) lock.releaseLock();
   }
 }
 
