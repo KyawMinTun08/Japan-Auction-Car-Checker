@@ -2,48 +2,60 @@
 
 Status: staged only. Do not deploy one component by itself.
 
-## Current source evidence
+## Reviewed current sources
 
-The owner supplied the current `Code.gs`, `Payment.gs`, and `Registration.gs`
-sources on 1 August 2026.
+The owner supplied current copies of:
 
-Current `Code.gs`:
+- `Code.gs`
+- `Payment.gs`
+- `Registration.gs`
+- `Phase3Payments.gs`
 
-- uses the canonical A–J Members contract;
-- keeps `doGet(e)` as the public price-data endpoint;
-- parses POST JSON under one outer `ScriptLock`;
-- calls `handlePhase3PaymentAction_(data)` before the legacy switch;
-- still uses raw Flutter-only DeviceID binding;
-- omits device data inside the protected `getData` path;
-- contains `monthlyPasswordReset()`.
+The production source copies are evidence only and are not committed to the
+public repository.
 
-Current `Payment.gs`:
+### Current Code.gs
 
-- stores payment rows in the 11-column payment sheet;
-- writes `APPROVED` before calling `activateMemberFromPayment()`;
-- blocks every retry after that status write, even when activation failed;
-- sends the customer an approval message without checking activation success;
-- exposes Telegram ID, slip URL, and admin note through public `checkPayment`;
-- routes `approvePayment` and `rejectPayment` without a server-key requirement.
+- Uses the canonical A–J Members contract.
+- Keeps `doGet(e)` as public price data.
+- Parses POST JSON under one outer ScriptLock.
+- Calls `handlePhase3PaymentAction_(data)` before the legacy switch.
+- Uses historical raw Flutter-only device binding.
+- Omits device data inside `getData`.
+- Contains `monthlyPasswordReset()`.
 
-Current `Registration.gs`:
+### Current Payment.gs
 
-- normalizes registration packages to `STANDARD` or `WEB_PREMIUM`;
-- acquires its own ScriptLock inside `createRegistration` and
-  `connectTelegram`, which conflicts with the current outer doPost lock;
-- treats a previous completed `APPROVED` registration as an active conflict,
-  preventing the same Telegram user from linking a new renewal registration;
-- omits the `WEB_PROMO` alias;
-- exposes Telegram ID, username, and stored package through public
-  `checkRegistration`;
-- exposes linked Telegram/registration identifiers in conflict responses.
+- Writes `APPROVED` before member activation.
+- Prevents safe retry after partial failure.
+- Sends customer success before requiring authoritative activation success.
+- Exposes Telegram ID, slip URL, and admin note through public status.
+- Leaves approve/reject routes unprotected.
 
-The owner-supplied production sources are evidence only and are not committed to
-the public repository.
+### Current Registration.gs
 
-## Add these Apps Script files
+- Reacquires ScriptLock under the outer router lock.
+- Blocks renewal after a completed registration.
+- Omits `WEB_PROMO` normalization.
+- Exposes Telegram and package identifiers in public/conflict responses.
 
-Create these files in the existing Apps Script project:
+### Current Phase3Payments.gs
+
+- Routes `approveWebPayment` / `rejectWebPayment` before the legacy switch
+  without server authentication.
+- Calls legacy `saveMember()` directly.
+- Can rotate an existing WEB password during renewal.
+- Treats only literal boolean `false` as a save failure although saveMember
+  returns result objects.
+- Returns the raw password in the approval response.
+- Allows rejection to overwrite a completed approval.
+- Allows status lookup without requiring the owning user ID.
+- Returns the Drive slip URL from public submission.
+- Uses timestamp-plus-four-digit payment IDs.
+- Creates duplicate pending requests after admin-notification failures.
+- Creates Telegram callback data that had no reviewed Railway handler.
+
+## Add these seven Apps Script modules
 
 1. `Phase2MembershipSecurity.gs`
    - `phase2/apps_script_membership_security_patch.gs`
@@ -55,12 +67,16 @@ Create these files in the existing Apps Script project:
    - `phase2/apps_script_release_routes.gs`
 5. `Phase2WebsitePayment.gs`
    - `phase2/apps_script_website_payment_patch.gs`
-6. `Phase2TriggerGuard.gs`
+6. `Phase2Phase3Payment.gs`
+   - `phase2/apps_script_phase3_payment_patch.gs`
+7. `Phase2TriggerGuard.gs`
    - `phase2/apps_script_trigger_guard.gs`
 
-None of these files contains the production server key.
+None contains a production secret.
 
-## Generate the reviewed Code.gs candidate
+## Generate reviewed candidates
+
+### Code.gs
 
 ```bash
 python phase2/apply_apps_script_code_gs.py Current_Code.gs \
@@ -68,17 +84,15 @@ python phase2/apply_apps_script_code_gs.py Current_Code.gs \
 python phase2/apply_apps_script_code_gs.py Code_Phase2_Candidate.gs --check
 ```
 
-The guarded transformer changes only the reviewed integration points:
+Changes:
 
-- runs Phase 2 preflight before `handlePhase3PaymentAction_`;
-- replaces raw Flutter-only binding with hashed one-installation binding;
-- moves token device enforcement after package/status/expiry checks;
-- passes device data through `getData`;
-- preserves authoritative token/device errors.
+- Runs Phase 2 preflight before `handlePhase3PaymentAction_`.
+- Replaces raw Flutter-only binding with hashed installation binding.
+- Enforces token device binding after package/status/expiry validation.
+- Passes device data through `getData` and preserves authoritative errors.
+- Leaves public price-data `doGet` unchanged.
 
-The public price-data `doGet(e)` remains unchanged.
-
-## Generate the reviewed Payment.gs candidate
+### Payment.gs
 
 ```bash
 python phase2/apply_apps_script_payment_gs.py Current_Payment.gs \
@@ -87,15 +101,12 @@ python phase2/apply_apps_script_payment_gs.py \
   Payment_Phase2_Candidate.gs --check
 ```
 
-The guarded transformer performs two changes:
+Changes:
 
-1. `jaccReviewPayment_()` delegates to the Phase 2 website-payment adapter.
-2. Public `checkPayment()` no longer returns Telegram ID, slip URL, or admin
-   note.
+- Delegates `jaccReviewPayment_()` to the retry-safe website-payment adapter.
+- Redacts Telegram ID, slip URL, and admin note from public `checkPayment`.
 
-It refuses unknown source drift and is idempotent.
-
-## Generate the reviewed Registration.gs candidate
+### Registration.gs
 
 ```bash
 python phase2/apply_apps_script_registration_gs.py Current_Registration.gs \
@@ -104,86 +115,139 @@ python phase2/apply_apps_script_registration_gs.py \
   Registration_Phase2_Candidate.gs --check
 ```
 
-The guarded transformer:
+Changes:
 
-- reuses the outer doPost ScriptLock and releases a lock only when the
-  registration function acquired it itself;
-- allows previous completed `APPROVED`, `REJECTED`, or `EXPIRED` registrations
-  while still blocking another open registration for the same Telegram user;
-- accepts `WEB_PROMO` and keeps the canonical stored value `WEB_PREMIUM`;
-- redacts Telegram ID, username, and stored package from public
-  `checkRegistration`;
-- removes linked Telegram/registration identifiers from conflict responses.
+- Reuses the outer ScriptLock and releases only a lock acquired locally.
+- Allows prior completed registrations during renewal.
+- Continues blocking another open registration for the same Telegram user.
+- Supports `WEB_PROMO` while storing canonical `WEB_PREMIUM`.
+- Redacts public registration/conflict identifiers.
 
-`createRegistration`, `connectTelegram`, and the redacted
-`checkRegistration` remain customer-facing. `repairRegistrationPackages` is an
-editor-only maintenance function and must not be exposed by the webhook router.
+`repairRegistrationPackages` remains editor-only and must never be routed by
+`doPost`.
 
-## Website-payment approval semantics
+### Phase3Payments.gs
 
-The Phase 2 adapter uses the payment ID to derive a stable
-`JACC-PAY-<32 hex>` idempotency key and calls the existing atomic
-`jaccApproveMembershipPayment_()` ledger flow.
+```bash
+python phase2/apply_apps_script_phase3_payments_gs.py \
+  Current_Phase3Payments.gs \
+  --output Phase3Payments_Phase2_Candidate.gs
+python phase2/apply_apps_script_phase3_payments_gs.py \
+  Phase3Payments_Phase2_Candidate.gs --check
+```
 
-Approval order is now:
+The transformer replaces only these four reviewed functions with delegates:
 
-1. Validate payment and registration rows.
-2. Run retry-safe membership activation.
-3. Verify authoritative backend success.
-4. Write registration status `APPROVED`.
-5. Write payment status `APPROVED` as the final completion marker.
-6. Send the customer approval message.
+- `submitWebPayment_`
+- `getWebPaymentStatus_`
+- `approveWebPayment_`
+- `rejectWebPayment_`
 
-When activation fails:
+It leaves the existing Sheet, Drive, Telegram, and router helpers intact,
+refuses unknown source drift, and is idempotent.
 
-- the payment remains `PENDING`;
-- the failure is written to the admin-note cell;
-- no approval message is sent;
-- the admin can retry;
-- the membership ledger prevents a partial write from extending twice.
+The exact owner-supplied Phase3Payments source was transformed locally and the
+candidate parsed successfully as JavaScript.
 
-A completed `APPROVED` payment returns an idempotent duplicate success and
-repairs Registration status when needed rather than applying another period.
+## Payment approval semantics
 
-The current website-payment contract still represents one month as 30 days,
-matching the existing `activateMemberFromPayment()` default. Changing package
-duration requires a separate schema/frontend change and is not inferred here.
+Both website payment systems now use the same atomic
+`Membership_Approval_Ledger` flow.
+
+Approval order:
+
+1. Validate payment row and package/duration.
+2. Derive a stable payment-specific idempotency key.
+3. Run retry-safe membership activation.
+4. Verify authoritative expiry/package/password from the Members row.
+5. Write related registration state when applicable.
+6. Write payment `APPROVED` as the final completion marker.
+7. Send the customer success message.
+
+Failure behavior:
+
+- Payment remains `PENDING` when activation fails.
+- Error detail is recorded for admin diagnosis.
+- Approval buttons remain available for safe retry.
+- Partial member writes recover through the same ledger key.
+- Duplicate approval cannot extend membership twice.
 
 WEB password rules:
 
-- existing WEB renewal keeps its current password;
-- new WEB or CH-to-WEB activation generates one password;
-- the public approval response excludes the password.
+- Existing WEB renewal preserves its current password.
+- New WEB and CH-to-WEB activation generate one password.
+- Customer delivery may include the password after authoritative success.
+- Admin/API success responses never contain the raw password.
 
-## Protected payment review routes
+## Phase 3 public submission/status hardening
 
-`approvePayment` and `rejectPayment` are privileged server actions and require
-the same server key as other membership administration routes.
+- Telegram user ID must be numeric.
+- Package is canonical CH/WEB only.
+- Months must be an integer from 1 to 12.
+- Amount must be positive and bounded.
+- Payment method is allow-listed.
+- Slip MIME type is JPEG, PNG, or WebP.
+- Estimated slip size is limited to 5 MB.
+- Payment IDs are UUID-derived.
+- One existing PENDING request per user is returned as a duplicate.
+- Admin-notification failure is recorded without telling the customer to
+  resubmit and create another row.
+- Public submission does not return the private Drive slip URL.
+- Public status requires payment ID plus matching user ID.
+- Owner mismatch returns `PAYMENT_NOT_FOUND`.
+- Public status excludes usernames, slip URL, admin ID/note, and password.
+- Rejection is allowed only from PENDING and cannot overwrite APPROVED.
 
-`submitPayment` and the redacted `checkPayment` remain public for the customer
-website flow.
+## Protected routes and Telegram callbacks
 
-The Railway scoped proxy adds `SHEET_SERVER_KEY` only to configured protected
-Sheet requests. It never puts the key in URL parameters.
+The following actions require the matching server key:
+
+- `approveMembershipPayment`
+- `approvePayment`
+- `rejectPayment`
+- `approveWebPayment`
+- `rejectWebPayment`
+- all other privileged membership administration actions already listed in the
+  security preflight.
+
+Customer submission/status actions remain public but validated and redacted.
+
+Railway's Phase 2 callback wrapper now intercepts:
+
+- `slip_ok_...`
+- `webpay_approve_...`
+- `webpay_reject_...`
+
+The wrapper:
+
+- verifies the Telegram admin before any backend request;
+- calls Apps Script through `_post_privileged_sheet`;
+- keeps buttons when backend/activation fails;
+- removes buttons only after authoritative success;
+- reports duplicate approval without extending again;
+- never prints the raw WEB password in the admin chat.
+
+Every unrelated callback delegates to the original handler.
 
 ## Legacy broadcast compatibility
 
-A historical Telegram handler sends `GET ?action=getMembers`. Railway converts
+One historical Telegram handler sends `GET ?action=getMembers`. Railway converts
 only this protected request to authenticated POST JSON before network access.
-The Apps Script public price-data `doGet` contract is unchanged.
+The Apps Script public price-data `doGet` remains unchanged and the server key
+never appears in URL parameters.
 
 ## Monthly password reset
 
-The current Code.gs contains `monthlyPasswordReset()`, which changes every
-active WEB password and clears tokens. Before rollout:
+The current Code.gs contains `monthlyPasswordReset()`, which changes active WEB
+passwords and clears tokens. Before rollout:
 
-1. Run `jaccPhase2TriggerHealth_()` from the Apps Script editor.
-2. Keep the trigger only after an explicit policy decision.
+1. Run `jaccPhase2TriggerHealth_()` in the Apps Script editor.
+2. Keep the trigger only after an explicit owner policy decision.
 3. Otherwise run `jaccDisableMonthlyPasswordResetTriggers_()`.
-4. Re-run the audit and confirm zero matching triggers.
+4. Re-run health and confirm zero matching triggers.
 
-The trigger guard touches only triggers whose handler is exactly
-`monthlyPasswordReset`; it does not read or modify member rows.
+The helper touches only triggers whose handler is exactly
+`monthlyPasswordReset`; it does not read or change Members rows.
 
 ## Secret setup
 
@@ -192,65 +256,60 @@ Generate one new high-entropy value outside GitHub.
 - Apps Script Script Property: `JACC_SERVER_KEY`
 - Railway environment variable: `SHEET_SERVER_KEY`
 
-The values must match exactly. Never place the value in code, GitHub, website
-JavaScript, Flutter assets, Telegram messages, logs, URLs, or Sheet cells.
-
-## Remaining source review
-
-Before declaring the Apps Script project release-ready, export and review:
-
-- every file defining `handlePhase3PaymentAction_`;
-- any separate Telegram callback handler that calls `approvePayment` or
-  `rejectPayment`.
-
-The supplied `Code.gs`, `Payment.gs`, and `Registration.gs` do not define the
-Phase 3 router itself.
+Values must match exactly. Never place the value in source code, GitHub,
+website/Flutter assets, Telegram messages, logs, URLs, or Sheet cells.
 
 ## Atomic deployment order
 
-1. Export/backup every Apps Script file and the Members sheet.
-2. Review the remaining Phase 3 router/callback files.
-3. Add the six Phase 2 `.gs` modules.
-4. Generate and review Code.gs, Payment.gs, and Registration.gs candidates.
-5. Audit/disable the monthly password reset trigger as decided.
-6. Set `JACC_SERVER_KEY` in Apps Script properties.
-7. Confirm Telegram bot ban/unban permission.
-8. Set matching `SHEET_SERVER_KEY` in Railway without deploying yet.
-9. Import and run `phase2.install()` before legacy handler registration.
-10. Deploy Apps Script, Railway, and Phase 2 website in one maintenance window.
-11. Run the acceptance matrix before marking PR #12 Ready.
+1. Export/backup every current Apps Script file/version and Members sheet.
+2. Generate and review all four candidate files.
+3. Add the seven Phase 2 Apps Script modules.
+4. Audit/disable the monthly password reset trigger as decided.
+5. Set `JACC_SERVER_KEY` in Apps Script properties.
+6. Confirm the Telegram bot has channel ban/unban permission.
+7. Set matching `SHEET_SERVER_KEY` in Railway without deploying yet.
+8. Import/run `phase2.install()` before legacy Telegram handler registration.
+9. Deploy Apps Script, Railway, and generated website in one maintenance window.
+10. Run the complete acceptance matrix.
+11. Request explicit owner approval before Ready/Merge.
 
 Deploying only one component can break membership operations.
 
 ## Acceptance matrix
 
-- Schema health returns `JACC_MEMBERS_V2_AJ`.
+- A–J schema health passes.
 - Public price-data `doGet` still returns cars.
-- Standard approval and renewal.
+- Standard approval/renewal.
 - New WEB approval.
 - WEB renewal preserves password.
-- CH-to-WEB upgrade generates one password.
+- CH-to-WEB generates one password.
 - Expired renewal.
 - Previously kicked/banned member auto-rejoins.
 - Promo activation.
-- New registration supports `WEB_PROMO`.
-- A prior completed registration does not block a new renewal registration.
-- Another open registration for the same Telegram user remains blocked.
-- Public `checkRegistration` excludes Telegram ID, username, and stored package.
-- Website payment activation failure remains PENDING and retryable.
-- Retry after partial member write does not extend twice.
-- Duplicate website payment approval does not extend twice.
-- Approval message is sent only after activation succeeds.
-- Public `checkPayment` excludes Telegram ID, slip URL, and admin note.
-- Unauthorized `approvePayment` and `rejectPayment` are rejected.
-- Same installation can log out and log in again.
+- Registration renewal after completed registration.
+- Another open registration remains blocked.
+- Public registration responses stay redacted.
+- Payment/Phase 3 activation failure remains PENDING.
+- Retry after partial write does not extend twice.
+- Duplicate approval does not extend twice.
+- Rejection cannot overwrite approval.
+- Approval message occurs only after activation succeeds.
+- Public payment status requires the owner and stays redacted.
+- Oversized/invalid slip is rejected before Drive write.
+- Duplicate pending submission returns the existing payment.
+- Admin-notification failure does not create a duplicate row on retry.
+- Unauthorized approve/reject actions are rejected.
+- Telegram `webpay_approve_` and `webpay_reject_` buttons reach Railway wrapper.
+- Backend failure keeps callback buttons.
+- Same installation can log out/in again.
 - Second installation receives `device_mismatch`.
-- Admin device reset allows one replacement installation.
+- Admin reset allows a replacement installation.
 - Expired token/session is rejected at startup.
-- Monthly password reset trigger state matches the chosen policy.
+- Monthly password reset trigger state matches policy.
 
 ## Rollback boundary
 
-On any failed acceptance test, roll back Railway and website to the previous
+On any failed live acceptance test, roll back Railway and website to the previous
 release and redeploy the previous Apps Script version. Do not delete member,
-ledger, Finance, payment, registration, or audit rows during rollback.
+ledger, Finance, payment, registration, trigger-audit, or audit rows during
+rollback.
