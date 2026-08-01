@@ -44,7 +44,7 @@ on:
       - ".github/workflows/phase1-ci.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -54,8 +54,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -89,27 +87,3 @@ jobs:
 
       - name: Run Phase 1 policy, recovery, and staged Phase 2 tests
         run: python -m pytest phase1/tests -q
-
-      - name: Generate and commit Phase 2 website once
-        if: github.event_name == 'push' && github.ref == 'refs/heads/agent/jacc-phase2-membership-audit'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python phase2/apply_website_device_binding.py index.html
-          if git diff --quiet -- index.html; then
-            echo "Phase 2 website already generated"
-            exit 0
-          fi
-          test "$(git diff --name-only)" = "index.html"
-          git diff --check
-          grep -F 'data-jacc-device-binding="v4"' index.html
-          grep -F "async function restoreSession()" index.html
-          grep -F "JACCDeviceBinding.withDevice('verifyLogin'" index.html
-          grep -F "JACCDeviceBinding.withDevice('getData'" index.html
-          python phase2/apply_website_device_binding.py index.html --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- index.html
-          test "$(git diff --cached --name-only)" = "index.html"
-          git commit -m "Phase 2: generate device-bound website login"
-          git push origin HEAD:agent/jacc-phase2-membership-audit
