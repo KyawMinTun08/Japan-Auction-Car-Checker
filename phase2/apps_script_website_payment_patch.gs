@@ -36,19 +36,21 @@ function jaccReviewWebsitePayment_(paymentId, approved, adminNote) {
 
   var row = paySh.getRange(payRow, 1, 1, 11).getDisplayValues()[0];
   var currentStatus = String(row[7] || '').toUpperCase();
+  var registrationCode = String(row[1] || '').trim();
+  var telegramId = String(row[2] || '').trim();
+  var packageName = jaccPaymentPackage_(row[3]);
+  var regSh = jaccSheet_(JACC_REG_SHEET);
+  var regRow = jaccFindRow_(regSh, 1, registrationCode);
 
+  // Final APPROVED is proof that membership activation completed. Repair a
+  // partially completed Registration status write without extending again.
   if (approved && currentStatus === 'APPROVED') {
+    if (regRow !== -1) regSh.getRange(regRow, 5).setValue('APPROVED');
     return {ok:true, paymentId:paymentId, status:'APPROVED', duplicate:true};
   }
   if (currentStatus !== 'PENDING') {
     return {ok:false, error:'PAYMENT_ALREADY_REVIEWED', status:currentStatus};
   }
-
-  var registrationCode = String(row[1] || '').trim();
-  var telegramId = String(row[2] || '').trim();
-  var packageName = String(row[3] || 'CH').trim().toUpperCase();
-  var regSh = jaccSheet_(JACC_REG_SHEET);
-  var regRow = jaccFindRow_(regSh, 1, registrationCode);
   if (regRow === -1) {
     return {ok:false, error:'REGISTRATION_NOT_FOUND', status:'PENDING'};
   }
@@ -106,10 +108,12 @@ function jaccReviewWebsitePayment_(paymentId, approved, adminNote) {
       };
     }
 
-    paySh.getRange(payRow, 8).setValue('APPROVED');
+    // Registration is written first. Payment APPROVED is the final completion
+    // marker, so a crash before it remains retryable with the same ledger key.
+    regSh.getRange(regRow, 5).setValue('APPROVED');
     paySh.getRange(payRow, 10).setValue(new Date());
     paySh.getRange(payRow, 11).setValue(String(adminNote || ''));
-    regSh.getRange(regRow, 5).setValue('APPROVED');
+    paySh.getRange(payRow, 8).setValue('APPROVED');
 
     jaccTelegram_(
       telegramId,
@@ -124,10 +128,10 @@ function jaccReviewWebsitePayment_(paymentId, approved, adminNote) {
     };
   }
 
-  paySh.getRange(payRow, 8).setValue('REJECTED');
+  regSh.getRange(regRow, 5).setValue('REJECTED');
   paySh.getRange(payRow, 10).setValue(new Date());
   paySh.getRange(payRow, 11).setValue(String(adminNote || ''));
-  regSh.getRange(regRow, 5).setValue('REJECTED');
+  paySh.getRange(payRow, 8).setValue('REJECTED');
 
   jaccTelegram_(
     telegramId,
