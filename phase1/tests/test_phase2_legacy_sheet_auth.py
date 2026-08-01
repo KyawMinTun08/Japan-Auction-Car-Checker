@@ -51,7 +51,8 @@ def test_protected_json_request_gets_server_key_without_mutating_input(reset_sta
     )
 
     assert original == {"action": "getMembers"}
-    _, _, _, kwargs = BaseClientStub.calls[-1]
+    method, _, _, kwargs = BaseClientStub.calls[-1]
+    assert method == "POST"
     assert kwargs["json"] == {
         "action": "getMembers",
         "serverKey": "RAILWAY-ONLY-KEY",
@@ -59,8 +60,9 @@ def test_protected_json_request_gets_server_key_without_mutating_input(reset_sta
     assert installed.httpx.sentinel == "unchanged"
 
 
-def test_protected_get_params_are_authenticated(reset_state) -> None:
+def test_protected_get_params_become_authenticated_post_json(reset_state) -> None:
     runtime = reset_state
+    original = {"action": "getMembers"}
     legacy_sheet_auth.install()
 
     client = runtime.httpx.AsyncClient()
@@ -68,12 +70,41 @@ def test_protected_get_params_are_authenticated(reset_state) -> None:
         client.request(
             "GET",
             runtime.SHEET_WEBHOOK,
-            params={"action": "getMembers"},
+            params=original,
+            timeout=15,
         )
     )
 
-    _, _, _, kwargs = BaseClientStub.calls[-1]
-    assert kwargs["params"]["serverKey"] == "RAILWAY-ONLY-KEY"
+    assert original == {"action": "getMembers"}
+    method, url, _, kwargs = BaseClientStub.calls[-1]
+    assert method == "POST"
+    assert url == runtime.SHEET_WEBHOOK
+    assert "params" not in kwargs
+    assert kwargs["json"] == {
+        "action": "getMembers",
+        "serverKey": "RAILWAY-ONLY-KEY",
+    }
+    assert kwargs["timeout"] == 15
+
+
+def test_unrelated_sheet_get_remains_get(reset_state) -> None:
+    runtime = reset_state
+    payload = {"action": "getCarsCount"}
+    legacy_sheet_auth.install()
+
+    client = runtime.httpx.AsyncClient()
+    asyncio.run(
+        client.request(
+            "GET",
+            runtime.SHEET_WEBHOOK,
+            params=payload,
+        )
+    )
+
+    method, _, _, kwargs = BaseClientStub.calls[-1]
+    assert method == "GET"
+    assert kwargs["params"] == payload
+    assert "serverKey" not in kwargs["params"]
 
 
 def test_unrelated_sheet_action_is_unchanged(reset_state) -> None:
@@ -120,6 +151,24 @@ def test_missing_server_key_fails_before_network(reset_state) -> None:
                 "POST",
                 runtime.SHEET_WEBHOOK,
                 json={"action": "getPassword", "userId": "123"},
+            )
+        )
+
+    assert BaseClientStub.calls == []
+
+
+def test_missing_server_key_blocks_legacy_get_before_conversion(reset_state) -> None:
+    runtime = reset_state
+    runtime.SHEET_SERVER_KEY = ""
+    legacy_sheet_auth.install()
+
+    client = runtime.httpx.AsyncClient()
+    with pytest.raises(RuntimeError, match="SHEET_SERVER_KEY"):
+        asyncio.run(
+            client.request(
+                "GET",
+                runtime.SHEET_WEBHOOK,
+                params={"action": "getMembers"},
             )
         )
 
