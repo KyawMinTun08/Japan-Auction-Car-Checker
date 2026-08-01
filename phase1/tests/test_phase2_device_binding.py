@@ -108,10 +108,11 @@ def test_apps_script_stores_hash_not_raw_device_id() -> None:
     assert 'JACC_DEVICE_PREFIX = "v2:"' in source
     assert "cell.setValue(fingerprint)" in source
     assert "cell.setValue(request.deviceId)" not in source
+    assert "deviceFingerprint" not in source
     assert "JACC_DEVICE_COLUMN = 10" in source
 
 
-def test_apps_script_one_device_policy_is_fail_closed() -> None:
+def test_apps_script_one_device_policy_is_fail_closed_and_lock_safe() -> None:
     source = BACKEND.read_text(encoding="utf-8")
 
     for app in ("web", "pwa", "flutter"):
@@ -123,9 +124,12 @@ def test_apps_script_one_device_policy_is_fail_closed() -> None:
         "device_mismatch",
     ):
         assert reason in source
+    assert "lock.hasLock()" in source
+    assert "if (!lock.hasLock())" in source
     assert "lock.waitLock(10000)" in source
-    assert "finally" in source
-    assert "lock.releaseLock()" in source
+    assert "releaseHere = true" in source
+    assert "if (releaseHere) lock.releaseLock()" in source
+    assert "non-reentrant lock" in source
 
 
 def test_device_reset_is_server_protected_by_contract() -> None:
