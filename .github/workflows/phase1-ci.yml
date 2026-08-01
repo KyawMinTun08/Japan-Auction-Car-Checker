@@ -1,0 +1,80 @@
+# Re-triggered after synchronizing the Phase 1 branch with main.
+name: Phase 1 CI
+
+on:
+  pull_request:
+    paths:
+      - "bot.py"
+      - "bot_core.py"
+      - "legacy_bot.py"
+      - "queue_launcher.py"
+      - "phase1_production_launcher.py"
+      - "phase1_healthcheck.py"
+      - "phase1_selftest.py"
+      - "phase1_broker_sync.py"
+      - "phase1_resilience_test.py"
+      - "phase1_final_pilot.py"
+      - "phase1_final_pilot_guard.py"
+      - "phase1/**"
+      - ".github/workflows/phase1-ci.yml"
+  push:
+    branches:
+      - main
+      - agent/jacc-phase1-foundation
+    paths:
+      - "bot.py"
+      - "bot_core.py"
+      - "legacy_bot.py"
+      - "queue_launcher.py"
+      - "phase1_production_launcher.py"
+      - "phase1_healthcheck.py"
+      - "phase1_selftest.py"
+      - "phase1_broker_sync.py"
+      - "phase1_resilience_test.py"
+      - "phase1_final_pilot.py"
+      - "phase1_final_pilot_guard.py"
+      - "phase1/**"
+      - ".github/workflows/phase1-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r phase1/requirements_phase1.txt pytest
+
+      - name: Compile Phase 1 production files
+        run: |
+          python -m py_compile \
+            phase1_production_launcher.py \
+            phase1_healthcheck.py \
+            phase1_selftest.py \
+            phase1_broker_sync.py \
+            phase1_resilience_test.py \
+            phase1_final_pilot.py \
+            phase1_final_pilot_guard.py \
+            queue_launcher.py \
+            bot.py \
+            bot_core.py \
+            phase1/phase1_client.py \
+            phase1/phase1_worker.py \
+            phase1/recovery_worker.py
+
+      - name: Run Phase 1 policy and recovery tests
+        run: python -m pytest phase1/tests -q
