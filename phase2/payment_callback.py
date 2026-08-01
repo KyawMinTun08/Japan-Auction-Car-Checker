@@ -71,10 +71,10 @@ async def button_callback(update, context):
             raise RuntimeError("payment callback integration is not installed")
         return await _original_button_callback(update, context)
 
-    await query.answer()
     if query.from_user.id not in runtime.ADMIN_IDS:
         await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
         return None
+    await query.answer()
 
     try:
         member_id = int(data.replace("slip_ok_", "", 1))
