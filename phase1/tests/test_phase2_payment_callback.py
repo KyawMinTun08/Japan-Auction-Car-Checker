@@ -277,3 +277,162 @@ def test_non_admin_cannot_approve(monkeypatch) -> None:
     assert 123 in pending
     assert len(query.answers) == 1
     assert query.answers[0][1].get("show_alert") is True
+
+
+def test_phase3_approve_calls_privileged_backend_and_hides_password(monkeypatch) -> None:
+    runtime = runtime_stub(pending_payment={})
+    backend_calls = []
+
+    async def backend(action, **fields):
+        backend_calls.append((action, fields))
+        return {
+            "ok": True,
+            "status": "APPROVED",
+            "password": "MUST-NOT-APPEAR",
+            "activation": {
+                "status": "ok",
+                "expireDate": "30/11/2026",
+                "package": "WEB",
+                "duplicate": False,
+            },
+            "deliveryFailed": False,
+        }
+
+    monkeypatch.setattr(payment_callback, "_legacy", runtime)
+    monkeypatch.setattr(phase2_membership_guard, "_post_privileged_sheet", backend)
+    payment_callback.install()
+
+    query = QueryStub("webpay_approve_WP-ABC12345")
+    update = SimpleNamespace(callback_query=query)
+    result = asyncio.run(runtime.button_callback(update, SimpleNamespace()))
+
+    assert result["status"] == "APPROVED"
+    assert backend_calls == [
+        (
+            "approveWebPayment",
+            {"paymentId": "WP-ABC12345", "adminId": "1"},
+        )
+    ]
+    assert query.markup_removed is True
+    admin_text = "\n".join(query.message.messages)
+    assert "30/11/2026" in admin_text
+    assert "WEB" in admin_text
+    assert "MUST-NOT-APPEAR" not in admin_text
+    assert len(query.answers) == 1
+
+
+def test_phase3_backend_failure_keeps_buttons_for_retry(monkeypatch) -> None:
+    runtime = runtime_stub(pending_payment={})
+
+    async def backend(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(payment_callback, "_legacy", runtime)
+    monkeypatch.setattr(phase2_membership_guard, "_post_privileged_sheet", backend)
+    payment_callback.install()
+
+    query = QueryStub("webpay_approve_WP-ABC12345")
+    update = SimpleNamespace(callback_query=query)
+    result = asyncio.run(runtime.button_callback(update, SimpleNamespace()))
+
+    assert result is None
+    assert query.markup_removed is False
+    assert any("Button ကို မဖယ်ထားပါ" in text for text in query.message.messages)
+
+
+def test_phase3_activation_rejection_keeps_buttons_for_retry(monkeypatch) -> None:
+    runtime = runtime_stub(pending_payment={})
+
+    async def backend(*args, **kwargs):
+        del args, kwargs
+        return {
+            "ok": False,
+            "error": "MEMBERSHIP_ACTIVATION_FAILED",
+            "status": "PENDING",
+        }
+
+    monkeypatch.setattr(payment_callback, "_legacy", runtime)
+    monkeypatch.setattr(phase2_membership_guard, "_post_privileged_sheet", backend)
+    payment_callback.install()
+
+    query = QueryStub("webpay_approve_WP-ABC12345")
+    update = SimpleNamespace(callback_query=query)
+    asyncio.run(runtime.button_callback(update, SimpleNamespace()))
+
+    assert query.markup_removed is False
+    assert any("PENDING" in text for text in query.message.messages)
+
+
+def test_phase3_reject_calls_privileged_backend(monkeypatch) -> None:
+    runtime = runtime_stub(pending_payment={})
+    backend_calls = []
+
+    async def backend(action, **fields):
+        backend_calls.append((action, fields))
+        return {"ok": True, "status": "REJECTED"}
+
+    monkeypatch.setattr(payment_callback, "_legacy", runtime)
+    monkeypatch.setattr(phase2_membership_guard, "_post_privileged_sheet", backend)
+    payment_callback.install()
+
+    query = QueryStub("webpay_reject_WP-ABC12345")
+    update = SimpleNamespace(callback_query=query)
+    result = asyncio.run(runtime.button_callback(update, SimpleNamespace()))
+
+    assert result["status"] == "REJECTED"
+    assert backend_calls == [
+        (
+            "rejectWebPayment",
+            {
+                "paymentId": "WP-ABC12345",
+                "adminId": "1",
+                "reason": "Rejected by administrator",
+            },
+        )
+    ]
+    assert query.markup_removed is True
+    assert any("Reject" in text for text in query.message.messages)
+
+
+def test_phase3_non_admin_is_blocked_before_backend(monkeypatch) -> None:
+    runtime = runtime_stub(pending_payment={})
+    backend_calls = []
+
+    async def backend(*args, **kwargs):
+        backend_calls.append((args, kwargs))
+        return {"ok": True}
+
+    monkeypatch.setattr(payment_callback, "_legacy", runtime)
+    monkeypatch.setattr(phase2_membership_guard, "_post_privileged_sheet", backend)
+    payment_callback.install()
+
+    query = QueryStub("webpay_approve_WP-ABC12345", user_id=999)
+    update = SimpleNamespace(callback_query=query)
+    asyncio.run(runtime.button_callback(update, SimpleNamespace()))
+
+    assert backend_calls == []
+    assert query.markup_removed is False
+    assert len(query.answers) == 1
+    assert query.answers[0][1].get("show_alert") is True
+
+
+def test_phase3_malformed_payment_id_never_reaches_backend(monkeypatch) -> None:
+    runtime = runtime_stub(pending_payment={})
+    backend_calls = []
+
+    async def backend(*args, **kwargs):
+        backend_calls.append((args, kwargs))
+        return {"ok": True}
+
+    monkeypatch.setattr(payment_callback, "_legacy", runtime)
+    monkeypatch.setattr(phase2_membership_guard, "_post_privileged_sheet", backend)
+    payment_callback.install()
+
+    query = QueryStub("webpay_approve_not-valid")
+    update = SimpleNamespace(callback_query=query)
+    asyncio.run(runtime.button_callback(update, SimpleNamespace()))
+
+    assert backend_calls == []
+    assert query.markup_removed is False
+    assert any("Payment ID မမှန်" in text for text in query.message.messages)
