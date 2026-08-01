@@ -1,13 +1,14 @@
 """JACC Phase 2 membership and Telegram channel safety guard.
 
 This module is intentionally not imported by the production launcher yet.
-It provides tested replacements for legacy membership checks and approval
-persistence. Call ``install()`` only after Phase 1 is merged and the Phase 2
-acceptance tests are ready to run.
+It provides tested replacements for legacy membership checks, approval
+persistence, and authenticated server-to-server Apps Script calls. Call
+``install()`` only after the coordinated Apps Script/Railway rollout is ready.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -117,18 +118,48 @@ def member_row_user_id(member: dict) -> str:
     )
 
 
-async def _fetch_members() -> list[dict]:
+def _sheet_server_key() -> str:
+    """Read the Railway-only Apps Script credential without exposing it."""
+    runtime = _runtime()
+    return str(
+        getattr(runtime, "SHEET_SERVER_KEY", "")
+        or os.environ.get("SHEET_SERVER_KEY", "")
+    ).strip()
+
+
+def build_privileged_sheet_payload(action: str, **fields: object) -> dict:
+    """Build a fail-closed server-to-server Apps Script request payload."""
+    action_name = str(action or "").strip()
+    if not action_name:
+        raise RuntimeError("privileged Sheet action is missing")
+
+    server_key = _sheet_server_key()
+    if not server_key:
+        raise RuntimeError("SHEET_SERVER_KEY is not configured")
+
+    payload = {"action": action_name, "serverKey": server_key}
+    payload.update(fields)
+    return payload
+
+
+async def _post_privileged_sheet(action: str, **fields: object) -> dict:
+    """POST one authenticated Apps Script action and require JSON output."""
     runtime = _runtime()
     if not runtime.SHEET_WEBHOOK:
         raise RuntimeError("SHEET_WEBHOOK is not configured")
 
+    payload = build_privileged_sheet_payload(action, **fields)
     async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-        response = await client.post(
-            runtime.SHEET_WEBHOOK,
-            json={"action": "getMembers"},
-        )
+        response = await client.post(runtime.SHEET_WEBHOOK, json=payload)
     response.raise_for_status()
-    payload = response.json()
+    result = response.json()
+    if not isinstance(result, dict):
+        raise RuntimeError(f"{action} returned a non-object response")
+    return result
+
+
+async def _fetch_members() -> list[dict]:
+    payload = await _post_privileged_sheet("getMembers")
     if payload.get("status") not in (None, "ok"):
         raise RuntimeError(f"getMembers failed: {payload}")
     members = payload.get("members", [])
@@ -139,21 +170,30 @@ async def _fetch_members() -> list[dict]:
 
 async def _fetch_existing_password(user_id: str) -> str:
     """Read the current credential for WEB renewal/upgrade preservation."""
-    runtime = _runtime()
-    if not runtime.SHEET_WEBHOOK:
-        return ""
-
-    async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-        response = await client.post(
-            runtime.SHEET_WEBHOOK,
-            json={"action": "getPassword", "userId": str(user_id)},
-        )
-    response.raise_for_status()
-    payload = response.json()
+    payload = await _post_privileged_sheet("getPassword", userId=str(user_id))
     status = str(payload.get("status") or "").lower()
     if status and status != "ok" and not payload.get("ok"):
         return ""
     return str(payload.get("password") or "").strip()
+
+
+async def save_member_to_sheet_secure(
+    user_id: str,
+    username: str,
+    days: int,
+    password: str = "",
+    package: str = "CH",
+) -> bool:
+    """Persist a member through the authenticated Apps Script contract."""
+    payload = await _post_privileged_sheet(
+        "saveMember",
+        userId=str(user_id),
+        username=str(username or "").replace("@", "").strip(),
+        days=int(days),
+        password=str(password or "").strip(),
+        package=normalise_member_package(package),
+    )
+    return str(payload.get("status") or "").lower() == "ok"
 
 
 async def resolve_membership_password(user_id: str, package: str) -> str:
@@ -232,10 +272,10 @@ async def is_valid_member(user_id: int) -> bool:
 
 
 async def activate_promo10d(context, user_id: int, username: str) -> bool:
-    """Use the same canonical saveMember contract as paid memberships."""
+    """Use the same authenticated saveMember contract as paid memberships."""
     del context
     runtime = _runtime()
-    return await runtime.save_member_to_sheet(
+    return await save_member_to_sheet_secure(
         str(user_id),
         str(username or user_id).replace("@", "").strip(),
         10,
@@ -296,13 +336,18 @@ async def approve_member(update, context) -> None:
 
     member_key = str(member_id) if member_id is not None else target
     password = await resolve_membership_password(member_key, package)
-    saved = await runtime.save_member_to_sheet(
-        member_key,
-        member_username,
-        months * 30,
-        password,
-        package,
-    )
+    try:
+        saved = await save_member_to_sheet_secure(
+            member_key,
+            member_username,
+            months * 30,
+            password,
+            package,
+        )
+    except Exception as exc:
+        runtime.logger.error("secure membership save failed for %s: %s", member_key, exc)
+        saved = False
+
     if not saved:
         await update.message.reply_text(
             "❌ Membership ကို Sheet ထဲ မသိမ်းနိုင်ပါ။\n\n"
@@ -343,6 +388,7 @@ def install() -> SimpleNamespace:
     """Install tested replacements before legacy_bot.main() registers handlers."""
     runtime = _runtime()
     replacements = SimpleNamespace(
+        save_member_to_sheet=save_member_to_sheet_secure,
         is_active_member=is_active_member,
         get_member_package=get_member_package,
         is_valid_member=is_valid_member,
