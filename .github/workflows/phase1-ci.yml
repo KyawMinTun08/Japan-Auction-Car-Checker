@@ -79,6 +79,7 @@ jobs:
             phase2_membership_guard.py \
             phase2/apply_apps_script_code_gs.py \
             phase2/apply_apps_script_payment_gs.py \
+            phase2/apply_apps_script_registration_gs.py \
             phase2/apply_website_device_binding.py \
             queue_launcher.py \
             bot.py \
