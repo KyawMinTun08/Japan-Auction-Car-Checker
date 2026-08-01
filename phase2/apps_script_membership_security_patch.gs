@@ -8,13 +8,13 @@
  * 2. Set the same value as Railway environment variable SHEET_SERVER_KEY.
  * 3. Install the scoped Railway legacy Sheet-auth proxy.
  * 4. Insert the preflight call immediately after parsing data in doPost(e).
- * 5. Insert the same preflight at the start of doGet(e) because the legacy
- *    broadcast-photo path reads getMembers with query parameters.
+ * 5. Keep the current price-data-only doGet(e) unchanged. The Railway proxy
+ *    converts the historical GET getMembers caller to authenticated POST JSON.
  * 6. Deploy the payment-approval patch in the same Apps Script version.
  * 7. Deploy a new Apps Script version and run the Phase 2 acceptance tests.
  *
  * Never put the key in this file, GitHub, the website, Flutter assets, logs,
- * Telegram messages, or Google Sheet cells.
+ * Telegram messages, URL query parameters, or Google Sheet cells.
  */
 
 var JACC_SERVER_KEY_PROPERTY = "JACC_SERVER_KEY";
@@ -145,7 +145,7 @@ function jaccMemberSchemaHealth_() {
 
 /**
  * Return null when the request may continue. Return a JSON response object when
- * doPost(e) or doGet(e) must stop immediately.
+ * doPost(e) must stop immediately.
  */
 function jaccMembershipPreflight_(data) {
   var action = String((data && data.action) || "").trim();
@@ -169,22 +169,15 @@ function jaccMembershipPreflight_(data) {
 }
 
 /**
- * REQUIRED doPost(e) integration, immediately after JSON.parse:
+ * REQUIRED doPost(e) integration, immediately after JSON.parse and before the
+ * existing handlePhase3PaymentAction_(data) call or legacy switch:
  *
  *   var data = JSON.parse(e.postData.contents);
- *   var membershipGuard = jaccMembershipPreflight_(data);
- *   if (membershipGuard) return _json(membershipGuard);
+ *   var phase2 = jaccPhase2PreflightAndRoute_(data);
+ *   if (phase2.handled) return _json(phase2.response);
  *
- * REQUIRED doGet(e) integration, before routing e.parameter actions:
- *
- *   var data = (e && e.parameter) ? e.parameter : {};
- *   var membershipGuard = jaccMembershipPreflight_(data);
- *   if (membershipGuard) return _json(membershipGuard);
- *
- * The doPost switch must also route:
- *
- *   case "approveMembershipPayment":
- *     return _json(jaccApproveMembershipPayment_(data));
+ * Keep the current doGet(e) price-data flow unchanged. The Railway proxy
+ * converts its one legacy GET getMembers request to authenticated POST JSON.
  *
  * Keep verifyLogin and verifyToken public. They authenticate with a member
  * password/token and must never receive JACC_SERVER_KEY from browser code.
