@@ -103,3 +103,14 @@ jobs:
 
       - name: Run Phase 1 policy, recovery, and staged Phase 2 tests
         run: python -m pytest phase1/tests -q
+
+      - name: Publish staged Phase 2 release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacc-phase2-staged-assets
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            index.html
+            phase2/
+            phase2_membership_guard.py
