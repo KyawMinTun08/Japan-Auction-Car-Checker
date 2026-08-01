@@ -15,12 +15,15 @@ on:
       - "phase1_resilience_test.py"
       - "phase1_final_pilot.py"
       - "phase1_final_pilot_guard.py"
+      - "phase2_membership_guard.py"
       - "phase1/**"
+      - "phase2/**"
       - ".github/workflows/phase1-ci.yml"
   push:
     branches:
       - main
       - agent/jacc-phase1-foundation
+      - agent/jacc-phase2-membership-audit
     paths:
       - "bot.py"
       - "bot_core.py"
@@ -33,7 +36,9 @@ on:
       - "phase1_resilience_test.py"
       - "phase1_final_pilot.py"
       - "phase1_final_pilot_guard.py"
+      - "phase2_membership_guard.py"
       - "phase1/**"
+      - "phase2/**"
       - ".github/workflows/phase1-ci.yml"
 
 permissions:
@@ -59,7 +64,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r phase1/requirements_phase1.txt pytest
 
-      - name: Compile Phase 1 production files
+      - name: Compile Phase 1 and staged Phase 2 files
         run: |
           python -m py_compile \
             phase1_production_launcher.py \
@@ -69,6 +74,7 @@ jobs:
             phase1_resilience_test.py \
             phase1_final_pilot.py \
             phase1_final_pilot_guard.py \
+            phase2_membership_guard.py \
             queue_launcher.py \
             bot.py \
             bot_core.py \
@@ -76,5 +82,5 @@ jobs:
             phase1/phase1_worker.py \
             phase1/recovery_worker.py
 
-      - name: Run Phase 1 policy and recovery tests
+      - name: Run Phase 1 policy, recovery, and staged Phase 2 tests
         run: python -m pytest phase1/tests -q
