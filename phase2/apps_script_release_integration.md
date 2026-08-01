@@ -1,254 +1,216 @@
 # JACC Phase 2 Apps Script release integration
 
-Status: staged only; do not deploy one component by itself.
+Status: staged only. Do not deploy one component by itself.
 
 ## Current source evidence
 
-The owner supplied the current `Code.gs` source on 1 August 2026. The file:
+The owner supplied the current `Code.gs` and `Payment.gs` sources on 1 August
+2026.
 
-- uses the canonical A–J Members contract:
-  `UserID, Username, StartDate, ExpireDate, Status, CancelCount, Password, Package, Token, DeviceID`;
+Current `Code.gs`:
+
+- uses the canonical A–J Members contract;
 - keeps `doGet(e)` as the public price-data endpoint;
 - parses POST JSON under one outer `ScriptLock`;
-- calls `handlePhase3PaymentAction_(data)` before the legacy action switch;
-- already passes `(password, deviceId, app)` to `verifyLogin` and
-  `(token, deviceId, app)` to `verifyToken`;
-- still stores raw DeviceID values only for Flutter requests;
-- calls `verifyToken(data.token)` without device data inside `getData`;
-- includes a separate `activateMemberFromPayment()` hook and references
-  `Payment.gs` / `Registration.gs` functions that were not included in the
-  uploaded file.
+- calls `handlePhase3PaymentAction_(data)` before the legacy switch;
+- still uses raw Flutter-only DeviceID binding;
+- omits device data inside the protected `getData` path;
+- contains `monthlyPasswordReset()`.
 
-The full source parses successfully as JavaScript. The Phase 2 transformer is
-therefore based on exact reviewed anchors from this current source rather than
-on the older browser MHTML snapshot.
+Current `Payment.gs`:
 
-The uploaded source is evidence only and is not committed to the public
-repository.
+- stores payment rows in the 11-column payment sheet;
+- writes `APPROVED` before calling `activateMemberFromPayment()`;
+- blocks every retry after that status write, even when activation failed;
+- sends the customer an approval message without checking activation success;
+- exposes Telegram ID, slip URL, and admin note through public `checkPayment`;
+- routes `approvePayment` and `rejectPayment` without a server-key requirement.
 
-## Add these five Apps Script files
+The owner-supplied production sources are evidence only and are not committed to
+the public repository.
 
-Create five new Script files in the existing Apps Script project and paste the
-corresponding repository contents:
+## Add these Apps Script files
+
+Create these files in the existing Apps Script project:
 
 1. `Phase2MembershipSecurity.gs`
-   - source: `phase2/apps_script_membership_security_patch.gs`
+   - `phase2/apps_script_membership_security_patch.gs`
 2. `Phase2PaymentApproval.gs`
-   - source: `phase2/apps_script_payment_approval_patch.gs`
+   - `phase2/apps_script_payment_approval_patch.gs`
 3. `Phase2DeviceBinding.gs`
-   - source: `phase2/apps_script_device_binding_patch.gs`
+   - `phase2/apps_script_device_binding_patch.gs`
 4. `Phase2Routes.gs`
-   - source: `phase2/apps_script_release_routes.gs`
-5. `Phase2TriggerGuard.gs`
-   - source: `phase2/apps_script_trigger_guard.gs`
+   - `phase2/apps_script_release_routes.gs`
+5. `Phase2WebsitePayment.gs`
+   - `phase2/apps_script_website_payment_patch.gs`
+6. `Phase2TriggerGuard.gs`
+   - `phase2/apps_script_trigger_guard.gs`
 
-These files contain no production secret.
+None of these files contains the production server key.
 
 ## Generate the reviewed Code.gs candidate
-
-Run the guarded transformer against the newly exported current source:
 
 ```bash
 python phase2/apply_apps_script_code_gs.py Current_Code.gs \
   --output Code_Phase2_Candidate.gs
-```
-
-The transformer refuses unknown drift and changes only five reviewed
-integration points:
-
-1. inserts `jaccPhase2PreflightAndRoute_(data)` after POST JSON parsing and
-   before `handlePhase3PaymentAction_(data)`;
-2. replaces the raw Flutter-only binding call in `verifyLogin`;
-3. removes the early raw binding call in `verifyToken`;
-4. enforces the hashed device binding only after package/status/expiry checks;
-5. passes `deviceId` and `app` through `getData` and returns the authoritative
-   token/device error instead of collapsing every failure to `invalid_token`.
-
-Validation command:
-
-```bash
 python phase2/apply_apps_script_code_gs.py Code_Phase2_Candidate.gs --check
 ```
 
-The current public `doGet(e)` price-data flow must remain unchanged.
+The guarded transformer changes only the reviewed integration points:
 
-## Legacy broadcast GET compatibility
+- runs Phase 2 preflight before `handlePhase3PaymentAction_`;
+- replaces raw Flutter-only binding with hashed one-installation binding;
+- moves token device enforcement after package/status/expiry checks;
+- passes device data through `getData`;
+- preserves authoritative token/device errors.
 
-One legacy Telegram broadcast handler calls:
+The public price-data `doGet(e)` remains unchanged.
 
-```text
-GET SHEET_WEBHOOK?action=getMembers
+## Generate the reviewed Payment.gs candidate
+
+```bash
+python phase2/apply_apps_script_payment_gs.py Current_Payment.gs \
+  --output Payment_Phase2_Candidate.gs
+python phase2/apply_apps_script_payment_gs.py \
+  Payment_Phase2_Candidate.gs --check
 ```
 
-The current Apps Script `doGet(e)` does not route membership actions. Phase 2
-therefore converts only that protected request inside Railway to authenticated
-POST JSON before network access.
+The guarded transformer performs two changes:
 
-Benefits:
+1. `jaccReviewPayment_()` delegates to the Phase 2 website-payment adapter.
+2. Public `checkPayment()` no longer returns Telegram ID, slip URL, or admin
+   note.
 
-- no Apps Script doGet redesign;
-- no server key in a URL or query log;
-- current price-data clients remain unchanged;
-- all protected membership actions pass through the same POST preflight.
+It refuses unknown source drift and is idempotent.
 
-## Exact current Code.gs integration behavior
+## Website-payment approval semantics
 
-### doPost order
+The Phase 2 adapter uses the payment ID to derive a stable
+`JACC-PAY-<32 hex>` idempotency key and calls the existing atomic
+`jaccApproveMembershipPayment_()` ledger flow.
 
-The Phase 2 adapter must run before the existing Phase 3 payment router:
+Approval order is now:
 
-```javascript
-var data = JSON.parse(e.postData.contents);
-var payload = data;
-var phase2 = jaccPhase2PreflightAndRoute_(data);
-if (phase2.handled) return _json(phase2.response);
-var phase3 = handlePhase3PaymentAction_(data);
-```
+1. Validate payment and registration rows.
+2. Run retry-safe membership activation.
+3. Verify authoritative backend success.
+4. Write payment and registration status `APPROVED`.
+5. Send the customer approval message.
 
-The existing outer ScriptLock remains. Phase 2 payment/device helpers reuse an
-already-held lock and acquire/release one only when called outside that router.
+When activation fails:
 
-### verifyLogin
+- the payment remains `PENDING`;
+- the failure is written to the admin-note cell;
+- no approval message is sent;
+- the admin can retry;
+- the membership ledger prevents a partial write from extending twice.
 
-The existing function signature remains:
+A completed `APPROVED` payment returns an idempotent duplicate success rather
+than applying another membership period.
 
-```javascript
-verifyLogin(password, deviceId, app)
-```
+The current website-payment contract still represents one month as 30 days,
+matching the existing `activateMemberFromPayment()` default. Changing package
+duration requires a separate schema/frontend change and is not inferred here.
 
-After password, package, status and expiry validation, the candidate calls:
+WEB password rules:
 
-```javascript
-var deviceCheck = jaccEnforceDeviceBinding_(
-  sheet,
-  i + 1,
-  {deviceId: deviceId, app: app},
-  memberPackage
-);
-if (!deviceCheck.ok) return deviceCheck;
-```
+- existing WEB renewal keeps its current password;
+- new WEB or CH-to-WEB activation generates one password;
+- the public approval response excludes the password.
 
-### verifyToken
+## Protected payment review routes
 
-The existing function signature remains:
+`approvePayment` and `rejectPayment` are privileged server actions and require
+the same server key as other membership administration routes.
 
-```javascript
-verifyToken(token, deviceId, app)
-```
+`submitPayment` and the redacted `checkPayment` remain public for the customer
+website flow.
 
-The raw historical binding call is removed from the start of the token path.
-Hashed binding runs only after the token owner, package, status and expiry are
-validated.
+The Railway scoped proxy adds `SHEET_SERVER_KEY` only to configured protected
+Sheet requests. It never puts the key in URL parameters.
 
-### getData
+## Legacy broadcast compatibility
 
-The current generic error conversion is replaced with:
+A historical Telegram handler sends `GET ?action=getMembers`. Railway converts
+only this protected request to authenticated POST JSON before network access.
+The Apps Script public price-data `doGet` contract is unchanged.
 
-```javascript
-var tokenResult = verifyToken(data.token, data.deviceId, data.app);
-if (tokenResult.status !== 'ok') return _json(tokenResult);
-```
-
-This allows the website to distinguish `device_mismatch`, `expired`,
-`web_access_required` and `invalid_token`.
-
-## Payment semantics in the staged patch
-
-`approveMembershipPayment` does not call the legacy `saveMember()` function. It
-writes one exact canonical A–J row to a ledger-owned target expiry.
-
-Therefore:
-
-- an active non-expired renewal extends from the current expiry;
-- an expired/inactive membership starts a new period from today in
-  `Asia/Bangkok`;
-- a retry writes the same target expiry and cannot add a second period;
-- WEB renewal preserves the current password unless Railway supplies a new one;
-- CH → WEB requires Railway to supply the generated WEB password;
-- token and DeviceID are preserved on renewal;
-- Finance logging is deduplicated by the same idempotency key.
-
-The existing `activateMemberFromPayment()` / `approvePayment()` path belongs to
-the separate website registration/payment system. Its defining `Payment.gs`
-and `Registration.gs` sources still need review before the full Apps Script
-project can be declared release-ready.
-
-## Monthly password reset trigger policy
+## Monthly password reset
 
 The current Code.gs contains `monthlyPasswordReset()`, which changes every
-active WEB member password and clears the token. That conflicts with the Phase 2
-password-preserving renewal policy and can unexpectedly lock members out.
+active WEB password and clears tokens. Before rollout:
 
-The additive `Phase2TriggerGuard.gs` file provides two manual editor functions:
+1. Run `jaccPhase2TriggerHealth_()` from the Apps Script editor.
+2. Keep the trigger only after an explicit policy decision.
+3. Otherwise run `jaccDisableMonthlyPasswordResetTriggers_()`.
+4. Re-run the audit and confirm zero matching triggers.
 
-1. Run `jaccPhase2TriggerHealth_()` and confirm whether an exact
-   `monthlyPasswordReset` trigger exists.
-2. When the result is unsafe, run
-   `jaccDisableMonthlyPasswordResetTriggers_()` once.
-3. Run `jaccPhase2TriggerHealth_()` again and require:
-   - `safe: true`
-   - `monthlyPasswordResetTriggerCount: 0`
-
-The disable helper deletes only triggers whose handler is exactly
-`monthlyPasswordReset`. It does not read or modify Members rows and leaves every
-unrelated trigger untouched.
-
-Do not delete the legacy function during the rollout. Removing only its trigger
-keeps rollback simple while preventing unexpected password rotation.
+The trigger guard touches only triggers whose handler is exactly
+`monthlyPasswordReset`; it does not read or modify member rows.
 
 ## Secret setup
 
-Generate one new random high-entropy value outside GitHub.
+Generate one new high-entropy value outside GitHub.
 
 - Apps Script Script Property: `JACC_SERVER_KEY`
 - Railway environment variable: `SHEET_SERVER_KEY`
 
-The values must match exactly. Never place the value in Code.gs, GitHub,
-website JavaScript, Flutter assets, Telegram messages, logs, URL query
-parameters or Sheet cells.
+The values must match exactly. Never place the value in code, GitHub, website
+JavaScript, Flutter assets, Telegram messages, logs, URLs, or Sheet cells.
+
+## Remaining source review
+
+Before declaring the Apps Script project release-ready, export and review:
+
+- `Registration.gs`;
+- every file defining `handlePhase3PaymentAction_`;
+- any separate Telegram callback handler that calls `approvePayment` or
+  `rejectPayment`.
+
+The supplied `Payment.gs` defines submit/check/approve/reject functions but does
+not define `handlePhase3PaymentAction_`.
 
 ## Atomic deployment order
 
-1. Export/backup every current Apps Script file and the Members sheet.
-2. Review the current `Payment.gs`, `Registration.gs`, and any file defining
-   `handlePhase3PaymentAction_`.
-3. Add the five Phase 2 `.gs` files.
-4. Generate and review `Code_Phase2_Candidate.gs`.
-5. Run `jaccPhase2TriggerHealth_()` and disable the exact legacy monthly reset
-   trigger when present; require a safe follow-up result.
+1. Export/backup every Apps Script file and the Members sheet.
+2. Review the remaining Registration/Phase 3 router files.
+3. Add the six Phase 2 `.gs` modules.
+4. Generate and review Code.gs and Payment.gs candidates.
+5. Audit/disable the monthly password reset trigger as decided.
 6. Set `JACC_SERVER_KEY` in Apps Script properties.
-7. Confirm Telegram bot has ban/restrict permission in the channel.
+7. Confirm Telegram bot ban/unban permission.
 8. Set matching `SHEET_SERVER_KEY` in Railway without deploying yet.
 9. Import and run `phase2.install()` before legacy handler registration.
-10. Deploy Apps Script, Railway, and the generated Phase 2 website in one
-    maintenance window.
-11. Run the live acceptance matrix before marking PR #12 Ready.
+10. Deploy Apps Script, Railway, and Phase 2 website in one maintenance window.
+11. Run the acceptance matrix before marking PR #12 Ready.
 
-Enabling only Apps Script, Railway, or website by itself can break membership
-operations. Treat the release as one coordinated change.
+Deploying only one component can break membership operations.
 
-## Pre-release acceptance matrix
+## Acceptance matrix
 
-- Schema health returns `JACC_MEMBERS_V2_AJ` and no mismatch.
-- Public price-data doGet still returns car data.
-- Standard/CH approval and renewal.
+- Schema health returns `JACC_MEMBERS_V2_AJ`.
+- Public price-data `doGet` still returns cars.
+- Standard approval and renewal.
 - New WEB approval.
 - WEB renewal preserves password.
-- CH → WEB upgrade creates one password.
-- Expired member renewal.
-- Previously kicked/banned member auto-unban and channel rejoin.
+- CH-to-WEB upgrade generates one password.
+- Expired renewal.
+- Previously kicked/banned member auto-rejoins.
 - Promo activation.
-- Payment backend outage followed by retry.
-- Duplicate admin approval tap does not extend twice.
-- Same browser/PWA installation can log out and log in again.
+- Website payment activation failure remains PENDING and retryable.
+- Retry after partial member write does not extend twice.
+- Duplicate website payment approval does not extend twice.
+- Approval message is sent only after activation succeeds.
+- Public `checkPayment` excludes Telegram ID, slip URL, and admin note.
+- Unauthorized `approvePayment` and `rejectPayment` are rejected.
+- Same installation can log out and log in again.
 - Second installation receives `device_mismatch`.
-- Admin device reset allows one replacement installation to bind.
-- Expired token/session is rejected at page startup.
-- Existing website registration/payment approval still behaves correctly.
-- Trigger health reports `safe: true` and zero monthly reset triggers.
+- Admin device reset allows one replacement installation.
+- Expired token/session is rejected at startup.
+- Monthly password reset trigger state matches the chosen policy.
 
 ## Rollback boundary
 
-If any acceptance test fails, roll back Railway and website to the previous
+On any failed acceptance test, roll back Railway and website to the previous
 release and redeploy the previous Apps Script version. Do not delete member,
-ledger, Finance, payment, registration or audit rows during rollback.
+ledger, Finance, payment, registration, or audit rows during rollback.
