@@ -1,0 +1,105 @@
+x 7px;border-radius:10px">🏆 #1</div>':'')+'<div style="font-size:22px;margin-bottom:6px">'+(i===0?'🥇':i===1?'🥈':'🥉')+'</div><div style="font-size:12px;font-weight:700;color:var(--ink-1);margin-bottom:4px">'+esc(l.short)+'</div><div style="font-size:24px;font-weight:800;color:'+l.color+';margin:4px 0;font-family:var(--font-mono);line-height:1">'+l.count+'</div><div style="font-size:10px;color:var(--ink-4)">cars total</div><div style="font-size:10px;color:var(--ok);margin-top:4px;font-weight:600">+'+l.week+' this week</div></div>').join('')+'</div><div style="margin-bottom:8px;font-size:11px;font-weight:700;color:var(--ink-4);text-transform:uppercase;letter-spacing:0.8px">Activity Share</div>'+locData.map(l=>'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div style="font-size:12px;color:var(--ink-1);width:90px;flex-shrink:0;font-weight:600">'+esc(l.short)+'</div><div style="flex:1;background:var(--surface-3);border-radius:4px;height:22px;overflow:hidden"><div style="width:'+Math.round(l.count/maxCount*100)+'%;height:100%;background:'+l.color+';border-radius:4px;display:flex;align-items:center;padding-left:8px;font-size:10px;font-weight:700;color:#fff;transition:width 0.8s ease">'+Math.round(l.count/total*100)+'%</div></div><div style="font-size:11px;font-weight:700;color:var(--ink-3);width:40px;text-align:right;font-family:var(--font-mono)">'+l.count+'</div>'+(l.avg?'<div style="font-size:11px;color:var(--brand);width:80px;text-align:right;font-family:var(--font-mono);font-weight:600">฿'+l.avg.toLocaleString()+'</div>':'<div style="width:80px"></div>')+'</div>').join('')+'<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line-soft);display:flex;gap:8px;flex-wrap:wrap">'+locData.map(l=>'<button onclick="switchTab(\'explorer\');document.getElementById(\'fLoc\').value=\''+esc(l.loc)+'\';renderExplorer()" style="background:'+l.color+'1A;border:1px solid '+l.color+'33;color:'+l.color+';border-radius:var(--r-sm);padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">'+esc(l.short)+' →</button>').join('')+'</div>';
+}
+</script>
+<script>
+let paShowSMA10=true,paShowSMA20=true,paChart=null;
+let paSelectedYears=new Set();
+
+function paOnModelChange(){
+  const model=document.getElementById('paModel').value;
+  paSelectedYears=new Set();
+  const yw=document.getElementById('paYearWrap');
+  const ctrl=document.getElementById('paControls');
+  const emp=document.getElementById('paEmpty');
+  ['paInsight','paStats','paChartWrap'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
+  if(!model){if(yw)yw.style.display='none';if(ctrl)ctrl.style.display='none';emp.style.display='block';emp.innerHTML='<div class="ei">&#128202;</div><p>Model ရွေးပါၑ ရှာပါ</p>';return;}
+  const years=[...new Set(allCars.filter(c=>c.model===model&&c.year>0&&c.price>0).map(c=>c.year))].sort((a,b)=>a-b);
+  if(years.length>1&&yw){
+    document.getElementById('paYearBadges').innerHTML='<span class="year-badge yr-all" id="pa-yr-all" onclick="paSelectAllYears()">All Years</span>'+years.map(y=>'<span class="year-badge" id="pa-yr-'+y+'" onclick="paToggleYear('+y+')">'+y+'</span>').join('');
+    yw.style.display='block';
+  }else if(yw){yw.style.display='none';}
+  if(ctrl)ctrl.style.display='flex';
+  emp.style.display='block';
+  emp.innerHTML='<div class="ei">&#128202;</div><p>Year ရွေး (optional) ပြီး Analyze နှစ်ပါၑ</p>';
+  paUpdateYearHint();
+}
+function paSelectAllYears(){
+  const model=document.getElementById('paModel').value;
+  paSelectedYears=new Set();
+  const years=[...new Set(allCars.filter(c=>c.model===model&&c.year>0&&c.price>0).map(c=>c.year))];
+  const ab=document.getElementById('pa-yr-all');if(ab)ab.className='year-badge yr-all';
+  years.forEach(y=>{const el=document.getElementById('pa-yr-'+y);if(el)el.className='year-badge';});
+  paUpdateYearHint();
+}
+function paToggleYear(year){
+  const model=document.getElementById('paModel').value;
+  const years=[...new Set(allCars.filter(c=>c.model===model&&c.year>0&&c.price>0).map(c=>c.year))];
+  if(paSelectedYears.has(year))paSelectedYears.delete(year);else paSelectedYears.add(year);
+  const ab=document.getElementById('pa-yr-all');if(ab)ab.className='year-badge'+(paSelectedYears.size===0?' yr-all':'');
+  years.forEach(y=>{const el=document.getElementById('pa-yr-'+y);if(!el)return;el.className='year-badge'+(paSelectedYears.has(y)?' yr-active':'');});
+  paUpdateYearHint();
+}
+function paUpdateYearHint(){
+  const el=document.getElementById('paYearHint');if(!el)return;
+  if(paSelectedYears.size===0){el.textContent='All years selected';el.style.color='var(--ok)';}
+  else{el.textContent='Filtered: '+[...paSelectedYears].sort().join(', ');el.style.color='var(--brand)';}
+}
+
+function renderPriceAnalysisSetup(){
+  const sel=document.getElementById('paModel');if(!sel)return;
+  const modelCounts={};allCars.forEach(c=>{if(c.model&&c.model.toUpperCase()!=='UNKNOWN'&&c.price>0){modelCounts[c.model]=(modelCounts[c.model]||0)+1;}});
+  const models=Object.entries(modelCounts).filter(([_,n])=>n>=5).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
+  const current=sel.value;
+  sel.innerHTML='<option value="">-- Model ရွေးပါ --</option>'+models.map(m=>'<option value="'+esc(m)+'"'+(m===current?' selected':'')+'>'+esc(m)+' ('+modelCounts[m]+' cars)</option>').join('');
+}
+
+function paToggleSMA(period){
+  if(period===10){paShowSMA10=!paShowSMA10;const btn=document.getElementById('paBtnSMA10');if(paShowSMA10){btn.style.background='var(--info)';btn.textContent='● SMA 10';}else{btn.style.background='var(--ink-5)';btn.textContent='○ SMA 10';}}
+  else{paShowSMA20=!paShowSMA20;const btn=document.getElementById('paBtnSMA20');if(paShowSMA20){btn.style.background='var(--brand)';btn.textContent='● SMA 20';}else{btn.style.background='var(--ink-5)';btn.textContent='○ SMA 20';}}
+  renderPriceAnalysis();
+}
+
+function renderPriceAnalysis(){
+  const sel=document.getElementById('paModel');const model=sel?.value;
+  const empty=document.getElementById('paEmpty');const chartWrap=document.getElementById('paChartWrap');const insight=document.getElementById('paInsight');const stats=document.getElementById('paStats');const controls=document.getElementById('paControls');
+  if(!model){empty.style.display='block';chartWrap.style.display='none';insight.style.display='none';stats.style.display='none';controls.style.display='none';empty.innerHTML='<div class="ei">📊</div><p>Model ရွေးပြီး ရှာပါ</p>';return;}
+  let filteredCars=allCars.filter(c=>c.model===model&&c.price>0);
+  if(typeof paSelectedYears!=='undefined'&&paSelectedYears.size>0)filteredCars=filteredCars.filter(c=>paSelectedYears.has(c.year));
+  const dayMap={};filteredCars.forEach(c=>{const d=parseDate(c.date);if(!d||d.getTime()===0)return;const key=d.toISOString().slice(0,10);if(!dayMap[key])dayMap[key]=[];dayMap[key].push(c.price);});
+  const days=Object.keys(dayMap).sort();
+  if(days.length<2){empty.style.display='block';chartWrap.style.display='none';insight.style.display='none';stats.style.display='none';controls.style.display='none';empty.innerHTML='<div class="ei">📊</div><p>Data မလုံလောက်ပါ (2+ ရက် လိုအပ်)</p>';return;}
+  const data=days.map(d=>({date:d,price:Math.round(dayMap[d].reduce((s,p)=>s+p,0)/dayMap[d].length),count:dayMap[d].length}));
+  const sma=period=>data.map((_,i)=>{if(i<period-1)return null;const slice=data.slice(i-period+1,i+1);return Math.round(slice.reduce((s,x)=>s+x.price,0)/period);});
+  const sma10=sma(10),sma20=sma(20);
+  const prices=data.map(d=>d.price);const latest=prices[prices.length-1];const sma10L=sma10[sma10.length-1];const sma20L=sma20[sma20.length-1];const minP=Math.min(...prices),maxP=Math.max(...prices);const avgP=Math.round(prices.reduce((s,p)=>s+p,0)/prices.length);const totalC=data.reduce((s,d)=>s+d.count,0);
+  let tColor='var(--warn)',tIcon='→ STABLE',tMsg='ဈေးတည်ငြိမ်';
+  if(sma10L&&sma20L){if(latest>sma10L&&sma10L>sma20L){tColor='var(--ok)';tIcon='↗ UPTREND';tMsg='ဈေးတက်နေ — ရောင်းဖို့ ကောင်းတဲ့အချိန်';}else if(latest<sma10L&&sma10L<sma20L){tColor='var(--brand)';tIcon='↘ DOWNTREND';tMsg='ဈေးကျနေ — ဝယ်ဖို့ စောင့်';}}
+  empty.style.display='none';chartWrap.style.display='block';const yearLabel=typeof paSelectedYears!=='undefined'&&paSelectedYears.size>0?' · Year: '+[...paSelectedYears].sort().join(', '):'';
+  insight.style.display='block';stats.style.display='block';
+  insight.innerHTML='<div style="background:var(--surface);border-left:4px solid '+tColor+';border-radius:var(--r-sm);padding:14px;border:1px solid var(--line)"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="background:'+tColor+'15;border:1px solid '+tColor+'44;border-radius:var(--r-sm);padding:8px 14px"><div style="font-size:15px;font-weight:800;color:'+tColor+'">'+tIcon+'</div><div style="font-size:10px;color:'+tColor+';margin-top:2px">'+tMsg+'</div></div><div style="flex:1;min-width:200px"><div style="font-size:11px;color:var(--ink-4)">Latest: <strong style="color:var(--ink-1)">฿'+latest.toLocaleString()+'</strong></div>'+(sma10L?'<div style="font-size:11px;color:var(--ink-4)">SMA10: <strong style="color:var(--info)">฿'+sma10L.toLocaleString()+'</strong></div>':'')+(sma20L?'<div style="font-size:11px;color:var(--ink-4)">SMA20: <strong style="color:var(--brand)">฿'+sma20L.toLocaleString()+'</strong></div>':'')+'</div></div></div>';
+  stats.innerHTML='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'+[['Min','฿'+minP.toLocaleString(),'var(--ok)'],['Max','฿'+maxP.toLocaleString(),'var(--bad)'],['Avg','฿'+avgP.toLocaleString(),'var(--info)'],['Count',totalC+' cars','var(--ink-3)']].map(([l,v,c])=>'<div style="background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px;text-align:center"><div style="font-size:10px;color:var(--ink-4);text-transform:uppercase;font-weight:700;margin-bottom:4px">'+l+'</div><div style="font-size:14px;font-weight:800;color:'+c+';font-family:var(--font-mono)">'+v+'</div></div>').join('')+'</div>';
+  destroyChart('pa');
+  const datasets=[{label:'Avg Price',data:data.map(d=>d.price),borderColor:'#44403C',backgroundColor:'rgba(68,64,60,0.1)',borderWidth:2,tension:0.3,pointRadius:3,fill:true}];
+  if(paShowSMA10)datasets.push({label:'SMA 10',data:sma10,borderColor:'#1D4ED8',backgroundColor:'transparent',borderWidth:2,tension:0.3,pointRadius:0,borderDash:[]});
+  if(paShowSMA20)datasets.push({label:'SMA 20',data:sma20,borderColor:'#C8102E',backgroundColor:'transparent',borderWidth:2,tension:0.3,pointRadius:0,borderDash:[5,3]});
+  if(paChart){try{paChart.destroy();}catch(e){}}
+  paChart=new Chart(document.getElementById('paChart'),{type:'line',data:{labels:data.map(d=>d.date),datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top',labels:{color:'#44403C',boxWidth:12,padding:12}}},scales:{y:{ticks:{callback:v=>'฿'+v.toLocaleString(),color:'#78716C'},grid:{color:'rgba(28,25,23,0.05)'}},x:{grid:{display:false},ticks:{color:'#78716C',maxRotation:45,font:{size:10}}}}}});
+  charts.pa=paChart;
+}
+
+/* ── PH_MODELS (fully expanded — all brands, all models) ── */
+const PH_MODELS={
+  Honda:[
+    {label:'FIT GP1 (Hybrid)',        modelKey:['FIT'],chassisPrefix:['GP1']},
+    {label:'FIT GP2 (Hybrid)',        modelKey:['FIT'],chassisPrefix:['GP2']},
+    {label:'FIT GP5 (Hybrid)',        modelKey:['FIT'],chassisPrefix:['GP5']},
+    {label:'FIT GP7 (Hybrid)',        modelKey:['FIT'],chassisPrefix:['GP7']},
+    {label:'FIT GK3/GK5 (Petrol)',    modelKey:['FIT'],chassisPrefix:['GK3','GK5']},
+    {label:'FIT (All)',               modelKey:['FIT']},
+    {label:'VEZEL',                   modelKey:['VEZEL']},
+    {label:'FREED',                   modelKey:['FREED']},
+    {label:'STEPWGN',                 modelKey:['STEPWGN']},
+    {label:'ODYSSEY',                 modelKey:['ODYSSEY']},
+    {label:'CR-V',                    modelKey:['CR-V']},
+    {label:'N-BOX',                   modelKey:['N-BOX']},
+    {label:'STREAM',                 
