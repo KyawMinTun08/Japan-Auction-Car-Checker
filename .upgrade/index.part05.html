@@ -1,0 +1,115 @@
+country='',city='',region='',ip='';
+    try{const r=await fetch('https://ipapi.co/json/',{cache:'no-store'});const d=await r.json();if(!d.error){country=d.country_name||'';city=d.city||'';region=d.region||'';ip=d.ip||'';}}catch(e){}
+    await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'logVisitor',country,city,region,ip}),keepalive:true});
+  }catch(e){}
+}
+
+window.addEventListener('DOMContentLoaded',function(){
+  updateNetworkStatus();registerServiceWorker();
+  const requestedTab=location.hash.replace('#','');
+  if(checkSession()){showApp();if(['dashboard','explorer','price','chassis','trends'].includes(requestedTab))setTimeout(()=>switchTab(requestedTab,false),0);}
+  else{document.getElementById('loginOverlay').style.display='flex';document.getElementById('loadingOverlay').style.display='none';}
+});
+window.addEventListener('online',()=>{updateNetworkStatus();showToast('Internet ပြန်ရပါပြီ','ok');});
+window.addEventListener('offline',()=>{updateNetworkStatus();showToast('Offline ဖြစ်နေပါတယ် — live data မရနိုင်ပါ','warn');});
+window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;document.getElementById('installAppBtn')?.classList.add('ready');});
+window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;document.getElementById('installAppBtn')?.classList.remove('ready');showToast('JACC App install ပြီးပါပြီ','ok');});
+</script>
+<script>
+const COLORS=['#C8102E','#15803D','#B45309','#1D4ED8','#6D28D9','#0E7490','#BE185D','#525252'];
+const BGs=['linear-gradient(135deg,#FEF2F4,#FECDD3)','linear-gradient(135deg,#FEF3C7,#FDE68A)','linear-gradient(135deg,#F3E8FF,#E9D5FF)','linear-gradient(135deg,#DCFCE7,#BBF7D0)','linear-gradient(135deg,#DBEAFE,#BFDBFE)'];
+
+/* ── BRAND_MAP (updated) ── */
+const BRAND_MAP={
+  'Toyota':    {color:'#C8102E',models:['CROWN','WISH','ALPHARD','VELLFIRE','VOXY','HIACE','SUCCEED','PROBOX','VANGUARD','LAND CRUISER','PRIUS','AQUA','COROLLA','CAMRY','HARRIER','YARIS','FORTUNER','ESTIMA','NOAH','SIENTA','RUSH','MARK X','KLUGER','HILUX','HILUX SURF','LEXUS LS','IQ','BELTA','BLADE','CELSIOR','COROLLA FIELDER','PASSO','RACTIS','TOWNACE VAN','VITZ','SUPER CUSTOM']},
+  'Nissan':    {color:'#1D4ED8',models:['X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE TRUCK','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA','MINICAB TRUCK','BIG THUMB']},
+  'Honda':     {color:'#B45309',models:['FIT','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','GRACE','STREAM','CR-V']},
+  'Daihatsu':  {color:'#15803D',models:['HIJET','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI']},
+  'Mitsubishi':{color:'#6D28D9',models:['PAJERO','OUTLANDER','DELICA','ECLIPSE','ECLIPSE CROSS','GALANT','TRITON','COLT','ASX','RVR','CANTER','FUSO']},
+  'Subaru':    {color:'#0E7490',models:['IMPREZA','SAMBAR','FORESTER','LEGACY','OUTBACK','XV','WRX','BRZ','EXIGA']},
+  'Mazda':     {color:'#BE185D',models:['BONGO TRUCK','ATENZA','DEMIO','CX-5','CX-3','AXELA','FAMILIA','BIANTE','PREMACY','SCRUM TRUCK']},
+  'Suzuki':    {color:'#525252',models:['ALTO','EVERY','CARRY','JIMNY','SWIFT','SOLIO','SPACIA','WAGON R','HUSTLER','IGNIS']},
+  'Hino':      {color:'#9A3412',models:['DUTRO','RANGER','PROFIA']},
+};
+
+/* ── BRAND_LOGOS (updated — Hino added) ── */
+const BRAND_LOGOS={
+  Toyota:    'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDYgMTMwIj48ZWxsaXBzZSBjeD0iMTAzIiBjeT0iNjUiIHJ4PSIxMDAiIHJ5PSI2MiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjQzgxMDJFIiBzdHJva2Utd2lkdGg9IjExIi8+PGVsbGlwc2UgY3g9IjEwMyIgY3k9IjY1IiByeD0iNTciIHJ5PSIyOSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjQzgxMDJFIiBzdHJva2Utd2lkdGg9IjExIi8+PGxpbmUgeDE9IjMiIHkxPSI2NSIgeDI9IjIwMyIgeTI9IjY1IiBzdHJva2U9IiNDODEwMkUiIHN0cm9rZS13aWR0aD0iMTEiLz48L3N2Zz4=',
+  Nissan:    'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0NiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMUMxOTE3IiBzdHJva2Utd2lkdGg9IjciLz48cmVjdCB4PSI0IiB5PSI0MiIgd2lkdGg9IjkyIiBoZWlnaHQ9IjE2IiByeD0iMiIgZmlsbD0iIzFDMTkxNyIvPjwvc3ZnPg==',
+  Honda:     'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB4PSIxMiIgeT0iOCIgd2lkdGg9IjE4IiBoZWlnaHQ9Ijg0IiByeD0iMyIgZmlsbD0iI0M4MTAyRSIvPjxyZWN0IHg9IjcwIiB5PSI4IiB3aWR0aD0iMTgiIGhlaWdodD0iODQiIHJ4PSIzIiBmaWxsPSIjQzgxMDJFIi8+PHJlY3QgeD0iMTIiIHk9IjM5IiB3aWR0aD0iNzYiIGhlaWdodD0iMjAiIGZpbGw9IiNDODEwMkUiLz48L3N2Zz4=',
+  Daihatsu:  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNMTgsMTAgTDE4LDkwIEw1MCw5MCBRODYsOTAgODYsNTAgUTg2LDEwIDUwLDEwIFogTTMzLDI2IEw1MCwyNiBRNzAsMjYgNzAsNTAgUTcwLDc0IDUwLDc0IEwzMyw3NCBaIiBmaWxsPSIjQzgxMDJFIi8+PC9zdmc+',
+  Mitsubishi:'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cG9seWdvbiBwb2ludHM9IjUwLDQgNjUsMjggNTAsNDYgMzUsMjgiIGZpbGw9IiNDODEwMkUiLz48cG9seWdvbiBwb2ludHM9IjE3LDUwIDMyLDc0IDE3LDkwIDIsNzQiIGZpbGw9IiNDODEwMkUiLz48cG9seWdvbiBwb2ludHM9IjgzLDUwIDk4LDc0IDgzLDkwIDY4LDc0IiBmaWxsPSIjQzgxMDJFIi8+PC9zdmc+',
+  Subaru:    'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjI2IiByPSIxMiIgZmlsbD0iIzBFNzQ5MCIvPjxjaXJjbGUgY3g9IjIzIiBjeT0iNTQiIHI9IjkiIGZpbGw9IiMwRTc0OTAiLz48Y2lyY2xlIGN4PSIzOCIgY3k9IjcxIiByPSI3IiBmaWxsPSIjMEU3NDkwIi8+PGNpcmNsZSBjeD0iNTgiIGN5PSI2NSIgcj0iNyIgZmlsbD0iIzBFNzQ5MCIvPjxjaXJjbGUgY3g9IjcxIiBjeT0iNDgiIHI9IjYiIGZpbGw9IiMwRTc0OTAiLz48Y2lyY2xlIGN4PSI3NSIgY3k9IjY2IiByPSI1IiBmaWxsPSIjMEU3NDkwIi8+PC9zdmc+',
+  Mazda:     'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNjAgMTAwIj48ZWxsaXBzZSBjeD0iNTAiIGN5PSI1MCIgcng9IjQ3IiByeT0iMjYiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0JFMTg1RCIgc3Ryb2tlLXdpZHRoPSI4Ii8+PGVsbGlwc2UgY3g9IjExMCIgY3k9IjUwIiByeD0iNDciIHJ5PSIyNiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjQkUxODVEIiBzdHJva2Utd2lkdGg9IjgiLz48ZWxsaXBzZSBjeD0iODAiIGN5PSI1MCIgcng9IjIyIiByeT0iMTQiIGZpbGw9IiNCRTE4NUQiLz48L3N2Zz4=',
+  Suzuki:    'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48dGV4dCB4PSIxMiIgeT0iNzgiIGZvbnQtc2l6ZT0iNzAiIGZvbnQtd2VpZ2h0PSI5MDAiIGZpbGw9IiM1MjUyNTIiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIj5TPC90ZXh0Pjwvc3ZnPg==',
+  Hino:      'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB4PSIxMCIgeT0iMTUiIHdpZHRoPSIxNSIgaGVpZ2h0PSI3MCIgcng9IjMiIGZpbGw9IiM5QTM0MTIiLz48cmVjdCB4PSI3NSIgeT0iMTUiIHdpZHRoPSIxNSIgaGVpZ2h0PSI3MCIgcng9IjMiIGZpbGw9IiM5QTM0MTIiLz48cmVjdCB4PSIxMCIgeT0iNDIiIHdpZHRoPSI4MCIgaGVpZ2h0PSIxNiIgZmlsbD0iIzlBMzQxMiIvPjwvc3ZnPg==',
+};
+
+function getBrandLogoUrl(brand){return BRAND_LOGOS[brand]||null;}
+
+/* ── BODY_TYPE_MAP (updated) ── */
+const BODY_TYPE_MAP={
+  'Sedan':    {emoji:'🚗',color:'#1D4ED8',models:['CROWN','TEANA','CAMRY','COROLLA','ATENZA','LEGACY','IMPREZA','AXELA','FUGA','GRACE','LAFESTA','WRX','LEXUS LS','BELTA','CELSIOR','COROLLA FIELDER']},
+  'SUV':      {emoji:'🏔️',color:'#15803D',models:['X-TRAIL','PAJERO','OUTLANDER','HARRIER','VANGUARD','FORESTER','CX-5','CX-3','LAND CRUISER','ROCKY','XV','FORTUNER','ECLIPSE CROSS','RUSH','ASX','VEZEL','KLUGER','HILUX SURF']},
+  'Van':      {emoji:'🚐',color:'#6D28D9',models:['HIACE','SUCCEED','DELICA','EVERY','CARRY','PROBOX','STREAM','ATRAI','TOWNACE VAN','SUPER CUSTOM']},
+  'Truck':    {emoji:'🛻',color:'#B45309',models:['HIJET','SAMBAR','BONGO TRUCK','VANETTE TRUCK','TRITON','HILUX','MINICAB TRUCK','BIG THUMB','CANTER','FUSO','DUTRO','RANGER','SCRUM TRUCK']},
+  'Minivan':  {emoji:'👨‍👩‍👧',color:'#C8102E',models:['ALPHARD','VELLFIRE','VOXY','SERENA','STEPWGN','FREED','ELGRAND','ODYSSEY','JADE','WISH','NOAH','SIENTA','ESTIMA','EXIGA','BIANTE','PREMACY']},
+  'Hatchback':{emoji:'🚙',color:'#0E7490',models:['FIT','INSIGHT','JUKE','NOTE','AQUA','YARIS','DEMIO','ALTO','BOON','SWIFT','MARCH','MOVE','TANTO','MIRA','N-BOX','WAKE','CAST','DAYZ','SPACIA','WAGON R','HUSTLER','IGNIS','THOR','IQ','VITZ','PASSO','BLADE','RACTIS']},
+  'Hybrid':   {emoji:'⚡',color:'#F97316',models:['FIT','INSIGHT','PRIUS','AQUA','GRACE','FREED']},
+};
+
+function fixImgUrl(url){if(!url||url.trim()==='')return '';const m=url.match(/\/d\/([a-zA-Z0-9_-]+)/);if(m)return 'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w400';if(url.startsWith('http'))return url;return '';}
+
+async function init(){
+  try{
+    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'getData',token:SESSION.token})});
+    const result=await res.json();
+    if(result.status!=='ok')throw new Error(result.msg||'Data fetch failed');
+
+    allCars=result.cars.map(r=>{
+      let model=String(r.model||'UNKNOWN').trim().toUpperCase();
+      const prefixes=['TOYOTA ','NISSAN ','HONDA ','DAIHATSU ','MITSUBISHI ','SUBARU ','MAZDA ','SUZUKI ','ISUZU ','HINO ','NISSIAN ','FUSO '];
+      for(const p of prefixes){if(model.startsWith(p)){model=model.slice(p.length);break;}}
+      const locSuffixes=[' MAESOT FREEZON',' KLANG9 FREEZON',' 44GATE FREEZON',' KLANG9',' MAESOT',' 44GATE',' FREEZON'];
+      for(const s of locSuffixes){if(model.endsWith(s)){model=model.slice(0,model.length-s.length).trim();break;}}
+
+      /* ── MODEL_NORM (updated — 6 new entries) ── */
+      const MODEL_NORM={
+        'GK3':'FIT','GK5':'FIT','GE6':'FIT','GE8':'FIT','HONDA FIT':'FIT','HONDAFIT':'FIT','HONDA':'FIT',
+        'FIT HYBRID':'FIT','FIT SHUTTLE HYBRID':'FIT','HONDA FIT HYBRID':'FIT',
+        'GP1':'FIT','GP5':'FIT','GP6':'FIT','GP2':'FIT','GP7':'FIT','SHUTTLE':'FIT','HONDA SHUTTLE':'FIT',
+        'HONDA FREED':'FREED','GB3':'FREED','GB4':'FREED',
+        'HONDA INSIGHT':'INSIGHT','ZE2':'INSIGHT','ZE3':'INSIGHT',
+        'CRV':'CR-V','HONDA CR-V':'CR-V','HONDA CRV':'CR-V','RE4':'CR-V','RE3':'CR-V','RD1':'CR-V','RD5':'CR-V',
+        'HR-V':'VEZEL','HONDA HR-V':'VEZEL','HRV':'VEZEL','VEZEL HYBRID':'VEZEL',
+        'XTRAIL':'X-TRAIL','X TRAIL':'X-TRAIL','NISSAN X-TRAIL':'X-TRAIL','NISSIAN XTRAIL':'X-TRAIL','NISSIAN X-TRAIL':'X-TRAIL',
+        'JUAKE':'JUKE','NISSIAN JUKE':'JUKE','NISSIAN JUAKE':'JUKE','JUKE NISMO RS':'JUKE',
+        'VANETTE':'VANETTE TRUCK','VANETTE VAN':'VANETTE TRUCK','VANNETTE':'VANETTE TRUCK',
+        'NISSIAN VANETTE':'VANETTE TRUCK','NISSIAN VANNETTE':'VANETTE TRUCK',
+        'NV200 VANETTE':'VANETTE TRUCK','NV200VANETTE':'VANETTE TRUCK','NV200':'VANETTE TRUCK',
+        'NISSAN LEAF':'LEAF',
+        'HIACE VAN':'HIACE','TOYOTA HIACE':'HIACE','HIACE WAGON':'HIACE',
+        'TOYOTA SUPER CUSTOM':'SUPER CUSTOM','HIACE SUPER CUSTOM':'SUPER CUSTOM',
+        'SUCCEED VAN':'SUCCEED','SUCCEED WAGON':'SUCCEED',
+        'MARKX':'MARK X','MARK-X':'MARK X',
+        'HIGHLANDER':'KLUGER','TOYOTA HIGHLANDER':'KLUGER',
+        'LAND CRUISER 100':'LAND CRUISER','LAND CRUISER PRADO':'LAND CRUISER',
+        'PROBOX VAN':'PROBOX',
+        'MITSUBISHI RVR':'RVR','OUTLANDAR':'OUTLANDER',
+        'HIJET TRUCK':'HIJET','HIJET VAN':'HIJET','HIJET CARGO':'HIJET','HIJET TRUCKER':'HIJET','HIJET WITE':'HIJET',
+        'PIXIS TRUCK':'HIJET','PIXIS VAN':'HIJET','PIXIS MEGA':'HIJET','PIXIA TRUCK':'HIJET','PIXIA VAN':'HIJET',
+        'HUET TRUCK':'HIJET',
+        'BONGO':'BONGO TRUCK',
+        'SAMBAR TRUCK':'SAMBAR','SAMBAR VAN':'SAMBAR',
+        'CX5':'CX-5','MAZDA CX5':'CX-5',
+        'UD QUON':'QUON','UD CONDOR MK':'CONDOR',
+        'PROFIA TRUCK':'PROFIA',
+        'SUPER GREAT CONCRETE MIXER TRUCK':'SUPER GREAT',
+        'CARRY TRUCK':'CARRY',
+        'DUTRO TRUCK':'DUTRO',
+        'FUSO TRUCK':'FUSO',
+        'RAV4':'','TRUCK':'','KLANG9':'','UNKNOWN':'',
+      };
+      if(MODEL_NORM[model]!==undefined){model=MODEL_NORM[model];}
+      if(!model||model==='UNKNOWN')return null;
+      return{date:String(r.date||''),chassis:String(r.chassis||''),model,color:String(r.color||'-').trim(),year:parseInt(String(r.year||0))||0,
