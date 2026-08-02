@@ -1,0 +1,58 @@
+name: Assemble JACC upgrade
+
+on:
+  push:
+    branches:
+      - agent/upgrade-github-app-shell
+    paths:
+      - .github/workflows/assemble-upgrade.yml
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Assemble and validate app files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .upgrade/index.part{00..11}.html > index.html
+          test "$(wc -c < index.html | tr -d ' ')" = "138065"
+          echo "f9975a81a60e70ae10c07f69d3d7f15383bfea1475536bd1fd36244d2634176f  index.html" | sha256sum -c -
+          node --check sw.js
+          python -m json.tool manifest.json >/dev/null
+          python - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import re
+
+          source = Path('index.html').read_text(encoding='utf-8')
+          parser = HTMLParser()
+          parser.feed(source)
+          scripts = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', source, flags=re.I | re.S)
+          if not scripts:
+              raise SystemExit('No inline scripts found')
+          for index, script in enumerate(scripts):
+              Path(f'/tmp/jacc-inline-{index}.js').write_text(script, encoding='utf-8')
+          print(f'Validated HTML and extracted {len(scripts)} inline scripts')
+          PY
+          for script in /tmp/jacc-inline-*.js; do node --check "$script"; done
+          grep -q "const APP_VERSION     = '2026.08.02';" index.html
+          grep -q "registerServiceWorker" index.html
+          grep -q "normalizePasswordValue" index.html
+
+      - name: Commit assembled upgrade
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .upgrade
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html .upgrade
+          git commit -m "feat: upgrade JACC GitHub app shell"
+          git push
