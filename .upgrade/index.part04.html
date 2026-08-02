@@ -1,0 +1,152 @@
+hare</div></div><div class="card-body"><div class="chart-container"><canvas id="pieChart"></canvas></div></div></div>
+      </div>
+      <div class="card"><div class="card-header"><div class="card-title">Color Distribution</div></div><div class="card-body"><div class="chart-container"><canvas id="colorChart"></canvas></div></div></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const SHEET_ID    = '1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHD06K3zG1mpY';
+const WEBHOOK     = 'https://script.google.com/macros/s/AKfycbx0VnduD1ARzD22RerXiH68H1capsP79DnOPauS6qHkV8K7RMwcf0_EREx5XFmE3UwT/exec';
+const SESSION_KEY = 'jan_session';
+const SESSION_VER = 'v3';
+const MAX_LOGIN_TRIES = 5;
+const LOCKOUT_MINUTES = 15;
+const SESSION_HOURS   = 24;
+const APP_VERSION     = '2026.08.02';
+let deferredInstallPrompt = null;
+let waitingServiceWorker = null;
+
+if(typeof Chart!=='undefined'){Chart.defaults.color='#78716C';Chart.defaults.borderColor='rgba(28,25,23,0.06)';Chart.defaults.font.family="'Outfit',-apple-system,sans-serif";}
+
+let allCars=[],charts={};
+let brandFilter=null,bodyFilter=null;
+let dashState={view:'home',brand:null,bodyType:null,model:null};
+let SESSION=null;
+let explorerPage=1;
+const EXPLORER_PAGE_SIZE=30;
+
+function esc(s){if(s==null)return '';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function escAttr(s){if(s==null)return '';const str=String(s);if(/^javascript:/i.test(str))return '';return esc(str);}
+function debounce(fn,ms){let t;return function(...a){clearTimeout(t);t=setTimeout(()=>fn.apply(this,a),ms);};}
+function normalizePasswordValue(value){
+  let v=String(value||'').replace(/[\u200B-\u200D\u2060\uFEFF]/g,'').trim();
+  if(v.length>=2&&((v.startsWith('"')&&v.endsWith('"'))||(v.startsWith("'")&&v.endsWith("'"))))v=v.slice(1,-1).trim();
+  return v;
+}
+function normalizePasswordField(){const el=document.getElementById('loginPw');if(el)el.value=normalizePasswordValue(el.value);}
+function togglePasswordVisibility(){const el=document.getElementById('loginPw');if(!el)return;el.type=el.type==='password'?'text':'password';}
+function showToast(message,type=''){
+  const stack=document.getElementById('toastStack');if(!stack)return;
+  const toast=document.createElement('div');toast.className='toast'+(type?' '+type:'');toast.textContent=message;stack.appendChild(toast);
+  setTimeout(()=>{toast.style.opacity='0';toast.style.transform='translateY(6px)';setTimeout(()=>toast.remove(),220);},3200);
+}
+function updateNetworkStatus(){
+  const pill=document.getElementById('networkStatus');const txt=document.getElementById('networkStatusText');if(!pill||!txt)return;
+  const online=navigator.onLine;pill.classList.toggle('offline',!online);txt.textContent=online?'Live':'Offline';pill.title=online?'Online — live data available':'Offline — cached app only';
+}
+async function shareApp(){
+  const data={title:'JACC — Japan Auction Car Checker',text:'Japan auction car price, model and chassis checker',url:location.origin+location.pathname};
+  try{if(navigator.share)await navigator.share(data);else{await navigator.clipboard.writeText(data.url);showToast('App link copied','ok');}}catch(e){if(e&&e.name!=='AbortError')showToast('Share မလုပ်နိုင်ပါ','warn');}
+}
+async function installPWA(){
+  if(!deferredInstallPrompt){showToast('Browser menu က “Add to Home screen” ကို သုံးပါ','warn');return;}
+  deferredInstallPrompt.prompt();const choice=await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;document.getElementById('installAppBtn')?.classList.remove('ready');
+  if(choice.outcome==='accepted')showToast('JACC App install လုပ်ပြီးပါပြီ','ok');
+}
+function applyAppUpdate(){
+  if(waitingServiceWorker){waitingServiceWorker.postMessage({type:'SKIP_WAITING'});}else location.reload();
+}
+function showUpdateBanner(worker){waitingServiceWorker=worker;document.getElementById('updateBanner')?.classList.add('show');}
+async function registerServiceWorker(){
+  if(!('serviceWorker' in navigator))return;
+  try{
+    const reg=await navigator.serviceWorker.register('./sw.js',{scope:'./'});
+    if(reg.waiting&&navigator.serviceWorker.controller)showUpdateBanner(reg.waiting);
+    reg.addEventListener('updatefound',()=>{const worker=reg.installing;if(!worker)return;worker.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)showUpdateBanner(worker);});});
+    let reloading=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(reloading)return;reloading=true;location.reload();});
+    window.addEventListener('focus',()=>reg.update().catch(()=>{}));
+  }catch(e){console.warn('[JACC] Service worker registration failed',e);}
+}
+
+function getLoginAttempts(){try{return JSON.parse(sessionStorage.getItem('login_tries')||'{"count":0,"lockUntil":0}');}catch(e){return{count:0,lockUntil:0};}}
+function setLoginAttempts(obj){sessionStorage.setItem('login_tries',JSON.stringify(obj));}
+function isLocked(){const t=getLoginAttempts();if(t.lockUntil&&Date.now()<t.lockUntil)return Math.ceil((t.lockUntil-Date.now())/60000);return 0;}
+
+async function doLogin(){
+  const pw=normalizePasswordValue(document.getElementById('loginPw').value);
+  document.getElementById('loginPw').value=pw;
+  const btn=document.getElementById('loginBtn');
+  const err=document.getElementById('loginErr');
+  const brute=document.getElementById('loginBrute');
+  const mins=isLocked();
+  if(mins>0){err.style.display='block';err.textContent='⏳ '+mins+' မိနစ်ကြာမှ ပြန်ကြိုးစားပါ';return;}
+  if(!navigator.onLine){err.style.display='block';err.textContent='📴 Internet မရှိသေးပါ — Online ပြန်ဖြစ်မှ Login လုပ်ပါ';return;}
+  if(!pw){err.style.display='block';err.textContent='Password ထည့်ပါ';return;}
+  btn.querySelector('span').textContent='⏳ Checking...';btn.disabled=true;err.style.display='none';
+  try{
+    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'verifyLogin',password:pw})});
+    if(!res.ok)throw new Error('http_'+res.status);
+    let result;
+    try{result=await res.json();}catch(parseError){throw new Error('invalid_server_response');}
+    if(result.status!=='ok'){
+      const reason=String(result.message||result.msg||result.error||'').toLowerCase();
+      const t=getLoginAttempts();
+      if(reason==='wrong_password'||reason.includes('password')){
+        t.count=(t.count||0)+1;
+        if(t.count>=MAX_LOGIN_TRIES){t.lockUntil=Date.now()+LOCKOUT_MINUTES*60*1000;t.count=0;err.textContent='❌ '+MAX_LOGIN_TRIES+' ကြိမ် မှားပြီ — '+LOCKOUT_MINUTES+' မိနစ် Lock';brute.style.display='block';brute.textContent='⚠️ Admin ဆက်သွယ်ပါ: @JapanAuctionCar_Bot';}
+        else err.textContent='❌ Password မှားတယ် ('+(MAX_LOGIN_TRIES-t.count)+' ကြိမ် ကျန်)';
+      }
+      else if(reason==='expired'||reason.includes('expire'))err.textContent='⏰ Membership ကုန်ဆုံးပြီ — /renew လုပ်ပါ';
+      else if(reason==='unknown_action'||reason.includes('unknown action'))err.textContent='⚠️ Login service action မကိုက်ညီပါ — Admin ကို ဆက်သွယ်ပါ';
+      else err.textContent='⚠️ Server error — ခဏနေရင် ပြန်ကြိုးစားပါ';
+      err.style.display='block';setLoginAttempts(t);btn.querySelector('span').textContent='Sign In →';btn.disabled=false;return;
+    }
+    setLoginAttempts({count:0,lockUntil:0});
+    SESSION={ver:SESSION_VER,token:result.token,userId:result.userId,username:result.username,package:result.package,expireDate:result.expireDate,loginTime:Date.now()};
+    sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION));
+    logVisitor();showApp();
+  }catch(e){
+    err.style.display='block';
+    err.textContent=(String(e.message||'').startsWith('http_')||e.message==='invalid_server_response')
+      ?'⚠️ Login server error — ခဏနေရင် ပြန်ကြိုးစားပါ'
+      :'❌ Connection error — Internet စစ်ပြီး ပြန်ကြိုးစားပါ';
+    btn.querySelector('span').textContent='Sign In →';btn.disabled=false;
+  }
+}
+
+function checkSession(){
+  try{
+    const s=sessionStorage.getItem(SESSION_KEY);if(!s)return false;
+    const parsed=JSON.parse(s);if(!parsed||!parsed.token)return false;
+    if(parsed.ver!==SESSION_VER){sessionStorage.removeItem(SESSION_KEY);return false;}
+    if(Date.now()-parsed.loginTime>SESSION_HOURS*3600*1000){sessionStorage.removeItem(SESSION_KEY);return false;}
+    SESSION=parsed;return true;
+  }catch(e){return false;}
+}
+
+function showApp(){
+  document.getElementById('loginOverlay').style.display='none';
+  document.getElementById('loadingOverlay').style.display='flex';
+  if(!SESSION||(SESSION.package!=='WEB'&&SESSION.package!=='WEB-PROMO')){
+    document.getElementById('loadingOverlay').style.display='none';
+    document.querySelector('.main').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;padding:24px;background:var(--bg)"><div style="text-align:center;max-width:440px"><div style="font-size:60px;margin-bottom:18px">📱</div><div style="font-size:24px;font-weight:800;color:var(--ink-1);margin-bottom:10px;letter-spacing:-0.5px">Channel Only Package</div><div style="font-size:14px;color:var(--ink-4);margin-bottom:26px;line-height:1.6">သင်၏ Package သည် <strong>Channel Only</strong> ဖြစ်သောကြောင့်<br>Web App ဝင်ခွင့် မရှိပါ</div><div style="background:var(--brand-soft);border:1px solid var(--line);border-radius:var(--r-md);padding:20px;margin-bottom:24px;text-align:left"><div style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:12px;text-align:center">⬆️ Upgrade to Channel + Web</div><div style="font-size:13px;color:var(--ink-2);line-height:1.9">✓ Web App အပြည့်အဝ ဝင်ရောက်နိုင်<br>✓ Chassis Lookup<br>✓ Price Analysis & Charts<br>✓ Export CSV</div></div><a href="https://t.me/JapanAuctionCar_Bot" target="_blank" rel="noopener" style="display:inline-block;background:var(--ink-1);color:#fff;border-radius:var(--r-md);padding:14px 28px;font-size:14px;font-weight:700;text-decoration:none">Bot ဆက်သွယ်ရန် →</a><div style="margin-top:16px"><button onclick="doLogout()" class="btn btn-outline btn-sm">🚪 Logout</button></div></div></div>';
+    return;
+  }
+  updateUserBar();init();
+}
+
+function updateUserBar(){
+  if(!SESSION)return;
+  const pkg=(SESSION.package==='WEB'||SESSION.package==='WEB-PROMO')?'CH+Web':'CH Only';
+  const username=esc(SESSION.username||'');
+  const initial=esc((SESSION.username||'?').charAt(0).toUpperCase());
+  const expire=esc(SESSION.expireDate||'-');
+  document.getElementById('sideFooter').innerHTML='<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r-md);padding:12px;margin-bottom:10px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div class="member-av" style="width:34px;height:34px;font-size:14px;border-radius:var(--r-sm)">'+initial+'</div><div style="flex:1;min-width:0"><div style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Account</div><div style="font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@'+username+'</div></div></div><div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:rgba(255,255,255,0.5)">📦 Package</span><strong style="color:#fff;font-family:var(--font-mono);font-size:10px">'+esc(pkg)+'</strong></div><div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:rgba(255,255,255,0.5)">⏰ ကုန်ဆုံး</span><strong style="color:#FCD34D;font-family:var(--font-mono);font-size:10px">'+expire+'</strong></div></div></div><button onclick="doLogout()" style="width:100%;background:rgba(200,16,46,0.12);border:1px solid rgba(200,16,46,0.3);border-radius:var(--r-sm);padding:9px;font-size:12px;color:#FCA5A5;cursor:pointer;font-family:inherit;font-weight:600">🚪 Logout</button>';
+}
+function doLogout(){sessionStorage.removeItem(SESSION_KEY);location.reload();}
+
+async function logVisitor(){
+  try{
+    let 
