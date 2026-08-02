@@ -1,0 +1,75 @@
+on></div></div></div>';}).join('');
+    drillArea.innerHTML=breadcrumb+'<div style="font-size:12px;color:var(--ink-4);margin-bottom:12px;font-weight:500">'+cars.length+' cars found</div><div class="car-grid">'+carCards+'</div>';
+  }
+}
+
+function populateFilters(){
+  const u=arr=>[...new Set(arr)].filter(Boolean).sort();
+  setOpts('fModel',u(allCars.map(c=>c.model)));
+  setOpts('fColor',u(allCars.map(c=>c.color).filter(c=>c&&c!=='-')));
+  setOpts('fYear',u(allCars.map(c=>c.year).filter(y=>y>0)).sort((a,b)=>b-a));
+  setOpts('fLoc',u(allCars.map(c=>c.location).filter(l=>l&&l!=='-')));
+}
+function setOpts(id,vals){const s=document.getElementById(id);const f=s.options[0];s.innerHTML='';s.appendChild(f);vals.forEach(v=>{const o=document.createElement('option');o.value=String(v);o.textContent=String(v);s.appendChild(o);});}
+function pgBtn(active){return active?'background:var(--brand);color:#fff;border:none;border-radius:var(--r-sm);padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer;min-width:36px;font-family:inherit':'background:var(--surface);color:var(--ink-1);border:1.5px solid var(--line);border-radius:var(--r-sm);padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;min-width:36px;font-family:inherit';}
+
+function renderExplorer(resetPage){
+  if(resetPage!==false)explorerPage=1;
+  const model=document.getElementById('fModel').value,color=document.getElementById('fColor').value,year=document.getElementById('fYear').value,loc=document.getElementById('fLoc').value,sort=document.getElementById('fSort').value;
+  const priceMin=parseInt(document.getElementById('fPriceMin')?.value||0)||0;
+  const priceMax=parseInt(document.getElementById('fPriceMax')?.value||0)||0;
+  let f=allCars.filter(c=>c.model&&c.model.toUpperCase()!=='UNKNOWN'&&(!model||c.model===model)&&(!color||c.color===color)&&(!year||String(c.year)===year)&&(!loc||c.location===loc)&&(!priceMin||c.price>=priceMin)&&(!priceMax||(c.price>0&&c.price<=priceMax)));
+  if(brandFilter&&BRAND_MAP[brandFilter]){const bm=BRAND_MAP[brandFilter].models;f=f.filter(c=>bm.some(m=>c.model.toUpperCase()===m.toUpperCase()));}
+  if(bodyFilter&&BODY_TYPE_MAP[bodyFilter]){const bm=BODY_TYPE_MAP[bodyFilter].models;f=f.filter(c=>bm.some(m=>c.model.toUpperCase()===m.toUpperCase()));}
+  const badge=document.getElementById('activeFilterBadge');
+  if(badge){if(brandFilter||bodyFilter){const label=brandFilter?'🏭 '+brandFilter:'🚗 '+bodyFilter;badge.style.display='block';badge.innerHTML='<div style="background:var(--brand-soft);border:1px solid var(--brand);border-radius:var(--r-sm);padding:8px 14px;display:inline-flex;align-items:center;gap:10px;font-size:12px"><span>Filtered: <strong style="color:var(--brand)">'+esc(label)+'</strong></span><button onclick="clearBrandFilter()" style="background:none;border:none;color:var(--ink-4);cursor:pointer;font-size:16px;line-height:1;font-family:inherit">✕</button></div>';}else badge.style.display='none';}
+  if(sort==='pa')f.sort((a,b)=>a.price-b.price);else if(sort==='pd')f.sort((a,b)=>b.price-a.price);else if(sort==='yd')f.sort((a,b)=>b.year-a.year);else f.sort((a,b)=>parseDate(b.date)-parseDate(a.date));
+  const total=f.length;const showing=Math.min(explorerPage*EXPLORER_PAGE_SIZE,total);
+  document.getElementById('explorerCount').textContent=showing+' / '+total+' cars';
+  const g=document.getElementById('carGrid');
+  if(!total){g.innerHTML='<div class="empty" style="grid-column:1/-1"><div class="ei">🚗</div><p>No cars match filters</p></div>';return;}
+  const pageStart=(explorerPage-1)*EXPLORER_PAGE_SIZE;
+  const cards=f.slice(pageStart,showing).map((c,i)=>{const hi=c.imageUrl&&c.imageUrl.startsWith('http');return '<div class="car-card"><div class="car-img" style="'+(hi?'':'background:'+BGs[i%BGs.length])+'">'+(hi?'<img src="'+escAttr(c.imageUrl)+'" loading="lazy" alt="'+esc(c.model)+'" onerror="this.parentElement.textContent=\'🚗\'">':'🚗')+'<div class="car-img-badge">'+esc(c.location)+'</div></div><div class="car-body"><div class="car-make">'+esc(c.addedBy)+'</div><div class="car-model">'+esc(c.model)+'</div><div style="margin-bottom:8px">'+(c.year>0?'<span class="car-spec">📅 '+esc(c.year)+'</span>':'')+(c.color!=='-'?'<span class="car-spec">🎨 '+esc(c.color)+'</span>':'')+'</div><div class="car-footer"><div><div class="car-price">'+(c.price>0?'฿'+c.price.toLocaleString():'N/A')+'</div><div style="font-size:11px;color:var(--ink-4);margin-top:2px">'+esc(c.date)+'</div></div><button class="btn btn-primary btn-sm" onclick="goLookup(\''+esc(c.chassis)+'\')">View</button></div></div></div>';}).join('');
+  g.innerHTML=cards;
+  const pc=document.getElementById('paginationContainer');
+  if(pc){const totalPages=Math.ceil(total/EXPLORER_PAGE_SIZE);if(totalPages>1){pc.style.display='block';let btns='';btns+=explorerPage>1?'<button onclick="explorerPage--;renderExplorer(false)" style="'+pgBtn(false)+'">‹</button>':'<button style="'+pgBtn(false)+';opacity:0.3;cursor:default">‹</button>';const start=Math.max(1,explorerPage-2);const end=Math.min(totalPages,explorerPage+2);if(start>1)btns+='<button onclick="explorerPage=1;renderExplorer(false)" style="'+pgBtn(false)+'">1</button>';if(start>2)btns+='<span style="padding:0 4px;color:var(--ink-4)">…</span>';for(let i=start;i<=end;i++){btns+='<button onclick="explorerPage='+i+';renderExplorer(false)" style="'+pgBtn(i===explorerPage)+'">'+i+'</button>';}if(end<totalPages-1)btns+='<span style="padding:0 4px;color:var(--ink-4)">…</span>';if(end<totalPages)btns+='<button onclick="explorerPage='+totalPages+';renderExplorer(false)" style="'+pgBtn(false)+'">'+totalPages+'</button>';btns+=explorerPage<totalPages?'<button onclick="explorerPage++;renderExplorer(false)" style="'+pgBtn(false)+'">›</button>':'<button style="'+pgBtn(false)+';opacity:0.3;cursor:default">›</button>';pc.innerHTML='<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap">'+btns+'</div>';}else pc.style.display='none';}
+}
+
+function clearFilters(){['fModel','fColor','fYear','fLoc','fSort','fPriceMin','fPriceMax'].forEach(id=>{const el=document.getElementById(id);if(el)el.selectedIndex=0;});brandFilter=null;bodyFilter=null;renderExplorer();}
+function toggleSpecPanel(){const panel=document.getElementById('specPanel');const icon=document.getElementById('specToggleIcon');if(panel.style.display==='none'){panel.style.display='block';icon.textContent='▲ Hide';}else{panel.style.display='none';icon.textContent='▼ Show';}}
+</script>
+<script>
+function renderPrice(){
+  const pr=allCars.filter(c=>c.price>0),ps=pr.map(c=>c.price);
+  document.getElementById('pa-cnt').textContent=pr.length;
+  if(!ps.length)return;
+  const avg=Math.round(ps.reduce((a,b)=>a+b,0)/ps.length),min=Math.min(...ps),max=Math.max(...ps);
+  document.getElementById('pa-avg').textContent='฿'+avg.toLocaleString();
+  document.getElementById('pa-min').textContent='฿'+min.toLocaleString();
+  document.getElementById('pa-max').textContent='฿'+max.toLocaleString();
+  const minC=pr.find(c=>c.price===min),maxC=pr.find(c=>c.price===max);
+  if(minC)document.getElementById('pa-minm').textContent=minC.model;
+  if(maxC)document.getElementById('pa-maxm').textContent=maxC.model;
+  const mp={},mc2={};pr.forEach(c=>{mp[c.model]=(mp[c.model]||0)+c.price;mc2[c.model]=(mc2[c.model]||0)+1;});
+  const avgs=Object.entries(mp).map(([m,t])=>[m,Math.round(t/mc2[m])]).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  destroyChart('priceModel');
+  charts.priceModel=new Chart(document.getElementById('priceModelChart'),{type:'bar',data:{labels:avgs.map(a=>a[0]),datasets:[{label:'Avg Price',data:avgs.map(a=>a[1]),backgroundColor:avgs.map((_,i)=>COLORS[i%COLORS.length]),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'฿'+v.toLocaleString(),color:'#78716C'},grid:{color:'rgba(28,25,23,0.05)'}},x:{grid:{display:false},ticks:{color:'#78716C',font:{size:11},maxRotation:35}}}}});
+  const buckets=[0,50000,100000,200000,500000,1000000,Infinity];const bLabels=['<50K','50-100K','100-200K','200-500K','500K-1M','>1M'];const bCounts=new Array(6).fill(0);ps.forEach(p=>{for(let i=0;i<buckets.length-1;i++){if(p>=buckets[i]&&p<buckets[i+1]){bCounts[i]++;break;}}});
+  destroyChart('priceDist');
+  charts.priceDist=new Chart(document.getElementById('priceDistChart'),{type:'doughnut',data:{labels:bLabels,datasets:[{data:bCounts,backgroundColor:COLORS,borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{color:'#44403C',boxWidth:12,padding:10}}}}});
+  document.getElementById('priceTbl').innerHTML=Object.entries(mp).map(([m,t])=>({m,cnt:mc2[m],avg:Math.round(t/mc2[m]),min:Math.min(...pr.filter(c=>c.model===m).map(c=>c.price)),max:Math.max(...pr.filter(c=>c.model===m).map(c=>c.price))})).sort((a,b)=>b.cnt-a.cnt).map(r=>'<tr><td><strong>'+esc(r.m)+'</strong></td><td class="mono">'+r.cnt+'</td><td class="t-brand mono">฿'+r.avg.toLocaleString()+'</td><td class="mono">฿'+r.min.toLocaleString()+'</td><td class="mono">฿'+r.max.toLocaleString()+'</td></tr>').join('');
+}
+
+function renderChassisTbl(filter){
+  filter=filter||'';const d=filter?allCars.filter(c=>c.chassis.toUpperCase().includes(filter.toUpperCase())||c.model.toUpperCase().includes(filter.toUpperCase())):allCars;
+  document.getElementById('chassisTbl').innerHTML=d.slice(0,100).map(c=>'<tr onclick="goLookup(\''+esc(c.chassis)+'\')" style="cursor:pointer"><td class="mono">'+esc(c.chassis)+'</td><td class="t-brand">'+esc(c.model)+'</td><td>'+esc(c.color)+'</td><td>'+(c.year>0?esc(c.year):'-')+'</td><td class="t-brand mono">'+(c.price>0?'฿'+c.price.toLocaleString():'-')+'</td><td>'+esc(c.date)+'</td><td>'+esc(c.location)+'</td></tr>').join('');
+}
+function filterChassisTbl(v){renderChassisTbl(v);}
+
+function lookupChassis(){
+  const v=document.getElementById('chassisInput').value.trim();if(!v)return;
+  const car=allCars.find(c=>c.chassis.toUpperCase().includes(v.toUpperCase()));
+  const el=document.getElementById('chassisResult');
+  if(car){
+    const imgSection=car.imageUrl?'<div style="padding:0;border-top:1px solid var(--line);background:var(--ink-1);display:flex;justify-content:center;max-height:280px;overflow:hidden"><img src="'+escAttr(car.imageUrl)+'" alt="'+esc(car.model)+'" style="max-height:280px;width:100%;object-fit:contain" onerror="this.parentElement.innerHTML=\'<div style=padding:24px;text-align:center;color:var(--ink-4);background:var(--surface-2)>📷 ကားပုံ မရှိသေးဘူး</div>\'"></div>':'<div style="padding:24px;text-align:center;color:var(--ink-4);background:var(--surface-2);border-top:1px solid var(--line)"><div style="font-size:42px;margin-bottom:6px;opacity:0.4">🚗</div><div style="font-size:12px">ဒီကားအတွက် ပုံမရှိသေးဘူး</div></div>';
+    el.innerHTML='<div style="background:var(--surface);border-radius:var(--r-lg);border:1px solid var(--line);overflow:hidden;box-shadow:var(--sh-md)"><div style="background:var(--brand);color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><div style="font-size:16px;font-weight:800;letter-spacing:-0.3px">'+esc(car.chassis)+' — '+esc(car.model)+'</div><div style="font-size:12px;opacity:0.85;margin-top:3px">✓ Found in Sheet · '+esc(car.date)+'</div></div><span class="badge" style="background:rgba(255,255,255,0.2);color:#fff">'+esc(car.location)+'</span></div>'+imgSection+'<div class="detail-grid"><div class="di"><div class="dk">Model</div><div class="dv">'+esc(car.model)+'</div></div><div class="di"><div class="dk">Color</div><div class="dv">'+esc(car.color)+'</div></div><div class="di"><div class="dk">Year</div><div class="dv">'+(car.year>0?esc(car.year):'-')+'</div></div><div class="di"><div class="dk">Price (THB)</div><div class="dv" style="color:var(--brand);font-weight:700;font-family:var(--font-mono)">'+(car.price>0?'฿'+car.price.toLocaleString():'Not listed')+'</div></div><div class="di"><div class="dk">Location</div><div class="dv">'+esc(
