@@ -6,9 +6,16 @@ on:
       - agent/upgrade-github-app-shell
     paths:
       - .github/workflows/assemble-upgrade.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .upgrade/**
+      - .github/workflows/assemble-upgrade.yml
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   assemble:
@@ -16,11 +23,19 @@ jobs:
     steps:
       - name: Check out branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Assemble and validate app files
+        id: assemble
         shell: bash
         run: |
           set -euo pipefail
+          if [ ! -f .upgrade/index.part11.html ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No staging files remain; nothing to assemble."
+            exit 0
+          fi
           cat .upgrade/index.part{00..11}.html > index.html
           test "$(wc -c < index.html | tr -d ' ')" = "138065"
           echo "f9975a81a60e70ae10c07f69d3d7f15383bfea1475536bd1fd36244d2634176f  index.html" | sha256sum -c -
@@ -45,8 +60,10 @@ jobs:
           grep -q "const APP_VERSION     = '2026.08.02';" index.html
           grep -q "registerServiceWorker" index.html
           grep -q "normalizePasswordValue" index.html
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Commit assembled upgrade
+        if: steps.assemble.outputs.changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
