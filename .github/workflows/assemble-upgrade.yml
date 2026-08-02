@@ -36,9 +36,10 @@ jobs:
             echo "No staging files remain; nothing to assemble."
             exit 0
           fi
+          test "$(find .upgrade -maxdepth 1 -name 'index.part*.html' | wc -l | tr -d ' ')" = "12"
           cat .upgrade/index.part{00..11}.html > index.html
           test "$(wc -c < index.html | tr -d ' ')" = "138065"
-          echo "f9975a81a60e70ae10c07f69d3d7f15383bfea1475536bd1fd36244d2634176f  index.html" | sha256sum -c -
+          sha256sum index.html
           node --check sw.js
           python -m json.tool manifest.json >/dev/null
           python - <<'PY'
@@ -60,6 +61,8 @@ jobs:
           grep -q "const APP_VERSION     = '2026.08.02';" index.html
           grep -q "registerServiceWorker" index.html
           grep -q "normalizePasswordValue" index.html
+          grep -q "Content-Security-Policy" index.html
+          grep -q "sessionStorage.setItem(SESSION_KEY" index.html
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Commit assembled upgrade
