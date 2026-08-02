@@ -1,0 +1,44 @@
+k]),backgroundColor:'#C8102E',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(28,25,23,0.05)'},ticks:{color:'#78716C'}},x:{grid:{display:false},ticks:{color:'#78716C',maxRotation:45,font:{size:10}}}}}});
+  const mc={};allCars.forEach(c=>{mc[c.model]=(mc[c.model]||0)+1;});const top8=Object.entries(mc).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  destroyChart('pie');
+  charts.pie=new Chart(document.getElementById('pieChart'),{type:'doughnut',data:{labels:top8.map(a=>a[0]),datasets:[{data:top8.map(a=>a[1]),backgroundColor:COLORS,borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'right',labels:{color:'#44403C',boxWidth:12,padding:8,font:{size:11}}}}}});
+  const cc={};allCars.forEach(c=>{if(c.color&&c.color!=='-')cc[c.color]=(cc[c.color]||0)+1;});const top10c=Object.entries(cc).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  destroyChart('color');
+  charts.color=new Chart(document.getElementById('colorChart'),{type:'bar',data:{labels:top10c.map(a=>a[0]),datasets:[{label:'Count',data:top10c.map(a=>a[1]),backgroundColor:COLORS.concat(COLORS),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{grid:{color:'rgba(28,25,23,0.05)'},ticks:{color:'#78716C'}},x:{grid:{display:false},ticks:{color:'#78716C',maxRotation:35}}}}});
+}
+
+/* ── switchTab ── */
+function switchTab(name,updateHash=true){
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(t=>t.classList.remove('active'));
+  const tc=document.getElementById('tab-'+name);if(tc)tc.classList.add('active');
+  const tabIdx=['dashboard','explorer','price','chassis','trends'].indexOf(name);
+  if(tabIdx>=0)document.querySelectorAll('.tab')[tabIdx]?.classList.add('active');
+  const navEl=document.getElementById('nav-'+name);if(navEl)navEl.classList.add('active');
+  if(updateHash&&history.replaceState)history.replaceState(null,'','#'+name);
+  if(window.innerWidth<900){const sidebar=document.getElementById('sidebar');const overlay=document.getElementById('sideOverlay');if(sidebar)sidebar.classList.remove('open');if(overlay)overlay.classList.remove('open');}
+}
+
+function toggleSidebar(){
+  const sidebar=document.getElementById('sidebar');const overlay=document.getElementById('sideOverlay');
+  if(sidebar){sidebar.classList.toggle('open');overlay.classList.toggle('open');}
+}
+
+function exportCSV(){
+  const rows=[['Date','Chassis','Model','Color','Year','Price_THB','Location','AddedBy']];
+  allCars.forEach(c=>rows.push([c.date,c.chassis,c.model,c.color,c.year>0?c.year:'',c.price>0?c.price:'',c.location,c.addedBy]));
+  const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='JACC_Export_'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(url);
+}
+
+function refreshData(){
+  if(!SESSION)return;
+  if(!navigator.onLine){showToast('Offline ဖြစ်နေပါတယ် — data refresh မလုပ်နိုင်ပါ','warn');return;}
+  document.getElementById('loadingOverlay').style.display='flex';
+  allCars=[];init();
+}
+</script>
+</body>
+</html>
