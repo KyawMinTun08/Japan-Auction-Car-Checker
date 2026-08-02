@@ -540,9 +540,20 @@ def find_by_chassis(chassis_input: str):
             return car
     return None
 
+def normalize_model_search(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value).upper())
+
+
 def find_by_model(model_input: str):
-    m = model_input.upper().strip()
-    return [c for c in CARS if m in c["model"].upper()]
+    query = normalize_model_search(model_input)
+
+    if not query:
+        return []
+
+    return [
+        car for car in CARS
+        if query in normalize_model_search(car.get("model", ""))
+    ]
 
 def extract_chassis_from_text(text: str):
     text = text.upper().strip()
