@@ -554,7 +554,6 @@ def find_by_model(model_input: str):
         car for car in CARS
         if query in normalize_model_search(car.get("model", ""))
     ]
-
 def extract_chassis_from_text(text: str):
     text = text.upper().strip()
     vin_matches = re.findall(r'[A-HJ-NPR-Z0-9]{17}', text)

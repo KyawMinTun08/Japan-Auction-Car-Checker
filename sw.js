@@ -1,11 +1,10 @@
 // JACC PWA Service Worker
-// Version 1.0.0
+// Version 2026.08.02
 
-const CACHE_NAME = 'jacc-v1';
+const CACHE_PREFIX = 'jacc-';
+const CACHE_NAME = 'jacc-2026.08.02';
 const BASE_PATH = '/Japan-Auction-Car-Checker';
-
-// Files to cache on install (app shell)
-const STATIC_ASSETS = [
+const APP_SHELL = [
   BASE_PATH + '/',
   BASE_PATH + '/index.html',
   BASE_PATH + '/manifest.json',
@@ -13,88 +12,96 @@ const STATIC_ASSETS = [
   BASE_PATH + '/icon-512.png'
 ];
 
-// Install event - cache the app shell
 self.addEventListener('install', event => {
-  console.log('[SW] Install');
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('[SW] Caching app shell');
-        return cache.addAll(STATIC_ASSETS);
-      })
-      .then(() => self.skipWaiting())
-      .catch(err => console.warn('[SW] Cache failed:', err))
+      .then(cache => cache.addAll(APP_SHELL))
   );
 });
 
-// Activate event - clean up old caches
 self.addEventListener('activate', event => {
-  console.log('[SW] Activate');
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cache => {
-          if (cache !== CACHE_NAME) {
-            console.log('[SW] Removing old cache:', cache);
-            return caches.delete(cache);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
+    caches.keys()
+      .then(names => Promise.all(
+        names
+          .filter(name => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME)
+          .map(name => caches.delete(name))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
-// Fetch event - smart caching strategy
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+function isBackendRequest(url) {
+  return url.hostname.includes('script.google.com') ||
+    url.hostname.includes('script.googleusercontent.com') ||
+    url.hostname.includes('docs.google.com') ||
+    url.hostname.includes('ipapi.co');
+}
+
+function isRuntimeAsset(url) {
+  return url.hostname.includes('fonts.googleapis.com') ||
+    url.hostname.includes('fonts.gstatic.com') ||
+    url.hostname.includes('cdnjs.cloudflare.com');
+}
+
+async function networkFirst(request, fallbackUrl) {
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch (error) {
+    return (await caches.match(request)) || (fallbackUrl && await caches.match(fallbackUrl)) || Response.error();
+  }
+}
+
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request);
+  const network = fetch(request)
+    .then(response => {
+      if (response && response.ok) cache.put(request, response.clone());
+      return response;
+    })
+    .catch(() => null);
+  return cached || (await network) || Response.error();
+}
+
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response && response.ok) {
+    const cache = await caches.open(CACHE_NAME);
+    cache.put(request, response.clone());
+  }
+  return response;
+}
+
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
-  
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') return;
-  
-  // Google Apps Script / Sheets API calls - NETWORK ONLY (always fresh data)
-  if (url.hostname.includes('script.google.com') ||
-      url.hostname.includes('googleusercontent.com') ||
-      url.hostname.includes('docs.google.com') ||
-      url.hostname.includes('ipapi.co')) {
-    // Let browser handle normally - don't cache API calls
+  const request = event.request;
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+  if (isBackendRequest(url)) return;
+
+  if (request.mode === 'navigate') {
+    event.respondWith(networkFirst(request, BASE_PATH + '/index.html'));
     return;
   }
-  
-  // CDN resources (fonts, chart.js) - CACHE FIRST
-  if (url.hostname.includes('fonts.googleapis.com') ||
-      url.hostname.includes('fonts.gstatic.com') ||
-      url.hostname.includes('cdnjs.cloudflare.com')) {
-    event.respondWith(
-      caches.match(event.request).then(response => {
-        return response || fetch(event.request).then(netResp => {
-          return caches.open(CACHE_NAME).then(cache => {
-            cache.put(event.request, netResp.clone());
-            return netResp;
-          });
-        });
-      })
-    );
+
+  if (isRuntimeAsset(url)) {
+    event.respondWith(cacheFirst(request));
     return;
   }
-  
-  // App shell - NETWORK FIRST, fallback to cache (offline support)
-  event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        // Cache successful responses
-        if (response && response.status === 200) {
-          const respClone = response.clone();
-          caches.open(CACHE_NAME).then(cache => {
-            cache.put(event.request, respClone);
-          });
-        }
-        return response;
-      })
-      .catch(() => {
-        // Offline - try cache
-        return caches.match(event.request).then(cached => {
-          return cached || caches.match(BASE_PATH + '/index.html');
-        });
-      })
-  );
+
+  if (url.origin === self.location.origin) {
+    event.respondWith(staleWhileRevalidate(request));
+  }
 });
