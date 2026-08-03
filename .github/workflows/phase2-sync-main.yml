@@ -21,256 +21,29 @@ jobs:
           ref: agent/jacc-phase2-membership-audit
           fetch-depth: 0
 
-      - name: Merge main and resolve reviewed conflicts
+      - name: Run reviewed sync script with corrected staging
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-
-          set +e
-          git merge --no-commit --no-ff origin/main
-          merge_status=$?
-          set -e
-
-          if [ "$merge_status" -ne 0 ]; then
-            echo "Merge conflicts detected; applying reviewed resolutions."
-          fi
-
-          if git ls-files -u -- index.html | grep -q .; then
-            git checkout --ours -- index.html
-          fi
-          if git ls-files -u -- legacy_bot.py | grep -q .; then
-            git checkout --theirs -- legacy_bot.py
-          fi
-          if git ls-files -u -- manifest.json | grep -q .; then
-            git checkout --theirs -- manifest.json
-          fi
-          if git ls-files -u -- sw.js | grep -q .; then
-            git checkout --theirs -- sw.js
-          fi
-          if git ls-files -u -- robots.txt | grep -q .; then
-            git checkout --theirs -- robots.txt
-          fi
-          if git ls-files -u -- phase2/MEMBERSHIP_CHANNEL_AUDIT.md | grep -q .; then
-            git rm -f -- phase2/MEMBERSHIP_CHANNEL_AUDIT.md
-          fi
-
+          git show 4f5375f3b191463b764fd0fcb3b78fae56828024:.github/workflows/phase2-sync-main.yml > /tmp/original-sync.yml
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("index.html")
-          source = path.read_text(encoding="utf-8")
+          source = Path('/tmp/original-sync.yml').read_text(encoding='utf-8')
+          marker = '        run: |\n'
+          if marker not in source:
+              raise RuntimeError('reviewed sync script marker not found')
 
-          def replace_once(old: str, new: str, label: str) -> None:
-              global source
-              if new in source:
-                  return
-              count = source.count(old)
-              if count != 1:
-                  raise RuntimeError(f"{label}: expected one match, found {count}")
-              source = source.replace(old, new, 1)
+          script = source.split(marker, 1)[1]
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in script.splitlines()
+          ) + '\n'
 
-          replace_once(
-              '<meta name="description" content="MaeSot, Klang9 & Best Border-44 Gate freezone auction car database. Live pricing, chassis lookup, market trends.\">',
-              '<meta name="description" content="MaeSot, Klang9 & Best Border-44 Gate freezone auction car database. Live pricing, chassis lookup, market trends.\">\n'
-              '<meta name="application-name" content="JACC">\n'
-              '<meta name="robots" content="noindex,nofollow,noarchive">\n'
-              '<meta name="format-detection" content="telephone=no">\n'
-              '<meta name="color-scheme" content="light">',
-              "application metadata",
-          )
-
-          replace_once(
-              "               connect-src 'self' https://script.google.com https://script.googleusercontent.com https://docs.google.com https://ipapi.co;\">",
-              "               connect-src 'self' https://script.google.com https://script.googleusercontent.com https://docs.google.com https://ipapi.co;\n"
-              "               worker-src 'self';\n"
-              "               manifest-src 'self';\n"
-              "               base-uri 'self';\n"
-              "               form-action 'self';\">",
-              "CSP PWA directives",
-          )
-
-          replace_once(
-              '<link rel="manifest" href="manifest.json">',
-              '<link rel="manifest" href="manifest.json">\n<link rel="canonical" href="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/">',
-              "canonical link",
-          )
-
-          replace_once(
-              "@keyframes pulse{0%,100%{transform:scale(1);opacity:0.3}50%{transform:scale(1.8);opacity:0}}",
-              "@keyframes pulse{0%,100%{transform:scale(1);opacity:0.3}50%{transform:scale(1.8);opacity:0}}\n"
-              ".live-pill.offline{color:var(--bad)}\n"
-              ".live-pill.offline .live-dot{background:var(--bad)}\n"
-              ".live-pill.offline .live-dot::after{display:none}\n"
-              "#installAppBtn{display:none}\n"
-              "#installAppBtn.ready{display:inline-flex}\n"
-              ".toast-stack{position:fixed;right:18px;bottom:18px;z-index:12000;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:min(380px,calc(100vw - 32px))}\n"
-              ".toast{background:var(--ink-1);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:var(--r-md);padding:11px 14px;font-size:12.5px;line-height:1.45;box-shadow:var(--sh-lg);animation:toastIn .2s ease;pointer-events:auto}\n"
-              ".toast.ok{background:#14532D}.toast.warn{background:#78350F}.toast.bad{background:#7F1D1D}\n"
-              "@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}\n"
-              ".update-banner{display:none;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11900;background:var(--ink-1);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:var(--r-md);padding:10px 12px 10px 15px;box-shadow:var(--sh-lg);align-items:center;gap:12px;font-size:12px;max-width:calc(100vw - 28px)}\n"
-              ".update-banner.show{display:flex}.update-banner button{border:0;background:var(--brand);color:#fff;border-radius:var(--r-sm);padding:7px 11px;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}\n"
-              ".password-wrap{position:relative}.password-wrap .login-input{padding-right:52px}.password-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:38px;height:36px;border:0;background:transparent;border-radius:var(--r-sm);cursor:pointer;color:var(--ink-4);font-size:16px}.password-toggle:hover{background:var(--surface-3);color:var(--ink-1)}",
-              "PWA and password CSS",
-          )
-
-          replace_once(
-              ".live-pill{display:none}.header{padding:0 12px}}",
-              ".live-pill{display:none}.header{padding:0 12px}.toast-stack{right:12px;bottom:12px}.update-banner{bottom:12px}}",
-              "mobile toast layout",
-          )
-
-          replace_once(
-              '      <input id="loginPw" class="login-input" type="password" placeholder="Password ထည့်ပါ" autocomplete="current-password" onkeydown="if(event.key===\'Enter\')doLogin()">',
-              '      <div class="password-wrap">\n'
-              '        <input id="loginPw" class="login-input" type="password" placeholder="Password ထည့်ပါ" autocomplete="current-password" autocapitalize="none" spellcheck="false" onpaste="setTimeout(normalizePasswordField,0)" onkeydown="if(event.key===\'Enter\')doLogin()">\n'
-              '        <button class="password-toggle" type="button" onclick="togglePasswordVisibility()" aria-label="Show password" title="Show / hide password">👁</button>\n'
-              '      </div>',
-              "password input wrapper",
-          )
-
-          replace_once(
-              '<div id="sideOverlay" onclick="toggleSidebar()"></div>',
-              '<div id="sideOverlay" onclick="toggleSidebar()"></div>\n'
-              '<div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="true"></div>\n'
-              '<div class="update-banner" id="updateBanner" role="status"><span>JACC version အသစ် ရပါပြီ</span><button type="button" onclick="applyAppUpdate()">Update Now</button></div>',
-              "toast and update containers",
-          )
-
-          replace_once(
-              '      <span class="live-pill"><span class="live-dot"></span>Live</span>',
-              '      <span class="live-pill" id="networkStatus" title="Network status"><span class="live-dot"></span><span id="networkStatusText">Live</span></span>\n'
-              '      <button class="btn btn-primary btn-sm" id="installAppBtn" type="button" onclick="installPWA()">⬇ Install</button>\n'
-              '      <button class="btn btn-outline btn-sm desktop-only" onclick="shareApp()">↗ Share</button>',
-              "header PWA controls",
-          )
-
-          replace_once(
-              "const LOCKOUT_MINUTES = 15;",
-              "const LOCKOUT_MINUTES = 15;\nconst APP_VERSION     = '2026.08.02';\nlet deferredInstallPrompt = null;\nlet waitingServiceWorker = null;",
-              "PWA constants",
-          )
-
-          replace_once(
-              "function debounce(fn,ms){let t;return function(...a){clearTimeout(t);t=setTimeout(()=>fn.apply(this,a),ms);};}",
-              "function debounce(fn,ms){let t;return function(...a){clearTimeout(t);t=setTimeout(()=>fn.apply(this,a),ms);};}\n"
-              "function normalizePasswordValue(value){\n"
-              "  let v=String(value||'').replace(/[\\u200B-\\u200D\\u2060\\uFEFF]/g,'').trim();\n"
-              "  if(v.length>=2&&((v.startsWith('\\\"')&&v.endsWith('\\\"'))||(v.startsWith(\"'\")&&v.endsWith(\"'\"))))v=v.slice(1,-1).trim();\n"
-              "  return v;\n"
-              "}\n"
-              "function normalizePasswordField(){const el=document.getElementById('loginPw');if(el)el.value=normalizePasswordValue(el.value);}\n"
-              "function togglePasswordVisibility(){const el=document.getElementById('loginPw');if(!el)return;el.type=el.type==='password'?'text':'password';}\n"
-              "function showToast(message,type=''){\n"
-              "  const stack=document.getElementById('toastStack');if(!stack)return;\n"
-              "  const toast=document.createElement('div');toast.className='toast'+(type?' '+type:'');toast.textContent=message;stack.appendChild(toast);\n"
-              "  setTimeout(()=>{toast.style.opacity='0';toast.style.transform='translateY(6px)';setTimeout(()=>toast.remove(),220);},3200);\n"
-              "}\n"
-              "function updateNetworkStatus(){\n"
-              "  const pill=document.getElementById('networkStatus');const txt=document.getElementById('networkStatusText');if(!pill||!txt)return;\n"
-              "  const online=navigator.onLine;pill.classList.toggle('offline',!online);txt.textContent=online?'Live':'Offline';pill.title=online?'Online — live data available':'Offline — cached app only';\n"
-              "}\n"
-              "async function shareApp(){\n"
-              "  const data={title:'JACC — Japan Auction Car Checker',text:'Japan auction car price, model and chassis checker',url:location.origin+location.pathname};\n"
-              "  try{if(navigator.share)await navigator.share(data);else{await navigator.clipboard.writeText(data.url);showToast('App link copied','ok');}}catch(e){if(e&&e.name!=='AbortError')showToast('Share မလုပ်နိုင်ပါ','warn');}\n"
-              "}\n"
-              "async function installPWA(){\n"
-              "  if(!deferredInstallPrompt){showToast('Browser menu က “Add to Home screen” ကို သုံးပါ','warn');return;}\n"
-              "  deferredInstallPrompt.prompt();const choice=await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;document.getElementById('installAppBtn')?.classList.remove('ready');\n"
-              "  if(choice.outcome==='accepted')showToast('JACC App install လုပ်ပြီးပါပြီ','ok');\n"
-              "}\n"
-              "function applyAppUpdate(){if(waitingServiceWorker){waitingServiceWorker.postMessage({type:'SKIP_WAITING'});}else location.reload();}\n"
-              "function showUpdateBanner(worker){waitingServiceWorker=worker;document.getElementById('updateBanner')?.classList.add('show');}\n"
-              "async function registerServiceWorker(){\n"
-              "  if(!('serviceWorker' in navigator))return;\n"
-              "  try{\n"
-              "    const reg=await navigator.serviceWorker.register('./sw.js',{scope:'./'});\n"
-              "    if(reg.waiting&&navigator.serviceWorker.controller)showUpdateBanner(reg.waiting);\n"
-              "    reg.addEventListener('updatefound',()=>{const worker=reg.installing;if(!worker)return;worker.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)showUpdateBanner(worker);});});\n"
-              "    let reloading=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(reloading)return;reloading=true;location.reload();});\n"
-              "    window.addEventListener('focus',()=>reg.update().catch(()=>{}));\n"
-              "  }catch(e){console.warn('[JACC] Service worker registration failed',e);}\n"
-              "}",
-              "PWA helper functions",
-          )
-
-          replace_once(
-              "  const pw=document.getElementById('loginPw').value.trim();",
-              "  const pw=normalizePasswordValue(document.getElementById('loginPw').value);\n  document.getElementById('loginPw').value=pw;",
-              "password normalization",
-          )
-
-          replace_once(
-              "  if(mins>0){err.style.display='block';err.textContent='⏳ '+mins+' မိနစ်ကြာမှ ပြန်ကြိုးစားပါ';return;}\n  if(!pw)",
-              "  if(mins>0){err.style.display='block';err.textContent='⏳ '+mins+' မိနစ်ကြာမှ ပြန်ကြိုးစားပါ';return;}\n  if(!navigator.onLine){err.style.display='block';err.textContent='📴 Internet မရှိသေးပါ — Online ပြန်ဖြစ်မှ Login လုပ်ပါ';return;}\n  if(!pw)",
-              "offline login guard",
-          )
-
-          replace_once(
-              "function doLogout(){localStorage.removeItem(SESSION_KEY);location.reload();}",
-              "function doLogout(){JACCDeviceBinding.clearSession();location.reload();}",
-              "bound logout",
-          )
-
-          replace_once(
-              "window.addEventListener('DOMContentLoaded',async function(){\n"
-              "  const login=document.getElementById('loginOverlay');\n"
-              "  const loading=document.getElementById('loadingOverlay');\n"
-              "  loading.style.display='flex';\n"
-              "  if(await restoreSession()){showApp();return;}\n"
-              "  login.style.display='flex';loading.style.display='none';\n"
-              "  if(window.JACC_SESSION_ERROR){\n"
-              "    const err=document.getElementById('loginErr');\n"
-              "    err.textContent=window.JACC_SESSION_ERROR;err.style.display='block';\n"
-              "  }\n"
-              "});",
-              "window.addEventListener('DOMContentLoaded',async function(){\n"
-              "  updateNetworkStatus();registerServiceWorker();\n"
-              "  const requestedTab=location.hash.replace('#','');\n"
-              "  const login=document.getElementById('loginOverlay');\n"
-              "  const loading=document.getElementById('loadingOverlay');\n"
-              "  loading.style.display='flex';\n"
-              "  if(await restoreSession()){showApp();if(['dashboard','explorer','price','chassis','trends'].includes(requestedTab))setTimeout(()=>switchTab(requestedTab,false),0);return;}\n"
-              "  login.style.display='flex';loading.style.display='none';\n"
-              "  if(window.JACC_SESSION_ERROR){\n"
-              "    const err=document.getElementById('loginErr');\n"
-              "    err.textContent=window.JACC_SESSION_ERROR;err.style.display='block';\n"
-              "  }\n"
-              "});\n"
-              "window.addEventListener('online',()=>{updateNetworkStatus();showToast('Internet ပြန်ရပါပြီ','ok');});\n"
-              "window.addEventListener('offline',()=>{updateNetworkStatus();showToast('Offline ဖြစ်နေပါတယ် — live data မရနိုင်ပါ','warn');});\n"
-              "window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;document.getElementById('installAppBtn')?.classList.add('ready');});\n"
-              "window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;document.getElementById('installAppBtn')?.classList.remove('ready');showToast('JACC App install ပြီးပါပြီ','ok');});",
-              "async startup with PWA",
-          )
-
-          replace_once("function switchTab(name){", "function switchTab(name,updateHash=true){", "hash-aware tabs")
-          replace_once(
-              "  const navEl=document.getElementById('nav-'+name);if(navEl)navEl.classList.add('active');",
-              "  const navEl=document.getElementById('nav-'+name);if(navEl)navEl.classList.add('active');\n  if(updateHash&&history.replaceState)history.replaceState(null,'','#'+name);",
-              "tab hash update",
-          )
-          replace_once(
-              "function refreshData(){\n  if(!SESSION)return;",
-              "function refreshData(){\n  if(!SESSION)return;\n  if(!navigator.onLine){showToast('Offline ဖြစ်နေပါတယ် — data refresh မလုပ်နိုင်ပါ','warn');return;}",
-              "offline refresh guard",
-          )
-
-          path.write_text(source, encoding="utf-8")
+          old = 'git add index.html legacy_bot.py manifest.json sw.js robots.txt phase2/MEMBERSHIP_CHANNEL_AUDIT.md 2>/dev/null || true'
+          if script.count(old) != 1:
+              raise RuntimeError('reviewed staging command drifted')
+          script = script.replace(old, 'git add -A', 1)
+          Path('/tmp/phase2-sync.sh').write_text(script, encoding='utf-8')
           PY
-
-          git add index.html legacy_bot.py manifest.json sw.js robots.txt phase2/MEMBERSHIP_CHANNEL_AUDIT.md 2>/dev/null || true
-
-          unresolved="$(git diff --name-only --diff-filter=U)"
-          if [ -n "$unresolved" ]; then
-            echo "Unresolved files remain:"
-            echo "$unresolved"
-            exit 1
-          fi
-
-          git rm -f -- .github/workflows/phase2-sync-main.yml
-          git add -A
-          git commit -m "Merge main into Phase 2 audit branch"
-          git push origin HEAD:agent/jacc-phase2-membership-audit
+          bash /tmp/phase2-sync.sh
