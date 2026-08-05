@@ -21,12 +21,14 @@ on:
       - "phase2_membership_guard.py"
       - "phase1/**"
       - "phase2/**"
+      - "phase3/**"
       - ".github/workflows/phase1-ci.yml"
   push:
     branches:
       - main
       - agent/jacc-phase1-foundation
       - agent/jacc-phase2-membership-audit
+      - agent/jacc-phase3-app-chat
     paths:
       - "index.html"
       - "bot.py"
@@ -45,6 +47,7 @@ on:
       - "phase2_membership_guard.py"
       - "phase1/**"
       - "phase2/**"
+      - "phase3/**"
       - ".github/workflows/phase1-ci.yml"
 
 permissions:
@@ -65,12 +68,17 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r phase1/requirements_phase1.txt pytest
+          python -m pip install -r phase1/requirements_phase1.txt -r phase3/requirements_phase3.txt pytest
 
-      - name: Compile Phase 1 and staged Phase 2 files
+      - name: Compile Phase 1, staged Phase 2 and staged Phase 3 files
         run: |
           python -m py_compile \
             phase1_production_launcher.py \
@@ -89,12 +97,16 @@ jobs:
             phase2/apply_apps_script_phase3_payments_gs.py \
             phase2/apply_website_device_binding.py \
             phase2/build_release_candidate_bundle.py \
+            phase3/app_chat/apply_app_chat_ui.py \
+            phase3/app_chat/service.py \
             queue_launcher.py \
             bot.py \
             bot_core.py \
             phase1/phase1_client.py \
             phase1/phase1_worker.py \
             phase1/recovery_worker.py
+          node --check phase3/app_chat/client.js
+          node --check phase3/app_chat/ui.js
 
       - name: Verify generated Phase 2 website contract
         shell: bash
@@ -107,18 +119,39 @@ jobs:
           python phase2/apply_website_device_binding.py index.html --check
           git diff --exit-code -- index.html
 
-      - name: Run Phase 1 policy, recovery, and staged Phase 2 tests
-        run: python -m pytest phase1/tests -q
+      - name: Generate and verify staged Phase 3 chat app
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/staged
+          python phase3/app_chat/apply_app_chat_ui.py \
+            index.html \
+            --api-base https://jacc-chat.example.invalid \
+            --output build/staged/index-chat.html
+          python phase3/app_chat/apply_app_chat_ui.py \
+            build/staged/index-chat.html \
+            --api-base https://jacc-chat.example.invalid \
+            --check
+          grep -F 'id="nav-chat"' build/staged/index-chat.html
+          grep -F 'id="tab-chat"' build/staged/index-chat.html
+          grep -F "JACCChatUISetVisible(name==='chat')" build/staged/index-chat.html
+          grep -F 'phase3/app_chat/client.js' build/staged/index-chat.html
+          grep -F 'phase3/app_chat/ui.js' build/staged/index-chat.html
 
-      - name: Publish staged Phase 2 release assets
+      - name: Run Phase 1 policy, recovery, staged Phase 2 and staged Phase 3 tests
+        run: python -m pytest phase1/tests phase3/tests -q
+
+      - name: Publish staged Phase 2 and Phase 3 release assets
         uses: actions/upload-artifact@v4
         with:
-          name: jacc-phase2-staged-assets
+          name: jacc-phase2-phase3-staged-assets
           if-no-files-found: error
           retention-days: 14
           path: |
             index.html
+            build/staged/index-chat.html
             safe_queue_launcher.py
             phase2_production_launcher.py
             phase2/
             phase2_membership_guard.py
+            phase3/
