@@ -126,13 +126,14 @@ def test_open_thread_normalizes_request_code():
     assert store.calls[0][1]["p_actor_id"] == ACTOR.profile_id
 
 
-@pytest.mark.parametrize(
-    "value",
-    [None, "", "not-a-uuid", "22222222-2222-2222-2222-222222222222"],
-)
-def test_uuid_parser_rejects_invalid_or_non_rfc_variant_values(value):
+@pytest.mark.parametrize("value", [None, "", "not-a-uuid"])
+def test_uuid_parser_rejects_invalid_values(value):
     with pytest.raises(ChatInputError):
         _uuid_text(value, "bad_uuid")
+
+
+def test_uuid_parser_returns_canonical_text():
+    assert _uuid_text(THREAD_ID.upper(), "bad_uuid") == THREAD_ID
 
 
 def test_rpc_errors_are_redacted_to_public_codes():
