@@ -1,0 +1,478 @@
+/* JACC Phase 3 in-app chat UI — staged only. */
+
+.jacc-chat-shell {
+  min-height: calc(100vh - var(--header-h) - 52px - 44px);
+  display: grid;
+  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  box-shadow: var(--sh-sm);
+}
+
+.jacc-chat-sidebar {
+  min-width: 0;
+  background: var(--surface-2);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+
+.jacc-chat-sidebar-head {
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.jacc-chat-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink-1);
+  letter-spacing: -0.25px;
+}
+
+.jacc-chat-subtitle {
+  margin-top: 4px;
+  color: var(--ink-4);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.jacc-chat-open-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.jacc-chat-open-input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink-1);
+  font: 600 12px/1.2 var(--font-mono);
+  padding: 9px 10px;
+  outline: none;
+  text-transform: uppercase;
+}
+
+.jacc-chat-open-input:focus {
+  background: var(--surface);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-glow);
+}
+
+.jacc-chat-open-button,
+.jacc-chat-send-button,
+.jacc-chat-close-button,
+.jacc-chat-refresh-button {
+  border: 0;
+  border-radius: var(--r-sm);
+  font-family: var(--font-sans);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s, opacity 0.15s, background 0.15s;
+}
+
+.jacc-chat-open-button {
+  padding: 9px 12px;
+  background: var(--ink-1);
+  color: #fff;
+  font-size: 11px;
+}
+
+.jacc-chat-open-button:hover,
+.jacc-chat-send-button:hover,
+.jacc-chat-close-button:hover,
+.jacc-chat-refresh-button:hover {
+  transform: translateY(-1px);
+}
+
+.jacc-chat-open-button:disabled,
+.jacc-chat-send-button:disabled,
+.jacc-chat-close-button:disabled,
+.jacc-chat-refresh-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.jacc-chat-thread-list {
+  flex: 1;
+  min-height: 180px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.jacc-chat-thread {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  padding: 11px 12px;
+  margin-bottom: 5px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+
+.jacc-chat-thread:hover {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.jacc-chat-thread.active {
+  background: var(--brand-soft);
+  border-color: rgba(200, 16, 46, 0.25);
+}
+
+.jacc-chat-thread-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-1);
+}
+
+.jacc-chat-thread-code {
+  margin-top: 3px;
+  font: 600 10px/1.2 var(--font-mono);
+  color: var(--ink-4);
+}
+
+.jacc-chat-thread-time {
+  font-size: 9.5px;
+  color: var(--ink-5);
+  white-space: nowrap;
+}
+
+.jacc-chat-unread {
+  align-self: end;
+  justify-self: end;
+  min-width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: var(--brand);
+  color: #fff;
+  font: 700 10px/1 var(--font-mono);
+}
+
+.jacc-chat-empty-list {
+  padding: 30px 16px;
+  text-align: center;
+  color: var(--ink-4);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.jacc-chat-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.jacc-chat-main-head {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.jacc-chat-back-button {
+  display: none;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink-1);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.jacc-chat-counterpart {
+  flex: 1;
+  min-width: 0;
+}
+
+.jacc-chat-counterpart-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink-1);
+}
+
+.jacc-chat-counterpart-meta {
+  margin-top: 3px;
+  color: var(--ink-4);
+  font: 600 10.5px/1.2 var(--font-mono);
+}
+
+.jacc-chat-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.45px;
+}
+
+.jacc-chat-status.closed {
+  background: var(--surface-3);
+  color: var(--ink-4);
+}
+
+.jacc-chat-status.disputed {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.jacc-chat-close-button {
+  padding: 8px 10px;
+  border: 1px solid #FCA5A5;
+  background: var(--bad-soft);
+  color: var(--bad);
+  font-size: 10.5px;
+}
+
+.jacc-chat-messages {
+  flex: 1;
+  min-height: 280px;
+  overflow-y: auto;
+  padding: 18px;
+  background:
+    linear-gradient(rgba(255,255,255,.94), rgba(255,255,255,.94)),
+    repeating-linear-gradient(0deg, transparent, transparent 23px, rgba(28,25,23,.035) 24px);
+}
+
+.jacc-chat-message {
+  display: flex;
+  flex-direction: column;
+  max-width: min(76%, 620px);
+  margin-bottom: 12px;
+}
+
+.jacc-chat-message.customer {
+  align-items: flex-start;
+  margin-right: auto;
+}
+
+.jacc-chat-message.broker {
+  align-items: flex-end;
+  margin-left: auto;
+}
+
+.jacc-chat-message.system {
+  max-width: 90%;
+  align-items: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.jacc-chat-message-label {
+  margin: 0 6px 4px;
+  color: var(--ink-5);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.jacc-chat-bubble {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow: var(--sh-sm);
+}
+
+.jacc-chat-message.customer .jacc-chat-bubble {
+  border-bottom-left-radius: 4px;
+}
+
+.jacc-chat-message.broker .jacc-chat-bubble {
+  border-color: rgba(200,16,46,.24);
+  border-bottom-right-radius: 4px;
+  background: var(--brand-soft);
+}
+
+.jacc-chat-message.system .jacc-chat-bubble {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 11px;
+  background: var(--surface-3);
+  color: var(--ink-4);
+  box-shadow: none;
+  font-size: 11px;
+  text-align: center;
+}
+
+.jacc-chat-message-time {
+  margin: 4px 6px 0;
+  color: var(--ink-5);
+  font-size: 9.5px;
+}
+
+.jacc-chat-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.jacc-chat-textarea {
+  width: 100%;
+  min-height: 42px;
+  max-height: 126px;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  background: var(--surface-2);
+  color: var(--ink-1);
+  font: 500 13px/1.5 var(--font-sans);
+  outline: none;
+}
+
+.jacc-chat-textarea:focus {
+  border-color: var(--brand);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--brand-glow);
+}
+
+.jacc-chat-send-button {
+  align-self: end;
+  min-width: 76px;
+  height: 42px;
+  padding: 0 15px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 12px;
+}
+
+.jacc-chat-notice {
+  margin: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 9px 11px;
+  background: var(--surface-2);
+  color: var(--ink-4);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.jacc-chat-notice.error {
+  border-color: #FCA5A5;
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.jacc-chat-notice.ok {
+  border-color: #86EFAC;
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.jacc-chat-placeholder {
+  flex: 1;
+  min-height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  text-align: center;
+  color: var(--ink-4);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.jacc-chat-refresh-button {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .jacc-chat-shell {
+    min-height: calc(100vh - var(--header-h) - 45px - 24px);
+    grid-template-columns: 1fr;
+  }
+
+  .jacc-chat-sidebar {
+    border-right: 0;
+  }
+
+  .jacc-chat-shell.conversation-open .jacc-chat-sidebar {
+    display: none;
+  }
+
+  .jacc-chat-main {
+    display: none;
+  }
+
+  .jacc-chat-shell.conversation-open .jacc-chat-main {
+    display: flex;
+  }
+
+  .jacc-chat-back-button {
+    display: inline-flex;
+  }
+
+  .jacc-chat-messages {
+    min-height: 360px;
+    padding: 14px 11px;
+  }
+
+  .jacc-chat-message {
+    max-width: 88%;
+  }
+
+  .jacc-chat-main-head {
+    padding: 10px;
+  }
+
+  .jacc-chat-close-button {
+    padding: 7px 8px;
+  }
+
+  .jacc-chat-composer {
+    padding: 10px;
+    gap: 8px;
+  }
+}
