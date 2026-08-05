@@ -26,13 +26,15 @@ The first release uses authenticated JSON endpoints plus bounded polling. This i
 - `phase3/sql/001_app_chat.sql` — private chat tables, indexes and service-role-only RPCs.
 - `phase3/app_chat/service.py` — Railway `aiohttp` route installer and Apps Script session verification.
 - `phase3/app_chat/client.js` — browser/PWA/Flutter client using the Phase 2 v4 session.
-- `phase3/app_chat/panel.css` — UI styles aligned with the existing JACC app design system.
-- `phase3/tests/test_app_chat_service.py` — fail-closed and input-boundary tests.
+- `phase3/app_chat/ui.js` and `ui.css` — responsive thread list, messages, unread display, send and close-chat interface.
+- `phase3/app_chat/apply_app_chat_ui.py` — guarded transformer that adds the Chat navigation and panel to a generated Phase 2 app.
+- `phase3/tests/test_app_chat_service.py` and `test_app_chat_ui.py` — fail-closed, input-boundary and integration tests.
 
 ## API contract
 
 All endpoints use `POST` and JSON. Authentication is carried in the request body, never in the URL.
 
+- `/api/v1/chat/threads` — list conversations available to the verified actor.
 - `/api/v1/chat/open` — open or return the thread for a canonical request code.
 - `/api/v1/chat/messages` — list messages with cursor pagination.
 - `/api/v1/chat/send` — send one idempotent text message.
@@ -40,6 +42,24 @@ All endpoints use `POST` and JSON. Authentication is carried in the request body
 - `/api/v1/chat/close` — close the conversation with audit evidence.
 
 The client supplies a random UUID `clientMessageId`. The database unique key `(thread_id, sender_id, client_message_id)` makes retries safe.
+
+## Staged app build
+
+Use the exact Railway HTTPS chat API base. Do not use an IP address, HTTP URL, credential-bearing URL or wildcard origin.
+
+```bash
+python phase3/app_chat/apply_app_chat_ui.py \
+  index.html \
+  --api-base https://YOUR-EXACT-RAILWAY-CHAT-HOST \
+  --output build/staged/index-chat.html
+
+python phase3/app_chat/apply_app_chat_ui.py \
+  build/staged/index-chat.html \
+  --api-base https://YOUR-EXACT-RAILWAY-CHAT-HOST \
+  --check
+```
+
+The transformer fails closed if the current Phase 2 app anchors drift. It adds the exact API origin to Content Security Policy, keeps the root production `index.html` unchanged during staging and does not place Supabase credentials in browser files.
 
 ## Data retention and privacy
 
@@ -50,15 +70,16 @@ The client supplies a random UUID `clientMessageId`. The database unique key `(t
 
 ## Release gates
 
-1. Apply the SQL migration in a non-production or controlled migration window.
-2. Install Railway routes without registering them in the production launcher.
-3. Run unit tests and repository secret/destructive-SQL scans.
-4. Integrate the chat panel into the generated Phase 2 website, not the old production `index.html`.
-5. Pilot with one real Customer and one real assigned Broker.
-6. Verify a third member, expired member and mismatched device all fail closed.
-7. Restart Railway and confirm history/read state survives.
-8. Keep Telegram proxy chat as fallback until the pilot is signed off.
-9. Obtain explicit owner approval before production launcher import, website deployment or merge.
+1. Finish and accept the Phase 2 membership/device-session deployment.
+2. Back up Supabase and review `phase3/sql/001_app_chat.sql`.
+3. Apply the SQL migration in a controlled migration window.
+4. Register the Railway chat routes behind an exact allowed-origin list.
+5. Generate the staged app using the exact Railway HTTPS API base.
+6. Pilot with one real Customer and one real assigned Broker.
+7. Verify a third member, expired member and mismatched device all fail closed.
+8. Restart Railway and confirm history/read state survives.
+9. Keep Telegram proxy chat as fallback until the pilot is signed off.
+10. Obtain explicit owner approval before production launcher import, website deployment or merge.
 
 ## Production non-goals for the first pilot
 
