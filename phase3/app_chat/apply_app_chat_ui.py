@@ -194,7 +194,7 @@ def validate(text: str, api_base: str, api_origin: str) -> None:
         "chat marker": MARKER,
         "chat stylesheet": 'href="phase3/app_chat/ui.css"',
         "chat sidebar": 'id="nav-chat"',
-        "chat top tab": "switchTab('chat')">💬 Chat",
+        "chat top tab": 'switchTab(\'chat\')">💬 Chat',
         "chat panel": 'id="tab-chat"',
         "chat client": 'src="phase3/app_chat/client.js"',
         "chat UI": 'src="phase3/app_chat/ui.js"',
