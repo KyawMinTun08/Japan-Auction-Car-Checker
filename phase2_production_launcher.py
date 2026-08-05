@@ -1,12 +1,12 @@
 """Guarded JACC Phase 2 production entrypoint.
 
-This launcher keeps the proven Phase 1 queue/runtime stack and installs the
-staged Phase 2 membership, payment, device, and channel wrappers only after the
-Phase 1 launcher modules have patched ``legacy_bot``.  The Phase 2 installer is
-therefore active before ``legacy_bot.main()`` registers Telegram handlers.
+This launcher keeps the proven Phase 1 queue/runtime stack, including the live
+Sheet URL sanitization and chassis-safe price parsing guards, then installs the
+staged Phase 2 membership, payment, device, and channel wrappers before
+``legacy_bot.main()`` registers Telegram handlers.
 
 Railway must continue using the Phase 1 launcher until the coordinated Apps
-Script, Railway, and website release window.  Switching to this entrypoint is
+Script, Railway, and website release window. Switching to this entrypoint is
 an explicit and reversible cutover step.
 """
 
@@ -22,9 +22,14 @@ os.environ.setdefault("PHASE1_SEQUENTIAL_ENABLED", "1")
 os.environ.setdefault("PHASE1_POLL_SECONDS", "30")
 os.environ.setdefault("PHASE1_QUEUE_BATCH_SIZE", "25")
 
-# Import the current production stack first so its queue, admin, password, and
-# health patches become the functions that Phase 2 safely wraps.
-import queue_launcher  # noqa: E402
+# Import the exact safety wrapper currently used by production first. Importing
+# it sanitizes Sheet URL variables and patches legacy price parsing without
+# starting the bot because its main block is guarded by __name__.
+import safe_queue_launcher as phase1_safe  # noqa: E402
+
+# Reuse the already-imported and safety-patched queue launcher instance.
+queue_launcher = phase1_safe._queue
+
 import phase1_healthcheck  # noqa: F401,E402
 from phase2 import install as phase2_install  # noqa: E402
 
