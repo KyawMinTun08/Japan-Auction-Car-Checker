@@ -21,12 +21,14 @@ on:
       - "phase2_membership_guard.py"
       - "phase1/**"
       - "phase2/**"
+      - "phase3/**"
       - ".github/workflows/phase1-ci.yml"
   push:
     branches:
       - main
       - agent/jacc-phase1-foundation
       - agent/jacc-phase2-membership-audit
+      - agent/jacc-phase3-app-chat
     paths:
       - "index.html"
       - "bot.py"
@@ -45,6 +47,7 @@ on:
       - "phase2_membership_guard.py"
       - "phase1/**"
       - "phase2/**"
+      - "phase3/**"
       - ".github/workflows/phase1-ci.yml"
 
 permissions:
@@ -65,12 +68,17 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r phase1/requirements_phase1.txt pytest
+          python -m pip install -r phase1/requirements_phase1.txt -r phase3/requirements_phase3.txt pytest
 
-      - name: Compile Phase 1 and staged Phase 2 files
+      - name: Compile Phase 1, staged Phase 2 and staged Phase 3 files
         run: |
           python -m py_compile \
             phase1_production_launcher.py \
@@ -89,12 +97,14 @@ jobs:
             phase2/apply_apps_script_phase3_payments_gs.py \
             phase2/apply_website_device_binding.py \
             phase2/build_release_candidate_bundle.py \
+            phase3/app_chat/service.py \
             queue_launcher.py \
             bot.py \
             bot_core.py \
             phase1/phase1_client.py \
             phase1/phase1_worker.py \
             phase1/recovery_worker.py
+          node --check phase3/app_chat/client.js
 
       - name: Verify generated Phase 2 website contract
         shell: bash
@@ -107,13 +117,13 @@ jobs:
           python phase2/apply_website_device_binding.py index.html --check
           git diff --exit-code -- index.html
 
-      - name: Run Phase 1 policy, recovery, and staged Phase 2 tests
-        run: python -m pytest phase1/tests -q
+      - name: Run Phase 1 policy, recovery, staged Phase 2 and staged Phase 3 tests
+        run: python -m pytest phase1/tests phase3/tests -q
 
-      - name: Publish staged Phase 2 release assets
+      - name: Publish staged Phase 2 and Phase 3 release assets
         uses: actions/upload-artifact@v4
         with:
-          name: jacc-phase2-staged-assets
+          name: jacc-phase2-phase3-staged-assets
           if-no-files-found: error
           retention-days: 14
           path: |
@@ -122,3 +132,4 @@ jobs:
             phase2_production_launcher.py
             phase2/
             phase2_membership_guard.py
+            phase3/
