@@ -9,7 +9,9 @@ on:
       - "bot_core.py"
       - "legacy_bot.py"
       - "queue_launcher.py"
+      - "safe_queue_launcher.py"
       - "phase1_production_launcher.py"
+      - "phase2_production_launcher.py"
       - "phase1_healthcheck.py"
       - "phase1_selftest.py"
       - "phase1_broker_sync.py"
@@ -31,7 +33,9 @@ on:
       - "bot_core.py"
       - "legacy_bot.py"
       - "queue_launcher.py"
+      - "safe_queue_launcher.py"
       - "phase1_production_launcher.py"
+      - "phase2_production_launcher.py"
       - "phase1_healthcheck.py"
       - "phase1_selftest.py"
       - "phase1_broker_sync.py"
@@ -70,6 +74,8 @@ jobs:
         run: |
           python -m py_compile \
             phase1_production_launcher.py \
+            safe_queue_launcher.py \
+            phase2_production_launcher.py \
             phase1_healthcheck.py \
             phase1_selftest.py \
             phase1_broker_sync.py \
@@ -112,5 +118,7 @@ jobs:
           retention-days: 14
           path: |
             index.html
+            safe_queue_launcher.py
+            phase2_production_launcher.py
             phase2/
             phase2_membership_guard.py
