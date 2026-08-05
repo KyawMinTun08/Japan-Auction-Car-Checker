@@ -97,6 +97,7 @@ jobs:
             phase2/apply_apps_script_phase3_payments_gs.py \
             phase2/apply_website_device_binding.py \
             phase2/build_release_candidate_bundle.py \
+            phase3/app_chat/apply_app_chat_ui.py \
             phase3/app_chat/service.py \
             queue_launcher.py \
             bot.py \
@@ -105,6 +106,7 @@ jobs:
             phase1/phase1_worker.py \
             phase1/recovery_worker.py
           node --check phase3/app_chat/client.js
+          node --check phase3/app_chat/ui.js
 
       - name: Verify generated Phase 2 website contract
         shell: bash
@@ -117,6 +119,25 @@ jobs:
           python phase2/apply_website_device_binding.py index.html --check
           git diff --exit-code -- index.html
 
+      - name: Generate and verify staged Phase 3 chat app
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/staged
+          python phase3/app_chat/apply_app_chat_ui.py \
+            index.html \
+            --api-base https://jacc-chat.example.invalid \
+            --output build/staged/index-chat.html
+          python phase3/app_chat/apply_app_chat_ui.py \
+            build/staged/index-chat.html \
+            --api-base https://jacc-chat.example.invalid \
+            --check
+          grep -F 'id="nav-chat"' build/staged/index-chat.html
+          grep -F 'id="tab-chat"' build/staged/index-chat.html
+          grep -F "JACCChatUISetVisible(name==='chat')" build/staged/index-chat.html
+          grep -F 'phase3/app_chat/client.js' build/staged/index-chat.html
+          grep -F 'phase3/app_chat/ui.js' build/staged/index-chat.html
+
       - name: Run Phase 1 policy, recovery, staged Phase 2 and staged Phase 3 tests
         run: python -m pytest phase1/tests phase3/tests -q
 
@@ -128,6 +149,7 @@ jobs:
           retention-days: 14
           path: |
             index.html
+            build/staged/index-chat.html
             safe_queue_launcher.py
             phase2_production_launcher.py
             phase2/
