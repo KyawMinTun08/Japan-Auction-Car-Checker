@@ -16,13 +16,14 @@ def test_phase2_launcher_compiles() -> None:
     ast.parse(_source(), filename=str(LAUNCHER))
 
 
-def test_phase2_launcher_installs_after_phase1_patches_before_main() -> None:
+def test_phase2_launcher_preserves_live_guards_before_phase2_and_main() -> None:
     source = _source()
-    queue_import = source.index("import queue_launcher")
+    safe_import = source.index("import safe_queue_launcher as phase1_safe")
+    queue_alias = source.index("queue_launcher = phase1_safe._queue")
     phase2_install = source.index("PHASE2_RUNTIME = install_phase2_runtime()")
     telegram_main = source.index("asyncio.run(queue_launcher.main())")
 
-    assert queue_import < phase2_install < telegram_main
+    assert safe_import < queue_alias < phase2_install < telegram_main
 
 
 def test_phase2_launcher_fails_closed_without_server_contract() -> None:
@@ -31,6 +32,13 @@ def test_phase2_launcher_fails_closed_without_server_contract() -> None:
     assert '"SHEET_WEBHOOK"' in source
     assert "phase2_install.install()" in source
     assert "os.environ.get(\"SHEET_SERVER_KEY\")" in source
+
+
+def test_phase2_launcher_reuses_safety_patched_queue_instance() -> None:
+    source = _source()
+    assert "import safe_queue_launcher as phase1_safe" in source
+    assert "queue_launcher = phase1_safe._queue" in source
+    assert "import queue_launcher" not in source
 
 
 def test_phase2_launcher_never_logs_secret_values() -> None:
