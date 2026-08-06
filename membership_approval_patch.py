@@ -10,6 +10,7 @@ import os
 from typing import Any
 
 import queue_launcher as _queue
+import sheet_auth_patch as _sheet_auth_patch  # noqa: F401
 
 
 _legacy = _queue._legacy
