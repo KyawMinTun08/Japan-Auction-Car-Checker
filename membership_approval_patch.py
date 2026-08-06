@@ -6,6 +6,7 @@ write fails and adds useful Railway logging for the real webhook response.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import queue_launcher as _queue
@@ -34,6 +35,14 @@ def _safe_response_text(response: Any) -> str:
         return "<response text unavailable>"
 
 
+def _sheet_server_key() -> str:
+    """Read the Railway-only Apps Script credential without logging it."""
+    return str(
+        getattr(_legacy, "SHEET_SERVER_KEY", "")
+        or os.environ.get("SHEET_SERVER_KEY", "")
+    ).strip()
+
+
 async def save_member_to_sheet(
     user_id: str,
     username: str,
@@ -58,6 +67,13 @@ async def save_member_to_sheet(
         _legacy.logger.error("Membership save failed for %s: %s", clean_user_id, detail)
         return False
 
+    server_key = _sheet_server_key()
+    if not server_key:
+        detail = "SHEET_SERVER_KEY environment variable is empty"
+        _last_membership_save[clean_user_id] = {"ok": False, "detail": detail}
+        _legacy.logger.error("Membership save failed for %s: %s", clean_user_id, detail)
+        return False
+
     if not clean_user_id or clean_days <= 0:
         detail = f"invalid payload: user_id={clean_user_id!r}, days={clean_days!r}"
         _last_membership_save[clean_user_id] = {"ok": False, "detail": detail}
@@ -66,6 +82,7 @@ async def save_member_to_sheet(
 
     payload = {
         "action": "saveMember",
+        "serverKey": server_key,
         "userId": clean_user_id,
         "username": clean_username,
         "days": clean_days,
