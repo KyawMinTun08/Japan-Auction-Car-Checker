@@ -24,9 +24,12 @@ def test_required_chat_tables_are_present() -> None:
         "public.jacc_conversation_events",
         "public.jacc_conversation_reports",
     }
-    assert required <= {match.group(1) for match in re.finditer(
-        r"create table if not exists\s+(public\.jacc_[a-z_]+)", sql
-    )}
+    assert required <= {
+        match.group(1)
+        for match in re.finditer(
+            r"create table if not exists\s+(public\.jacc_[a-z_]+)", sql
+        )
+    }
 
 
 def test_required_chat_fields_are_declared() -> None:
@@ -56,7 +59,15 @@ def test_schema_links_to_existing_phase1_identity_and_request_tables() -> None:
     assert "references public.jacc_broker_profiles(user_id)" in sql
     assert "chat_customer_request_mismatch" in sql
     assert "chat_broker_assignment_mismatch" in sql
-    assert "chat_message_request_mismatch" in sql
+    assert "chat_child_request_mismatch" in sql
+
+
+def test_cross_table_conversation_ownership_is_enforced() -> None:
+    sql = " ".join(migration_text().lower().split())
+    assert "foreign key (message_id, conversation_id) references public.jacc_messages(id, conversation_id)" in sql
+    assert "foreign key (participant_id, conversation_id) references public.jacc_conversation_participants(id, conversation_id)" in sql
+    assert "foreign key (last_message_id, conversation_id) references public.jacc_messages(id, conversation_id)" in sql
+    assert "foreign key (last_read_message_id, conversation_id) references public.jacc_messages(id, conversation_id)" in sql
 
 
 def test_task4_is_deny_by_default_without_task5_policies() -> None:
