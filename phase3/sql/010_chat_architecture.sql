@@ -99,6 +99,7 @@ create table if not exists public.jacc_conversation_participants (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (conversation_id, profile_id),
+  unique (id, conversation_id),
   constraint jacc_participant_active_state_check check (
     (is_active and left_at is null) or
     (not is_active and left_at is not null)
@@ -129,6 +130,7 @@ create table if not exists public.jacc_messages (
   edited_at timestamptz,
   deleted_at timestamptz,
   created_at timestamptz not null default now(),
+  unique (id, conversation_id),
   constraint jacc_message_text_length_check check (
     message_text is null or char_length(message_text) between 1 and 4000
   ),
@@ -154,24 +156,22 @@ alter table public.jacc_conversations
   drop constraint if exists jacc_conversations_last_message_fk;
 alter table public.jacc_conversations
   add constraint jacc_conversations_last_message_fk
-  foreign key (last_message_id)
-  references public.jacc_messages(id)
+  foreign key (last_message_id, conversation_id)
+  references public.jacc_messages(id, conversation_id)
   on delete set null;
 
 alter table public.jacc_conversation_participants
   drop constraint if exists jacc_participants_last_read_message_fk;
 alter table public.jacc_conversation_participants
   add constraint jacc_participants_last_read_message_fk
-  foreign key (last_read_message_id)
-  references public.jacc_messages(id)
+  foreign key (last_read_message_id, conversation_id)
+  references public.jacc_messages(id, conversation_id)
   on delete set null;
 
 create table if not exists public.jacc_message_attachments (
   id uuid primary key default gen_random_uuid(),
-  message_id uuid not null
-    references public.jacc_messages(id) on delete cascade,
-  conversation_id uuid not null
-    references public.jacc_conversations(conversation_id) on delete cascade,
+  message_id uuid not null,
+  conversation_id uuid not null,
   attachment_url text not null,
   storage_bucket text not null default 'jacc-chat-attachments',
   mime_type text not null,
@@ -182,6 +182,10 @@ create table if not exists public.jacc_message_attachments (
   sha256 text,
   status public.jacc_attachment_status not null default 'pending',
   created_at timestamptz not null default now(),
+  constraint jacc_attachment_message_fk
+    foreign key (message_id, conversation_id)
+    references public.jacc_messages(id, conversation_id)
+    on delete cascade,
   constraint jacc_attachment_path_check check (
     attachment_url <> '' and attachment_url !~* '^https?://'
   ),
@@ -200,15 +204,20 @@ create table if not exists public.jacc_message_attachments (
 
 create table if not exists public.jacc_message_read_receipts (
   id bigint generated always as identity primary key,
-  message_id uuid not null
-    references public.jacc_messages(id) on delete cascade,
-  conversation_id uuid not null
-    references public.jacc_conversations(conversation_id) on delete cascade,
-  participant_id uuid not null
-    references public.jacc_conversation_participants(id) on delete cascade,
+  message_id uuid not null,
+  conversation_id uuid not null,
+  participant_id uuid not null,
   delivered_at timestamptz,
   read_at timestamptz,
   created_at timestamptz not null default now(),
+  constraint jacc_receipt_message_fk
+    foreign key (message_id, conversation_id)
+    references public.jacc_messages(id, conversation_id)
+    on delete cascade,
+  constraint jacc_receipt_participant_fk
+    foreign key (participant_id, conversation_id)
+    references public.jacc_conversation_participants(id, conversation_id)
+    on delete cascade,
   unique (message_id, participant_id),
   constraint jacc_receipt_time_order_check check (
     read_at is null or delivered_at is null or read_at >= delivered_at
@@ -240,7 +249,7 @@ create table if not exists public.jacc_conversation_reports (
     references public.jacc_profiles(id) on delete restrict,
   reported_profile_id uuid
     references public.jacc_profiles(id) on delete set null,
-  message_id uuid references public.jacc_messages(id) on delete set null,
+  message_id uuid,
   reason_code text not null,
   details text,
   status public.jacc_report_status not null default 'open',
@@ -249,6 +258,10 @@ create table if not exists public.jacc_conversation_reports (
   resolution_note text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint jacc_report_message_fk
+    foreign key (message_id, conversation_id)
+    references public.jacc_messages(id, conversation_id)
+    on delete set null,
   constraint jacc_report_reason_check check (
     char_length(reason_code) between 2 and 80
   ),
@@ -303,7 +316,7 @@ before insert or update of request_id, customer_id, broker_id
 on public.jacc_conversations
 for each row execute function public.jacc_chat_validate_conversation();
 
-create or replace function public.jacc_chat_validate_message_request()
+create or replace function public.jacc_chat_validate_child_request()
 returns trigger
 language plpgsql
 security definer
@@ -318,7 +331,7 @@ begin
   where c.conversation_id = new.conversation_id;
 
   if v_request_id is null or new.request_id <> v_request_id then
-    raise exception 'CHAT_MESSAGE_REQUEST_MISMATCH';
+    raise exception 'CHAT_CHILD_REQUEST_MISMATCH';
   end if;
 
   return new;
@@ -330,7 +343,21 @@ drop trigger if exists trg_jacc_chat_validate_message_request
 create trigger trg_jacc_chat_validate_message_request
 before insert or update of conversation_id, request_id
 on public.jacc_messages
-for each row execute function public.jacc_chat_validate_message_request();
+for each row execute function public.jacc_chat_validate_child_request();
+
+drop trigger if exists trg_jacc_chat_validate_event_request
+  on public.jacc_conversation_events;
+create trigger trg_jacc_chat_validate_event_request
+before insert or update of conversation_id, request_id
+on public.jacc_conversation_events
+for each row execute function public.jacc_chat_validate_child_request();
+
+drop trigger if exists trg_jacc_chat_validate_report_request
+  on public.jacc_conversation_reports;
+create trigger trg_jacc_chat_validate_report_request
+before insert or update of conversation_id, request_id
+on public.jacc_conversation_reports
+for each row execute function public.jacc_chat_validate_child_request();
 
 drop trigger if exists trg_jacc_conversations_updated_at
   on public.jacc_conversations;
