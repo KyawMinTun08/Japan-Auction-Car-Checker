@@ -504,14 +504,14 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
   </div>
 </div>
 
+<script src="phase2/website_device_binding.js" data-jacc-device-binding="v4"></script>
 <script>
 const SHEET_ID    = '1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHD06K3zG1mpY';
 const WEBHOOK     = 'https://script.google.com/macros/s/AKfycbx0VnduD1ARzD22RerXiH68H1capsP79DnOPauS6qHkV8K7RMwcf0_EREx5XFmE3UwT/exec';
-const SESSION_KEY = 'jan_session';
-const SESSION_VER = 'v3';
+const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
+const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const SESSION_HOURS   = 24;
 const APP_VERSION     = '2026.08.02';
 let deferredInstallPrompt = null;
 let waitingServiceWorker = null;
@@ -530,7 +530,7 @@ function escAttr(s){if(s==null)return '';const str=String(s);if(/^javascript:/i.
 function debounce(fn,ms){let t;return function(...a){clearTimeout(t);t=setTimeout(()=>fn.apply(this,a),ms);};}
 function normalizePasswordValue(value){
   let v=String(value||'').replace(/[\u200B-\u200D\u2060\uFEFF]/g,'').trim();
-  if(v.length>=2&&((v.startsWith('"')&&v.endsWith('"'))||(v.startsWith("'")&&v.endsWith("'"))))v=v.slice(1,-1).trim();
+  if(v.length>=2&&((v.startsWith('\"')&&v.endsWith('\"'))||(v.startsWith("'")&&v.endsWith("'"))))v=v.slice(1,-1).trim();
   return v;
 }
 function normalizePasswordField(){const el=document.getElementById('loginPw');if(el)el.value=normalizePasswordValue(el.value);}
@@ -553,9 +553,7 @@ async function installPWA(){
   deferredInstallPrompt.prompt();const choice=await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;document.getElementById('installAppBtn')?.classList.remove('ready');
   if(choice.outcome==='accepted')showToast('JACC App install လုပ်ပြီးပါပြီ','ok');
 }
-function applyAppUpdate(){
-  if(waitingServiceWorker){waitingServiceWorker.postMessage({type:'SKIP_WAITING'});}else location.reload();
-}
+function applyAppUpdate(){if(waitingServiceWorker){waitingServiceWorker.postMessage({type:'SKIP_WAITING'});}else location.reload();}
 function showUpdateBanner(worker){waitingServiceWorker=worker;document.getElementById('updateBanner')?.classList.add('show');}
 async function registerServiceWorker(){
   if(!('serviceWorker' in navigator))return;
@@ -584,14 +582,17 @@ async function doLogin(){
   if(!pw){err.style.display='block';err.textContent='Password ထည့်ပါ';return;}
   btn.querySelector('span').textContent='⏳ Checking...';btn.disabled=true;err.style.display='none';
   try{
-    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'verifyLogin',password:pw})});
+    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('verifyLogin',{password:pw}))});
     if(!res.ok)throw new Error('http_'+res.status);
     let result;
     try{result=await res.json();}catch(parseError){throw new Error('invalid_server_response');}
     if(result.status!=='ok'){
       const reason=String(result.message||result.msg||result.error||'').toLowerCase();
       const t=getLoginAttempts();
-      if(reason==='wrong_password'||reason.includes('password')){
+      if(JACCDeviceBinding.isDeviceError(result)){
+        err.textContent=JACCDeviceBinding.deviceErrorMessage(result);
+      }
+      else if(reason==='wrong_password'||reason.includes('password')){
         t.count=(t.count||0)+1;
         if(t.count>=MAX_LOGIN_TRIES){t.lockUntil=Date.now()+LOCKOUT_MINUTES*60*1000;t.count=0;err.textContent='❌ '+MAX_LOGIN_TRIES+' ကြိမ် မှားပြီ — '+LOCKOUT_MINUTES+' မိနစ် Lock';brute.style.display='block';brute.textContent='⚠️ Admin ဆက်သွယ်ပါ: @JapanAuctionCar_Bot';}
         else err.textContent='❌ Password မှားတယ် ('+(MAX_LOGIN_TRIES-t.count)+' ကြိမ် ကျန်)';
@@ -602,8 +603,7 @@ async function doLogin(){
       err.style.display='block';setLoginAttempts(t);btn.querySelector('span').textContent='Sign In →';btn.disabled=false;return;
     }
     setLoginAttempts({count:0,lockUntil:0});
-    SESSION={ver:SESSION_VER,token:result.token,userId:result.userId,username:result.username,package:result.package,expireDate:result.expireDate,loginTime:Date.now()};
-    sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION));
+    SESSION=JACCDeviceBinding.saveSession({token:result.token,userId:result.userId,username:result.username,package:result.package,expireDate:result.expireDate,loginTime:Date.now()});
     logVisitor();showApp();
   }catch(e){
     err.style.display='block';
@@ -614,14 +614,16 @@ async function doLogin(){
   }
 }
 
-function checkSession(){
-  try{
-    const s=sessionStorage.getItem(SESSION_KEY);if(!s)return false;
-    const parsed=JSON.parse(s);if(!parsed||!parsed.token)return false;
-    if(parsed.ver!==SESSION_VER){sessionStorage.removeItem(SESSION_KEY);return false;}
-    if(Date.now()-parsed.loginTime>SESSION_HOURS*3600*1000){sessionStorage.removeItem(SESSION_KEY);return false;}
-    SESSION=parsed;return true;
-  }catch(e){return false;}
+async function restoreSession(){
+  window.JACC_SESSION_ERROR='';
+  const restored=await JACCDeviceBinding.verifyStoredSession({webhook:WEBHOOK});
+  if(restored.ok){SESSION=restored.session;return true;}
+  if(restored.deviceError){
+    window.JACC_SESSION_ERROR=JACCDeviceBinding.deviceErrorMessage(restored.response||{message:restored.reason});
+  }else if(restored.reason==='backend_unavailable'){
+    window.JACC_SESSION_ERROR='⚠️ Login server ကို ဆက်သွယ်မရပါ။ Internet စစ်ပြီး ပြန်ဖွင့်ပါ။';
+  }
+  return false;
 }
 
 function showApp(){
@@ -643,7 +645,7 @@ function updateUserBar(){
   const expire=esc(SESSION.expireDate||'-');
   document.getElementById('sideFooter').innerHTML='<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r-md);padding:12px;margin-bottom:10px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div class="member-av" style="width:34px;height:34px;font-size:14px;border-radius:var(--r-sm)">'+initial+'</div><div style="flex:1;min-width:0"><div style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Account</div><div style="font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@'+username+'</div></div></div><div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:rgba(255,255,255,0.5)">📦 Package</span><strong style="color:#fff;font-family:var(--font-mono);font-size:10px">'+esc(pkg)+'</strong></div><div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:rgba(255,255,255,0.5)">⏰ ကုန်ဆုံး</span><strong style="color:#FCD34D;font-family:var(--font-mono);font-size:10px">'+expire+'</strong></div></div></div><button onclick="doLogout()" style="width:100%;background:rgba(200,16,46,0.12);border:1px solid rgba(200,16,46,0.3);border-radius:var(--r-sm);padding:9px;font-size:12px;color:#FCA5A5;cursor:pointer;font-family:inherit;font-weight:600">🚪 Logout</button>';
 }
-function doLogout(){sessionStorage.removeItem(SESSION_KEY);location.reload();}
+function doLogout(){JACCDeviceBinding.clearSession();location.reload();}
 
 async function logVisitor(){
   try{
@@ -653,11 +655,18 @@ async function logVisitor(){
   }catch(e){}
 }
 
-window.addEventListener('DOMContentLoaded',function(){
+window.addEventListener('DOMContentLoaded',async function(){
   updateNetworkStatus();registerServiceWorker();
   const requestedTab=location.hash.replace('#','');
-  if(checkSession()){showApp();if(['dashboard','explorer','price','chassis','trends'].includes(requestedTab))setTimeout(()=>switchTab(requestedTab,false),0);}
-  else{document.getElementById('loginOverlay').style.display='flex';document.getElementById('loadingOverlay').style.display='none';}
+  const login=document.getElementById('loginOverlay');
+  const loading=document.getElementById('loadingOverlay');
+  loading.style.display='flex';
+  if(await restoreSession()){showApp();if(['dashboard','explorer','price','chassis','trends'].includes(requestedTab))setTimeout(()=>switchTab(requestedTab,false),0);return;}
+  login.style.display='flex';loading.style.display='none';
+  if(window.JACC_SESSION_ERROR){
+    const err=document.getElementById('loginErr');
+    err.textContent=window.JACC_SESSION_ERROR;err.style.display='block';
+  }
 });
 window.addEventListener('online',()=>{updateNetworkStatus();showToast('Internet ပြန်ရပါပြီ','ok');});
 window.addEventListener('offline',()=>{updateNetworkStatus();showToast('Offline ဖြစ်နေပါတယ် — live data မရနိုင်ပါ','warn');});
@@ -711,9 +720,15 @@ function fixImgUrl(url){if(!url||url.trim()==='')return '';const m=url.match(/\/
 
 async function init(){
   try{
-    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'getData',token:SESSION.token})});
+    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))});
     const result=await res.json();
-    if(result.status!=='ok')throw new Error(result.msg||'Data fetch failed');
+    if(result.status!=='ok'){
+      if(JACCDeviceBinding.isDeviceError(result)){
+        JACCDeviceBinding.clearSession();
+        throw new Error(JACCDeviceBinding.deviceErrorMessage(result));
+      }
+      throw new Error(result.msg||result.message||'Data fetch failed');
+    }
 
     allCars=result.cars.map(r=>{
       let model=String(r.model||'UNKNOWN').trim().toUpperCase();
@@ -1114,7 +1129,7 @@ const PH_MODELS={
     {label:'ODYSSEY',                 modelKey:['ODYSSEY']},
     {label:'CR-V',                    modelKey:['CR-V']},
     {label:'N-BOX',                   modelKey:['N-BOX']},
-    {label:'STREAM',                   modelKey:['STREAM']},
+    {label:'STREAM',                  modelKey:['STREAM']},
     {label:'JADE',                    modelKey:['JADE']},
     {label:'INSIGHT',                 modelKey:['INSIGHT']},
   ],

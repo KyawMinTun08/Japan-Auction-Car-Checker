@@ -4,36 +4,47 @@ name: Phase 1 CI
 on:
   pull_request:
     paths:
+      - "index.html"
       - "bot.py"
       - "bot_core.py"
       - "legacy_bot.py"
       - "queue_launcher.py"
+      - "safe_queue_launcher.py"
       - "phase1_production_launcher.py"
+      - "phase2_production_launcher.py"
       - "phase1_healthcheck.py"
       - "phase1_selftest.py"
       - "phase1_broker_sync.py"
       - "phase1_resilience_test.py"
       - "phase1_final_pilot.py"
       - "phase1_final_pilot_guard.py"
+      - "phase2_membership_guard.py"
       - "phase1/**"
+      - "phase2/**"
       - ".github/workflows/phase1-ci.yml"
   push:
     branches:
       - main
       - agent/jacc-phase1-foundation
+      - agent/jacc-phase2-membership-audit
     paths:
+      - "index.html"
       - "bot.py"
       - "bot_core.py"
       - "legacy_bot.py"
       - "queue_launcher.py"
+      - "safe_queue_launcher.py"
       - "phase1_production_launcher.py"
+      - "phase2_production_launcher.py"
       - "phase1_healthcheck.py"
       - "phase1_selftest.py"
       - "phase1_broker_sync.py"
       - "phase1_resilience_test.py"
       - "phase1_final_pilot.py"
       - "phase1_final_pilot_guard.py"
+      - "phase2_membership_guard.py"
       - "phase1/**"
+      - "phase2/**"
       - ".github/workflows/phase1-ci.yml"
 
 permissions:
@@ -59,16 +70,25 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r phase1/requirements_phase1.txt pytest
 
-      - name: Compile Phase 1 production files
+      - name: Compile Phase 1 and staged Phase 2 files
         run: |
           python -m py_compile \
             phase1_production_launcher.py \
+            safe_queue_launcher.py \
+            phase2_production_launcher.py \
             phase1_healthcheck.py \
             phase1_selftest.py \
             phase1_broker_sync.py \
             phase1_resilience_test.py \
             phase1_final_pilot.py \
             phase1_final_pilot_guard.py \
+            phase2_membership_guard.py \
+            phase2/apply_apps_script_code_gs.py \
+            phase2/apply_apps_script_payment_gs.py \
+            phase2/apply_apps_script_registration_gs.py \
+            phase2/apply_apps_script_phase3_payments_gs.py \
+            phase2/apply_website_device_binding.py \
+            phase2/build_release_candidate_bundle.py \
             queue_launcher.py \
             bot.py \
             bot_core.py \
@@ -76,5 +96,29 @@ jobs:
             phase1/phase1_worker.py \
             phase1/recovery_worker.py
 
-      - name: Run Phase 1 policy and recovery tests
+      - name: Verify generated Phase 2 website contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'data-jacc-device-binding="v4"' index.html
+          grep -F "JACCDeviceBinding.withDevice('verifyLogin'" index.html
+          grep -F "JACCDeviceBinding.withDevice('getData'" index.html
+          grep -F "async function restoreSession()" index.html
+          python phase2/apply_website_device_binding.py index.html --check
+          git diff --exit-code -- index.html
+
+      - name: Run Phase 1 policy, recovery, and staged Phase 2 tests
         run: python -m pytest phase1/tests -q
+
+      - name: Publish staged Phase 2 release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacc-phase2-staged-assets
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            index.html
+            safe_queue_launcher.py
+            phase2_production_launcher.py
+            phase2/
+            phase2_membership_guard.py
