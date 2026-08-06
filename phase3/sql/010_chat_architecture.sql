@@ -158,7 +158,7 @@ alter table public.jacc_conversations
   add constraint jacc_conversations_last_message_fk
   foreign key (last_message_id, conversation_id)
   references public.jacc_messages(id, conversation_id)
-  on delete set null;
+  on delete no action;
 
 alter table public.jacc_conversation_participants
   drop constraint if exists jacc_participants_last_read_message_fk;
@@ -166,7 +166,7 @@ alter table public.jacc_conversation_participants
   add constraint jacc_participants_last_read_message_fk
   foreign key (last_read_message_id, conversation_id)
   references public.jacc_messages(id, conversation_id)
-  on delete set null;
+  on delete no action;
 
 create table if not exists public.jacc_message_attachments (
   id uuid primary key default gen_random_uuid(),
@@ -261,7 +261,7 @@ create table if not exists public.jacc_conversation_reports (
   constraint jacc_report_message_fk
     foreign key (message_id, conversation_id)
     references public.jacc_messages(id, conversation_id)
-    on delete set null,
+    on delete no action,
   constraint jacc_report_reason_check check (
     char_length(reason_code) between 2 and 80
   ),
