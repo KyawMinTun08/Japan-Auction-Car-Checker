@@ -40,7 +40,9 @@ def _sheet_server_key() -> str:
     """Read the Railway-only Apps Script credential without logging it."""
     return str(
         getattr(_legacy, "SHEET_SERVER_KEY", "")
+        or getattr(_legacy, "JACC_SERVER_KEY", "")
         or os.environ.get("SHEET_SERVER_KEY", "")
+        or os.environ.get("JACC_SERVER_KEY", "")
     ).strip()
 
 
@@ -70,7 +72,7 @@ async def save_member_to_sheet(
 
     server_key = _sheet_server_key()
     if not server_key:
-        detail = "SHEET_SERVER_KEY environment variable is empty"
+        detail = "Railway server-key environment variable is empty"
         _last_membership_save[clean_user_id] = {"ok": False, "detail": detail}
         _legacy.logger.error("Membership save failed for %s: %s", clean_user_id, detail)
         return False
