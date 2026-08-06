@@ -1,9 +1,10 @@
 """Authenticate protected Apps Script membership calls from the Railway bot.
 
 The Apps Script Phase 2 preflight requires a server-owned key for privileged
-membership and payment actions. This patch injects Railway's SHEET_SERVER_KEY
-only for calls to the configured SHEET_WEBHOOK. It never logs the key and never
-adds it to unrelated network requests.
+membership and payment actions. This patch accepts either Railway's
+SHEET_SERVER_KEY or the existing JACC_SERVER_KEY variable, injects it only for
+calls to the configured SHEET_WEBHOOK, never logs it, and never adds it to
+unrelated network requests.
 """
 
 from __future__ import annotations
@@ -37,7 +38,9 @@ _PROTECTED_ACTIONS = frozenset(
 def _sheet_server_key() -> str:
     return str(
         getattr(_legacy, "SHEET_SERVER_KEY", "")
+        or getattr(_legacy, "JACC_SERVER_KEY", "")
         or os.environ.get("SHEET_SERVER_KEY", "")
+        or os.environ.get("JACC_SERVER_KEY", "")
     ).strip()
 
 
@@ -64,7 +67,7 @@ def _secure_request_kwargs(url: object, kwargs: dict[str, Any]) -> dict[str, Any
 
         server_key = _sheet_server_key()
         if not server_key:
-            raise RuntimeError("SHEET_SERVER_KEY is not configured")
+            raise RuntimeError("Railway server key is not configured")
 
         secured = dict(payload)
         secured["serverKey"] = server_key
