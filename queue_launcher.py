@@ -402,6 +402,7 @@ ExtBot.set_my_commands = _set_my_commands_with_admin_tools
 # before completion_launcher starts legacy_bot.main and registers handlers.
 import phase1_healthcheck as _phase1_healthcheck  # noqa: F401,E402
 import phase1_restore_latest as _phase1_restore_latest  # noqa: F401,E402
+import membership_approval_patch as _membership_approval_patch  # noqa: F401,E402
 
 
 async def main() -> None:
