@@ -63,8 +63,7 @@ exception when duplicate_object then null; end $$;
 -- ---------------------------------------------------------------------------
 
 create table if not exists public.jacc_conversations (
-  id uuid primary key default gen_random_uuid(),
-  conversation_id uuid generated always as (id) stored unique,
+  conversation_id uuid primary key default gen_random_uuid(),
   request_id uuid not null unique
     references public.jacc_service_requests(id) on delete restrict,
   customer_id uuid not null
@@ -87,7 +86,7 @@ create table if not exists public.jacc_conversations (
 create table if not exists public.jacc_conversation_participants (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null
-    references public.jacc_conversations(id) on delete cascade,
+    references public.jacc_conversations(conversation_id) on delete cascade,
   profile_id uuid not null
     references public.jacc_profiles(id) on delete restrict,
   participant_role public.jacc_participant_role not null,
@@ -103,13 +102,16 @@ create table if not exists public.jacc_conversation_participants (
   constraint jacc_participant_active_state_check check (
     (is_active and left_at is null) or
     (not is_active and left_at is not null)
+  ),
+  constraint jacc_participant_label_check check (
+    anonymous_label is null or char_length(anonymous_label) between 2 and 80
   )
 );
 
 create table if not exists public.jacc_messages (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null
-    references public.jacc_conversations(id) on delete cascade,
+    references public.jacc_conversations(conversation_id) on delete cascade,
   request_id uuid not null
     references public.jacc_service_requests(id) on delete restrict,
   sender_id uuid references public.jacc_profiles(id) on delete set null,
@@ -129,6 +131,10 @@ create table if not exists public.jacc_messages (
   created_at timestamptz not null default now(),
   constraint jacc_message_text_length_check check (
     message_text is null or char_length(message_text) between 1 and 4000
+  ),
+  constraint jacc_message_attachment_path_check check (
+    attachment_url is null or
+    (attachment_url <> '' and attachment_url !~* '^https?://')
   ),
   constraint jacc_message_payload_check check (
     (message_type in ('text', 'system', 'status') and message_text is not null) or
@@ -165,7 +171,7 @@ create table if not exists public.jacc_message_attachments (
   message_id uuid not null
     references public.jacc_messages(id) on delete cascade,
   conversation_id uuid not null
-    references public.jacc_conversations(id) on delete cascade,
+    references public.jacc_conversations(conversation_id) on delete cascade,
   attachment_url text not null,
   storage_bucket text not null default 'jacc-chat-attachments',
   mime_type text not null,
@@ -197,7 +203,7 @@ create table if not exists public.jacc_message_read_receipts (
   message_id uuid not null
     references public.jacc_messages(id) on delete cascade,
   conversation_id uuid not null
-    references public.jacc_conversations(id) on delete cascade,
+    references public.jacc_conversations(conversation_id) on delete cascade,
   participant_id uuid not null
     references public.jacc_conversation_participants(id) on delete cascade,
   delivered_at timestamptz,
@@ -212,7 +218,7 @@ create table if not exists public.jacc_message_read_receipts (
 create table if not exists public.jacc_conversation_events (
   id bigint generated always as identity primary key,
   conversation_id uuid not null
-    references public.jacc_conversations(id) on delete cascade,
+    references public.jacc_conversations(conversation_id) on delete cascade,
   request_id uuid not null
     references public.jacc_service_requests(id) on delete restrict,
   actor_id uuid references public.jacc_profiles(id) on delete set null,
@@ -227,7 +233,7 @@ create table if not exists public.jacc_conversation_events (
 create table if not exists public.jacc_conversation_reports (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null
-    references public.jacc_conversations(id) on delete restrict,
+    references public.jacc_conversations(conversation_id) on delete restrict,
   request_id uuid not null
     references public.jacc_service_requests(id) on delete restrict,
   reporter_id uuid not null
@@ -282,7 +288,7 @@ begin
     raise exception 'CHAT_CUSTOMER_REQUEST_MISMATCH';
   end if;
 
-  if new.broker_id is not null and v_broker_id is not null and new.broker_id <> v_broker_id then
+  if new.broker_id is not null and new.broker_id is distinct from v_broker_id then
     raise exception 'CHAT_BROKER_ASSIGNMENT_MISMATCH';
   end if;
 
@@ -309,7 +315,7 @@ begin
   select c.request_id
   into v_request_id
   from public.jacc_conversations c
-  where c.id = new.conversation_id;
+  where c.conversation_id = new.conversation_id;
 
   if v_request_id is null or new.request_id <> v_request_id then
     raise exception 'CHAT_MESSAGE_REQUEST_MISMATCH';
