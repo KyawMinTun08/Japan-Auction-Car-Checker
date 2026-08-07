@@ -1,0 +1,94 @@
+name: Phase 3 Chat Client E2E
+
+on:
+  pull_request:
+    paths:
+      - "phase3/chat-preview.html"
+      - "phase3/sql/010_chat_architecture.sql"
+      - "phase3/sql/011_chat_security.sql"
+      - "phase3/staging/**"
+      - ".github/workflows/phase3-chat-client-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-postgres-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jacc_chat_client_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jacc_chat_client_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: jacc_chat_client_e2e
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Safety guard — disposable staging only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGDATABASE" = "jacc_chat_client_e2e"
+          ! grep -RIE '(supabase\.co|postgres(ql)?://|SUPABASE_SERVICE_ROLE_KEY|service_role_key)' phase3/staging
+          grep -F 'REVIEW/STAGING ONLY' phase3/sql/010_chat_architecture.sql
+          grep -F 'REVIEW/STAGING ONLY' phase3/sql/011_chat_security.sql
+
+      - name: Verify UI app-message contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F "transport: 'app'" phase3/chat-preview.html
+          grep -F "external_message_id: null" phase3/chat-preview.html
+          grep -F "client_message_id" phase3/chat-preview.html
+          ! grep -F "SUPABASE_SERVICE_ROLE_KEY" phase3/chat-preview.html
+
+      - name: Create disposable prerequisite contract
+        run: psql -v ON_ERROR_STOP=1 -f phase3/staging/000_chat_staging_prereqs.sql
+
+      - name: Run migration 010
+        run: psql -v ON_ERROR_STOP=1 -f phase3/sql/010_chat_architecture.sql
+
+      - name: Run migration 011
+        run: psql -v ON_ERROR_STOP=1 -f phase3/sql/011_chat_security.sql
+
+      - name: Run client send-read E2E matrix
+        run: psql -v ON_ERROR_STOP=1 -f phase3/staging/030_chat_client_e2e.sql
+
+      - name: Confirm disposable database identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(psql -Atc 'select current_database();')" = "jacc_chat_client_e2e"
+
+      - name: Confirm production files are untouched by this PR scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code "${{ github.event.pull_request.base.sha }}"...HEAD -- index.html bot.py bot_core.py queue_launcher.py safe_queue_launcher.py phase1_production_launcher.py phase2_production_launcher.py || {
+            echo 'Production-path change detected in E2E PR scope'
+            exit 1
+          }
