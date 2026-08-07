@@ -1,0 +1,48 @@
+name: Fix chat conversation key alignment
+
+on:
+  push:
+    branches:
+      - agent/jacc-phase3-chat-security
+    paths:
+      - .github/workflows/fix-chat-conversation-key.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/jacc-phase3-chat-security
+      - name: Align chat security SQL with conversation_id
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('phase3/sql/011_chat_security.sql')
+          s = p.read_text()
+          replacements = {
+              'where c.id = p_conversation_id': 'where c.conversation_id = p_conversation_id',
+              'public.jacc_chat_can_access_conversation(c.id)': 'public.jacc_chat_can_access_conversation(c.conversation_id)',
+              'where c.id = new.conversation_id': 'where c.conversation_id = new.conversation_id',
+              'using (public.jacc_chat_can_access_conversation(id));': 'using (public.jacc_chat_can_access_conversation(conversation_id));',
+          }
+          for old, new in replacements.items():
+              s = s.replace(old, new)
+          if 'where c.id =' in s or 'jacc_chat_can_access_conversation(c.id)' in s:
+              raise SystemExit('unfixed conversation key reference remains')
+          p.write_text(s)
+          PY
+      - name: Commit correction
+        run: |
+          if git diff --quiet -- phase3/sql/011_chat_security.sql; then
+            echo 'No change required'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add phase3/sql/011_chat_security.sql
+          git commit -m 'fix: align chat security conversation key'
+          git push origin HEAD:agent/jacc-phase3-chat-security
