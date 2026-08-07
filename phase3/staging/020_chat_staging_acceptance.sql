@@ -152,7 +152,7 @@ insert into public.jacc_messages (
 ) values (
   'dddddddd-dddd-dddd-dddd-ddddddddddd1','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1',
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1','55555555-5555-5555-5555-555555555555',
-  'admin','text','server fixture','system',null,'sent'
+  'admin','text','server fixture','app','server-fixture-1','sent'
 );
 do $$ declare failed boolean := false; begin
   begin
