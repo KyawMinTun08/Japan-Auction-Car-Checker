@@ -21,6 +21,7 @@ import queue_launcher  # noqa: E402  (environment must be set first)
 import phase1_healthcheck  # noqa: F401,E402  (patch before handler registration)
 import device_reset_patch  # noqa: F401,E402  (admin /resetdevice command)
 
+# Railway auto-deploy trigger: resetdevice command enabled in production.
 
 if __name__ == "__main__":
     try:
