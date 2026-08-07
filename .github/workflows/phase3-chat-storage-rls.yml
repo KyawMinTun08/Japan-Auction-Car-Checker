@@ -60,6 +60,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
+      - name: Run staging prerequisites
+        run: psql -v ON_ERROR_STOP=1 -f phase3/staging/000_chat_staging_prereqs.sql
+
       - name: Create disposable Supabase Storage contract
         run: |
           psql -v ON_ERROR_STOP=1 <<'SQL'
@@ -87,9 +90,8 @@ jobs:
           grant usage on schema storage to anon, authenticated, service_role;
           SQL
 
-      - name: Apply chat prerequisites and migrations 010 -> 012
+      - name: Apply chat migrations 010 -> 012
         run: |
-          psql -v ON_ERROR_STOP=1 -f phase3/staging/000_chat_staging_prereqs.sql
           psql -v ON_ERROR_STOP=1 -f phase3/sql/010_chat_architecture.sql
           psql -v ON_ERROR_STOP=1 -f phase3/sql/011_chat_security.sql
           psql -v ON_ERROR_STOP=1 -f phase3/sql/012_chat_storage_security.sql
