@@ -1,0 +1,113 @@
+name: Phase 3 Chat Storage RLS
+# Fresh revalidation trigger: 2026-08-07
+
+on:
+  pull_request:
+    paths:
+      - "phase3/sql/010_chat_architecture.sql"
+      - "phase3/sql/011_chat_security.sql"
+      - "phase3/sql/012_chat_storage_security.sql"
+      - "phase3/staging/000_chat_staging_prereqs.sql"
+      - "phase3/staging/040_chat_storage_rls.sql"
+      - ".github/workflows/phase3-chat-storage-rls.yml"
+  push:
+    branches:
+      - agent/jacc-phase3-chat-storage-security
+    paths:
+      - "phase3/sql/010_chat_architecture.sql"
+      - "phase3/sql/011_chat_security.sql"
+      - "phase3/sql/012_chat_storage_security.sql"
+      - "phase3/staging/000_chat_staging_prereqs.sql"
+      - "phase3/staging/040_chat_storage_rls.sql"
+      - ".github/workflows/phase3-chat-storage-rls.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  storage-rls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jacc_chat_storage_staging
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jacc_chat_storage_staging"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: jacc_chat_storage_staging
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Run staging prerequisites
+        run: psql -v ON_ERROR_STOP=1 -f phase3/staging/000_chat_staging_prereqs.sql
+
+      - name: Create disposable Supabase Storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          create schema if not exists storage;
+          create table storage.buckets (
+            id text primary key,
+            name text not null,
+            owner uuid,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          create table storage.objects (
+            id uuid primary key default gen_random_uuid(),
+            bucket_id text not null references storage.buckets(id) on delete cascade,
+            name text not null,
+            owner uuid,
+            metadata jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique(bucket_id,name)
+          );
+          grant usage on schema storage to anon, authenticated, service_role;
+          SQL
+
+      - name: Apply chat migrations 010 -> 012
+        run: |
+          psql -v ON_ERROR_STOP=1 -f phase3/sql/010_chat_architecture.sql
+          psql -v ON_ERROR_STOP=1 -f phase3/sql/011_chat_security.sql
+          psql -v ON_ERROR_STOP=1 -f phase3/sql/012_chat_storage_security.sql
+
+      - name: Run disposable Storage RLS acceptance
+        run: |
+          psql -v ON_ERROR_STOP=1 -f phase3/staging/040_chat_storage_rls.sql | tee /tmp/storage-rls.log
+          grep -F "JACC_CHAT_STORAGE_RLS_PASS" /tmp/storage-rls.log
+
+      - name: Static production-path guard
+        run: |
+          set -euo pipefail
+          git diff --check
+          ! grep -R -E "supabase\.(co|in)|SUPABASE_(URL|SERVICE_ROLE_KEY|SECRET_KEY)|postgres(ql)?://" \
+            phase3/sql/012_chat_storage_security.sql \
+            phase3/staging/040_chat_storage_rls.sql \
+            .github/workflows/phase3-chat-storage-rls.yml
+          grep -F "REVIEW/STAGING ONLY" phase3/sql/012_chat_storage_security.sql
