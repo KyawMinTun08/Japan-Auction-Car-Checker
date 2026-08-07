@@ -1,0 +1,77 @@
+name: Phase 3 Chat Release Readiness
+
+on:
+  pull_request:
+    paths:
+      - "phase3/**"
+      - ".github/workflows/phase3-chat-release-readiness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify release-readiness documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f phase3/release_readiness.md
+          grep -F '010_chat_architecture.sql' phase3/release_readiness.md
+          grep -F '011_chat_security.sql' phase3/release_readiness.md
+          grep -F '012_chat_storage_security.sql' phase3/release_readiness.md
+          grep -F 'hosted-staging' phase3/release_readiness.md
+
+      - name: Verify required Phase 3 assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f phase3/sql/010_chat_architecture.sql
+          test -f phase3/sql/011_chat_security.sql
+          test -f phase3/sql/012_chat_storage_security.sql
+          test -f phase3/chat_attachment_client.js
+          test -f phase3/chat_attachment_preview.js
+          test -f phase3/chat-preview.html
+
+      - name: Verify staging-only migration guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'REVIEW/STAGING ONLY' phase3/sql/010_chat_architecture.sql
+          grep -F 'REVIEW/STAGING ONLY' phase3/sql/011_chat_security.sql
+          grep -F 'REVIEW/STAGING ONLY' phase3/sql/012_chat_storage_security.sql
+
+      - name: Verify no client secret/public URL leakage
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RIE 'SUPABASE_SERVICE_ROLE_KEY|service_role_key|createPublicUrl|getPublicUrl' phase3/chat_attachment_client.js phase3/chat_attachment_preview.js phase3/chat-preview.html
+
+      - name: Run attachment client contract tests
+        run: node phase3/tests/chat_attachment_client.test.js
+
+      - name: Run attachment preview contract tests
+        run: node phase3/tests/chat_attachment_preview.test.js
+
+      - name: Verify production paths unchanged in this PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$BASE_SHA" ]; then
+            git diff --exit-code "$BASE_SHA"...HEAD -- index.html bot.py bot_core.py queue_launcher.py safe_queue_launcher.py phase1_production_launcher.py phase2_production_launcher.py || {
+              echo 'Production-path change detected in release-readiness PR scope'
+              exit 1
+            }
+          fi
+
+      - name: Final release-readiness marker
+        run: echo 'JACC_CHAT_RELEASE_READINESS_STATIC_PASS'
