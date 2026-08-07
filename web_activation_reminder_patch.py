@@ -258,3 +258,24 @@ def start_background_task() -> asyncio.Task:
         daily_reminder_loop(),
         name="jacc-web-premium-activation-reminder",
     )
+
+
+# queue_launcher imports this module before it calls completion_launcher.main().
+# Wrapping completion main lets the reminder run even though Railway's active
+# start command is queue_launcher.py.
+if not getattr(_completion, "_web_activation_reminder_wrapped", False):
+    _original_completion_main = _completion.main
+
+    async def _completion_main_with_web_reminder() -> None:
+        task = start_background_task()
+        try:
+            await _original_completion_main()
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    _completion.main = _completion_main_with_web_reminder
+    _completion._web_activation_reminder_wrapped = True
