@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/jacc-phase3-chat-release-readiness
+  pull_request:
+    branches:
+      - agent/jacc-phase3-chat-attachment-preview-hardening
   workflow_dispatch:
 
 permissions:
