@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# CI re-trigger after the previous GitHub Actions job was cancelled.
 import re
 from pathlib import Path
 
