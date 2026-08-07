@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 20
     env:
       STAGING_DB_URL: ${{ secrets.JACC_SUPABASE_STAGING_DB_URL }}
-      STAGING_PROJECT_REF: ${{ secrets.JACC_SUPABASE_STAGING_PROJECT_REF }}
+      STAGING_PROJECT_REF: lqjfstzpyfbonbswafyj
       PRODUCTION_PROJECT_REF: slhhncwrbyvocajijuir
     steps:
       - name: Check out repository
@@ -35,13 +35,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${STAGING_DB_URL:-}" ] || [ -z "${STAGING_PROJECT_REF:-}" ]; then
-            echo "JACC_HOSTED_STAGING_CREDENTIALS_MISSING"
-            echo "Required repository secrets: JACC_SUPABASE_STAGING_DB_URL and JACC_SUPABASE_STAGING_PROJECT_REF"
+          if [ -z "${STAGING_DB_URL:-}" ]; then
+            echo "JACC_HOSTED_STAGING_DB_URL_MISSING"
+            echo "Required repository secret: JACC_SUPABASE_STAGING_DB_URL"
             exit 1
           fi
           if [ "$STAGING_PROJECT_REF" = "$PRODUCTION_PROJECT_REF" ]; then
             echo "JACC_HOSTED_STAGING_PRODUCTION_REF_BLOCKED"
+            exit 1
+          fi
+          if [ "$STAGING_PROJECT_REF" != "lqjfstzpyfbonbswafyj" ]; then
+            echo "JACC_HOSTED_STAGING_UNEXPECTED_PROJECT_REF"
             exit 1
           fi
           if ! printf '%s' "$STAGING_DB_URL" | grep -Eq '^postgres(ql)?://'; then
