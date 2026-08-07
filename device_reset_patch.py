@@ -185,3 +185,6 @@ ExtBot.set_my_commands = _set_my_commands_with_device_reset
 # reminder here keeps the active start command unchanged while starting the
 # daily Web Premium activation reminder through completion_launcher.main().
 import web_activation_reminder_patch as _web_activation_reminder_patch  # noqa: F401,E402
+# Apply the hardened direct-Google-Sheet credential loader immediately after
+# the reminder module is loaded and before completion_launcher.main() starts it.
+import web_activation_reminder_credential_fix as _web_activation_reminder_credential_fix  # noqa: F401,E402
