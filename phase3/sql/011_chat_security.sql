@@ -112,11 +112,11 @@ as $$
   select exists (
     select 1
     from public.jacc_conversations c
-    where c.id = p_conversation_id
+    where c.conversation_id = p_conversation_id
       and (
         (
           c.status in ('pending', 'active')
-          and public.jacc_chat_can_access_conversation(c.id)
+          and public.jacc_chat_can_access_conversation(c.conversation_id)
         )
         or (
           c.status = 'reported'
@@ -244,7 +244,7 @@ begin
   select c.customer_id, c.broker_id
   into v_customer_id, v_broker_id
   from public.jacc_conversations c
-  where c.id = new.conversation_id;
+  where c.conversation_id = new.conversation_id;
 
   if v_customer_id is null then
     raise exception 'CHAT_CONVERSATION_NOT_FOUND';
@@ -430,7 +430,7 @@ declare
 begin
   select c.request_id into v_request_id
   from public.jacc_conversations c
-  where c.id = new.conversation_id;
+  where c.conversation_id = new.conversation_id;
 
   if v_request_id is null or v_request_id <> new.request_id then
     raise exception 'CHAT_REPORT_REQUEST_MISMATCH';
@@ -514,7 +514,7 @@ create policy jacc_chat_conversations_select
 on public.jacc_conversations
 for select
 to authenticated
-using (public.jacc_chat_can_access_conversation(id));
+using (public.jacc_chat_can_access_conversation(conversation_id));
 
 -- A customer/broker sees only their own participant record; admins may inspect all.
 drop policy if exists jacc_chat_participants_select
