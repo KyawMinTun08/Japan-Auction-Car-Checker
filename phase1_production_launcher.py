@@ -23,6 +23,7 @@ import device_reset_patch  # noqa: F401,E402  (admin /resetdevice command)
 
 # Railway auto-deploy trigger: resetdevice command enabled in production.
 # Retry trigger after the previous Metal builder scheduling stall.
+# Active queue launcher now imports device_reset_patch directly as well.
 
 if __name__ == "__main__":
     try:
