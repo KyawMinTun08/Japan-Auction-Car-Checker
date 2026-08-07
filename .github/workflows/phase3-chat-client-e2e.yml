@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "phase3/chat-preview.html"
+      - "phase3/chat_attachment_client.js"
       - "phase3/sql/010_chat_architecture.sql"
       - "phase3/sql/011_chat_security.sql"
       - "phase3/staging/**"
@@ -61,10 +62,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -F "transport: 'app'" phase3/chat-preview.html
-          grep -F "external_message_id: null" phase3/chat-preview.html
-          grep -F "client_message_id" phase3/chat-preview.html
-          ! grep -F "SUPABASE_SERVICE_ROLE_KEY" phase3/chat-preview.html
+          grep -F 'chat_attachment_client.js' phase3/chat-preview.html
+          grep -F "transport: 'app'" phase3/chat_attachment_client.js
+          grep -F 'client_message_id' phase3/chat_attachment_client.js
+          grep -F "BUCKET = 'jacc-chat-attachments'" phase3/chat_attachment_client.js
+          grep -F 'createPrivateReadUrl' phase3/chat_attachment_client.js
+          grep -F 'accept="image/jpeg,image/png,image/webp"' phase3/chat-preview.html
+          ! grep -F 'SUPABASE_SERVICE_ROLE_KEY' phase3/chat-preview.html phase3/chat_attachment_client.js
 
       - name: Create disposable prerequisite contract
         run: psql -v ON_ERROR_STOP=1 -f phase3/staging/000_chat_staging_prereqs.sql
