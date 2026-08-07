@@ -20,6 +20,7 @@ os.environ.setdefault("PHASE1_QUEUE_BATCH_SIZE", "25")
 import queue_launcher  # noqa: E402  (environment must be set first)
 import phase1_healthcheck  # noqa: F401,E402  (patch before handler registration)
 import membership_approval_patch  # noqa: F401,E402  (safe Sheet retry patch)
+import device_reset_patch  # noqa: F401,E402  (admin /resetdevice command)
 
 
 if __name__ == "__main__":
