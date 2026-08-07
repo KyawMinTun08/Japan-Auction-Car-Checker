@@ -180,3 +180,8 @@ async def _set_my_commands_with_device_reset(self, commands, *args, **kwargs):
 _legacy.CommandHandler = _command_handler_with_device_reset
 _legacy.resetdevice_cmd = resetdevice_cmd
 ExtBot.set_my_commands = _set_my_commands_with_device_reset
+
+# queue_launcher already imports this module in Railway production. Loading the
+# reminder here keeps the active start command unchanged while starting the
+# daily Web Premium activation reminder through completion_launcher.main().
+import web_activation_reminder_patch as _web_activation_reminder_patch  # noqa: F401,E402
