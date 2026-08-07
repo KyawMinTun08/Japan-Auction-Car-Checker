@@ -1,0 +1,62 @@
+name: Phase 3 Chat Attachment Preview
+
+on:
+  pull_request:
+    paths:
+      - "phase3/chat_attachment_preview.js"
+      - "phase3/tests/chat_attachment_preview.test.js"
+      - "phase3/chat-preview.html"
+      - "phase3/chat_attachment_client.js"
+      - "phase3/tests/chat_attachment_client.test.js"
+      - "phase3/sql/012_chat_storage_security.sql"
+      - "phase3/staging/**"
+      - ".github/workflows/phase3-chat-attachment-preview.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run attachment preview contract tests
+        run: node phase3/tests/chat_attachment_preview.test.js
+
+      - name: Run attachment client regression tests
+        run: node phase3/tests/chat_attachment_client.test.js
+
+      - name: Verify no public URL persistence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RIE '(publicUrl|public_url|createPublicUrl|getPublicUrl)' phase3/chat_attachment_preview.js phase3/chat_attachment_client.js phase3/tests/chat_attachment_preview.test.js
+          grep -F "private_url_not_short_lived" phase3/chat_attachment_preview.js
+          grep -F "createPrivateReadUrl" phase3/chat_attachment_preview.js
+
+      - name: Verify accessibility and mobile preview markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F "tabindex" phase3/chat_attachment_preview.js
+          grep -F "alt" phase3/chat_attachment_preview.js
+          grep -F "loading" phase3/chat_attachment_preview.js
+          grep -F "offline" phase3/chat_attachment_preview.js
+
+      - name: Confirm production surface untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code "${{ github.event.pull_request.base.sha }}"...HEAD -- index.html bot.py bot_core.py queue_launcher.py safe_queue_launcher.py phase1_production_launcher.py phase2_production_launcher.py || {
+            echo 'Production-path change detected in preview-hardening PR scope'
+            exit 1
+          }
+
+      - name: Final preview hardening gate
+        run: echo JACC_CHAT_ATTACHMENT_PREVIEW_PASS
