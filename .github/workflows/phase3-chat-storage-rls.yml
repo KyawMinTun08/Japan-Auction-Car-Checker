@@ -1,4 +1,5 @@
 name: Phase 3 Chat Storage RLS
+# Fresh revalidation trigger: 2026-08-07
 
 on:
   pull_request:
