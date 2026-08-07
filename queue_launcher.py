@@ -51,6 +51,7 @@ async def admin_cmd(update, context):
         "🚫 `/kick ID` — Member kick\n"
         "🔄 `/renew` — Member renew\n"
         "🔑 `/resetpass @user` — Password reset\n"
+        "📱 `/resetdevice ID` — Web device reset\n"
         "🆔 `/updateid @user oldID newID` — Telegram ID update\n"
         "💳 `/setqr` — Payment QR setup\n"
         "💾 `/backup` — CSV backup\n"
@@ -398,11 +399,13 @@ _legacy.save_member_to_sheet = save_member_to_sheet
 _legacy.send_approval_dm = send_approval_dm
 ExtBot.set_my_commands = _set_my_commands_with_admin_tools
 
-# Load Phase 1 health/backup commands and the phone-friendly restore patch
-# before completion_launcher starts legacy_bot.main and registers handlers.
+# Load runtime patches before completion_launcher starts legacy_bot.main and
+# registers Telegram handlers. Railway starts queue_launcher.py directly, so
+# device_reset_patch must be imported here (not only from another launcher).
 import phase1_healthcheck as _phase1_healthcheck  # noqa: F401,E402
 import phase1_restore_latest as _phase1_restore_latest  # noqa: F401,E402
 import membership_approval_patch as _membership_approval_patch  # noqa: F401,E402
+import device_reset_patch as _device_reset_patch  # noqa: F401,E402
 
 
 async def main() -> None:
