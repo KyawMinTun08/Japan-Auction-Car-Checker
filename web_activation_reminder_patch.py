@@ -7,11 +7,18 @@ Eligibility:
 
 The reminder runs daily at 19:00 Myanmar time (UTC+06:30) and stops
 implicitly as soon as the website binds a DeviceID for the member.
+
+Device state is read directly from Google Sheets with the existing
+GOOGLE_CREDS_JSON Railway service-account credential. Apps Script getMembers
+is retained only as a fail-safe fallback because its legacy response does not
+currently include DeviceID.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -22,6 +29,8 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 _legacy = _completion._legacy
 _WEB_URL = "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/"
+_SHEET_ID = "1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHDO6K3zG1mpY"
+_MEMBERS_TAB = "Members"
 _MMT = timezone(timedelta(hours=6, minutes=30))
 _REMINDER_HOUR = 19
 _REMINDER_MINUTE = 0
@@ -67,7 +76,6 @@ def _normalise_member(raw: Any) -> dict[str, str]:
             "deviceId": str(device_id or "").strip(),
         }
 
-    # Defensive fallback if Apps Script ever returns row arrays directly.
     if isinstance(raw, (list, tuple)):
         row = list(raw) + [""] * 10
         return {
@@ -81,7 +89,70 @@ def _normalise_member(raw: Any) -> dict[str, str]:
     return {"userId": "", "username": "", "status": "", "package": "", "deviceId": ""}
 
 
-async def _load_members() -> list[dict[str, str]]:
+def _decode_google_credentials() -> dict[str, Any]:
+    raw = str(os.environ.get("GOOGLE_CREDS_JSON", "") or "").strip()
+    if not raw:
+        raise RuntimeError("GOOGLE_CREDS_JSON is empty")
+
+    candidates = [raw]
+    try:
+        decoded = base64.b64decode(raw, validate=True).decode("utf-8")
+        candidates.append(decoded)
+    except Exception:
+        pass
+
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            info = json.loads(candidate)
+            if not isinstance(info, dict):
+                raise ValueError("credential JSON is not an object")
+            if info.get("private_key"):
+                info["private_key"] = str(info["private_key"]).replace("\\n", "\n")
+            return info
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(f"GOOGLE_CREDS_JSON is invalid: {last_error}")
+
+
+def _load_members_from_sheet_sync() -> list[dict[str, str]]:
+    import gspread
+
+    creds = _decode_google_credentials()
+    client = gspread.service_account_from_dict(creds)
+    worksheet = client.open_by_key(_SHEET_ID).worksheet(_MEMBERS_TAB)
+    values = list(worksheet.get("A:J"))
+    if not values:
+        return []
+
+    headers = [str(value or "").strip().lower() for value in values[0]]
+    index = {name: pos for pos, name in enumerate(headers) if name}
+
+    def cell(row: list[Any], *names: str) -> str:
+        for name in names:
+            pos = index.get(name.lower())
+            if pos is not None and pos < len(row):
+                return str(row[pos] or "").strip()
+        return ""
+
+    members: list[dict[str, str]] = []
+    for raw_row in values[1:]:
+        row = list(raw_row)
+        user_id = cell(row, "UserID", "user_id", "telegramId").replace(".0", "")
+        if not user_id:
+            continue
+        members.append({
+            "userId": user_id,
+            "username": cell(row, "USERNAME", "Username"),
+            "status": cell(row, "STATUS", "Status").upper(),
+            "package": cell(row, "PACKAGE", "Package").upper(),
+            "deviceId": cell(row, "DeviceID", "deviceId", "device_id"),
+        })
+    return members
+
+
+async def _load_members_via_apps_script() -> list[dict[str, str]]:
     if not _legacy.SHEET_WEBHOOK:
         raise RuntimeError("SHEET_WEBHOOK is empty")
 
@@ -100,8 +171,17 @@ async def _load_members() -> list[dict[str, str]]:
     data = response.json()
     if str(data.get("status") or "").lower() != "ok":
         raise RuntimeError(str(data.get("message") or data.get("error") or "getMembers failed"))
-
     return [_normalise_member(item) for item in (data.get("members") or [])]
+
+
+async def _load_members() -> tuple[list[dict[str, str]], str]:
+    try:
+        members = await asyncio.to_thread(_load_members_from_sheet_sync)
+        return members, "google_sheet"
+    except Exception as exc:
+        _legacy.logger.warning("direct Members sheet read failed; using Apps Script fallback: %s", exc)
+        members = await _load_members_via_apps_script()
+        return members, "apps_script_fallback"
 
 
 def _eligible_members(members: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -113,6 +193,23 @@ def _eligible_members(members: list[dict[str, str]]) -> list[dict[str, str]]:
         and not member.get("deviceId")
         and str(member.get("userId") or "").isdigit()
     ]
+
+
+def _active_web_members(members: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [
+        member for member in members
+        if member.get("status") == "ACTIVE" and member.get("package") == "WEB"
+    ]
+
+
+def _assert_device_state_is_safe(members: list[dict[str, str]], source: str) -> None:
+    if source == "google_sheet":
+        return
+    active_web = _active_web_members(members)
+    if active_web and all(not member.get("deviceId") for member in active_web):
+        raise RuntimeError(
+            "DeviceID unavailable from Apps Script fallback; reminders blocked to prevent false sends"
+        )
 
 
 def _next_run_delay() -> float:
@@ -137,29 +234,23 @@ async def _notify_admins(bot: Bot, text: str) -> None:
 
 
 async def _diagnostic_scan() -> None:
-    """Validate the live Members response after deploy without messaging members."""
+    """Validate live Sheet access after deploy without messaging members."""
     await asyncio.sleep(75)
     try:
-        members = await _load_members()
+        members, source = await _load_members()
+        _assert_device_state_is_safe(members, source)
         eligible = _eligible_members(members)
-        active_web = [m for m in members if m.get("status") == "ACTIVE" and m.get("package") == "WEB"]
-        device_field_seen = any(bool(m.get("deviceId")) for m in active_web)
+        active_web = _active_web_members(members)
+
+        preview = ", ".join(
+            f"@{m.get('username') or m.get('userId')}" for m in eligible[:8]
+        ) or "မရှိ"
 
         async with Bot(token=_legacy.TOKEN) as bot:
-            if active_web and not device_field_seen and len(eligible) == len(active_web):
-                note = (
-                    "⚠️ Web Reminder diagnostic: getMembers response မှာ DeviceID data မပါလာနိုင်ပါ။ "
-                    "ACTIVE WEB member အားလုံးကို unbound လို့မြင်နေပါတယ်။ Member reminder မပို့ခင် backend response ကို စစ်ပါ။"
-                )
-                await _notify_admins(bot, note)
-                return
-
-            preview = ", ".join(
-                f"@{m.get('username') or m.get('userId')}" for m in eligible[:8]
-            ) or "မရှိ"
             await _notify_admins(
                 bot,
                 "✅ Web Premium Reminder ready\n"
+                f"Source: {source}\n"
                 f"ACTIVE WEB: {len(active_web)}\n"
                 f"Device မချိတ်ရသေး: {len(eligible)}\n"
                 f"Pending: {preview}\n"
@@ -175,7 +266,8 @@ async def _diagnostic_scan() -> None:
 
 
 async def _send_daily_reminders() -> tuple[int, int, int]:
-    members = await _load_members()
+    members, source = await _load_members()
+    _assert_device_state_is_safe(members, source)
     eligible = _eligible_members(members)
 
     sent = 0
@@ -215,6 +307,7 @@ async def _send_daily_reminders() -> tuple[int, int, int]:
         await _notify_admins(
             bot,
             "💎 Web Activation Reminder Summary\n"
+            f"Source: {source}\n"
             f"Pending: {len(eligible)}\n"
             f"Sent: {sent}\n"
             f"Failed: {failed}",
@@ -226,7 +319,6 @@ async def _send_daily_reminders() -> tuple[int, int, int]:
 async def daily_reminder_loop() -> None:
     global _last_run_date
 
-    # Live diagnostic shortly after every deploy; it never messages members.
     asyncio.create_task(_diagnostic_scan())
 
     while True:
@@ -260,9 +352,6 @@ def start_background_task() -> asyncio.Task:
     )
 
 
-# queue_launcher imports this module before it calls completion_launcher.main().
-# Wrapping completion main lets the reminder run even though Railway's active
-# start command is queue_launcher.py.
 if not getattr(_completion, "_web_activation_reminder_wrapped", False):
     _original_completion_main = _completion.main
 
