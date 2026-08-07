@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="my">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>JACC Chat Preview</title>
+  <style>
+    :root{--brand:#c8102e;--ink:#171717;--muted:#737373;--line:#e7e5e4;--bg:#f4f1ec;--surface:#fff;--ok:#15803d;--bad:#b91c1c}
+    *{box-sizing:border-box}body{margin:0;font-family:Arial,'Noto Sans Myanmar',sans-serif;background:var(--bg);color:var(--ink)}
+    button,input{font:inherit}.app{min-height:100dvh;display:grid;grid-template-rows:auto 1fr auto;max-width:980px;margin:auto;background:var(--surface)}
+    header{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:2}
+    .brand{width:38px;height:38px;border-radius:12px;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:800}.title{font-weight:800}.sub{font-size:12px;color:var(--muted)}
+    main{display:grid;grid-template-columns:320px 1fr;min-height:0}.list{border-right:1px solid var(--line);overflow:auto}.conversation{width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:#fff;padding:14px;display:grid;grid-template-columns:1fr auto;gap:6px}.conversation[aria-current="true"]{background:#fff5f6}.name{font-weight:700}.preview{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.badge{background:var(--brand);color:#fff;min-width:22px;height:22px;padding:0 7px;border-radius:999px;display:grid;place-items:center;font-size:12px}
+    .chat{display:grid;grid-template-rows:auto 1fr auto;min-width:0}.chat-head{padding:12px 16px;border-bottom:1px solid var(--line)}.status{font-size:12px;color:var(--ok)}.messages{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:10px;background:#fafaf9}.bubble{max-width:min(78%,560px);padding:10px 12px;border-radius:14px;background:#fff;border:1px solid var(--line);box-shadow:0 1px 2px rgba(0,0,0,.04)}.bubble.me{align-self:flex-end;background:#fff1f3;border-color:#fecdd3}.meta{margin-top:5px;font-size:11px;color:var(--muted)}
+    .composer{padding:12px;border-top:1px solid var(--line);display:grid;grid-template-columns:auto 1fr auto;gap:8px;background:#fff}.composer input{border:1px solid var(--line);border-radius:12px;padding:11px 12px;min-width:0}.icon,.send{border:0;border-radius:12px;padding:10px 13px}.icon{background:#f5f5f4;color:#a8a29e}.send{background:var(--brand);color:#fff;font-weight:700}.notice{margin:12px;padding:12px;border:1px solid #fde68a;background:#fffbeb;border-radius:12px;font-size:13px}.gate{display:none;padding:28px;text-align:center}.gate.show{display:block}.hidden{display:none!important}
+    footer{padding:8px 14px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);background:#fff}
+    @media(max-width:720px){main{grid-template-columns:1fr}.list{border-right:0}.chat{display:none}.app.chat-open .list{display:none}.app.chat-open .chat{display:grid}.back{display:inline-block!important}}
+    .back{display:none;border:0;background:#f5f5f4;border-radius:10px;padding:8px 10px;margin-right:8px}
+  </style>
+</head>
+<body>
+<div class="app" id="app" data-jacc-chat-preview="v1">
+  <header>
+    <div class="brand">J</div>
+    <div><div class="title">JACC Member Chat</div><div class="sub">Review-only preview — Production မဟုတ်ပါ</div></div>
+  </header>
+  <div id="gate" class="gate show" role="alert">
+    <h2>Premium App Member များအတွက်သာ</h2>
+    <p>Signed-in profile နှင့် active Premium/App membership လိုအပ်သည်။</p>
+    <button id="demoAccess" class="send">Preview ဖွင့်ကြည့်မည်</button>
+  </div>
+  <main id="chatShell" class="hidden" aria-label="JACC chat workspace">
+    <section class="list" aria-label="Conversations">
+      <div class="notice">Photo၊ Voice၊ Document upload မဖွင့်သေးပါ။ Private Storage security ပြီးမှသာအသုံးပြုမည်။</div>
+      <button class="conversation" data-conversation-id="demo-1" aria-current="true">
+        <span><span class="name">Broker Aung</span><span class="preview">ကားအချက်အလက်ကို စစ်ဆေးပြီးပါပြီ…</span></span><span class="badge">2</span>
+      </button>
+      <button class="conversation" data-conversation-id="demo-2" aria-current="false">
+        <span><span class="name">JACC Support</span><span class="preview">Membership အခြေအနေမှန်ကန်ပါတယ်။</span></span><span class="sub">10:20</span>
+      </button>
+    </section>
+    <section class="chat" aria-label="Active conversation">
+      <div class="chat-head"><button id="back" class="back" aria-label="Back to conversation list">←</button><strong id="chatTitle">Broker Aung</strong><div class="status">Active broker</div></div>
+      <div class="messages" id="messages" aria-live="polite">
+        <div class="bubble">မင်္ဂလာပါ။ သင်မေးထားတဲ့ကားအချက်အလက်ကို စစ်ဆေးနေပါတယ်။<div class="meta">10:12</div></div>
+        <div class="bubble me">ကျေးဇူးပါ။ Auction grade နဲ့ accident history ပါစစ်ပေးပါ။<div class="meta">10:14 · Sent</div></div>
+        <div class="bubble">ဟုတ်ကဲ့။ အပြီးသတ်ရင် ဒီနေရာမှာပဲ ပြန်ပို့ပေးပါမယ်။<div class="meta">10:16</div></div>
+      </div>
+      <form class="composer" id="composer" novalidate>
+        <button class="icon" type="button" disabled aria-label="Attachments disabled">＋</button>
+        <input id="messageInput" maxlength="2000" autocomplete="off" placeholder="စာရေးပါ…" aria-label="Message">
+        <button class="send" type="submit">ပို့မည်</button>
+      </form>
+    </section>
+  </main>
+  <footer>Client rules: text only, signed-in profile required, no service-role key, no direct Telegram transport fields.</footer>
+</div>
+<script>
+(() => {
+  'use strict';
+  const app = document.getElementById('app');
+  const gate = document.getElementById('gate');
+  const shell = document.getElementById('chatShell');
+  const messages = document.getElementById('messages');
+  const input = document.getElementById('messageInput');
+
+  function openPreview() {
+    gate.classList.remove('show');
+    shell.classList.remove('hidden');
+  }
+
+  function escapeText(value) {
+    const node = document.createElement('div');
+    node.textContent = String(value || '');
+    return node.innerHTML;
+  }
+
+  function buildAppMessage(text, conversationId) {
+    return {
+      conversation_id: conversationId,
+      sender_id: 'CURRENT_PROFILE_ID_REQUIRED',
+      sender_role: 'customer',
+      message_type: 'text',
+      transport: 'app',
+      client_message_id: crypto.randomUUID(),
+      external_message_id: null,
+      body: String(text).trim(),
+      status: 'sent',
+      attachment_url: null
+    };
+  }
+
+  document.getElementById('demoAccess').addEventListener('click', openPreview);
+  document.querySelectorAll('.conversation').forEach(button => button.addEventListener('click', () => {
+    document.querySelectorAll('.conversation').forEach(item => item.setAttribute('aria-current', 'false'));
+    button.setAttribute('aria-current', 'true');
+    document.getElementById('chatTitle').textContent = button.querySelector('.name').textContent;
+    app.classList.add('chat-open');
+  }));
+  document.getElementById('back').addEventListener('click', () => app.classList.remove('chat-open'));
+  document.getElementById('composer').addEventListener('submit', event => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    const active = document.querySelector('.conversation[aria-current="true"]');
+    const payload = buildAppMessage(text, active.dataset.conversationId);
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble me';
+    bubble.innerHTML = escapeText(payload.body) + '<div class="meta">Now · Preview only</div>';
+    messages.appendChild(bubble);
+    messages.scrollTop = messages.scrollHeight;
+    input.value = '';
+  });
+
+  window.JACCChatPreview = Object.freeze({ buildAppMessage });
+})();
+</script>
+</body>
+</html>
