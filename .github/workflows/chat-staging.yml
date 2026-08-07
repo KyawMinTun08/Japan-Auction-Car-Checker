@@ -1,0 +1,89 @@
+name: Phase 3 Chat Staging
+
+on:
+  push:
+    branches:
+      - agent/jacc-phase3-chat-staging
+    paths:
+      - "phase3/sql/010_chat_architecture.sql"
+      - "phase3/sql/011_chat_security.sql"
+      - "phase3/staging/**"
+      - ".github/workflows/chat-staging.yml"
+  pull_request:
+    paths:
+      - "phase3/sql/010_chat_architecture.sql"
+      - "phase3/sql/011_chat_security.sql"
+      - "phase3/staging/**"
+      - ".github/workflows/chat-staging.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jacc_chat_staging
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jacc_chat_staging"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: jacc_chat_staging
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Safety guard — staging files only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RIE '(supabase\.co|postgres(ql)?://|service_role_key|SUPABASE_SERVICE_ROLE_KEY)' phase3/staging
+          grep -F 'REVIEW/STAGING ONLY' phase3/sql/010_chat_architecture.sql
+          grep -F 'REVIEW/STAGING ONLY' phase3/sql/011_chat_security.sql
+
+      - name: Create disposable prerequisite contract
+        run: psql -v ON_ERROR_STOP=1 -f phase3/staging/000_chat_staging_prereqs.sql
+
+      - name: Run migration 010 — chat architecture
+        run: psql -v ON_ERROR_STOP=1 -f phase3/sql/010_chat_architecture.sql
+
+      - name: Run migration 011 — chat security and RLS
+        run: psql -v ON_ERROR_STOP=1 -f phase3/sql/011_chat_security.sql
+
+      - name: Run RLS and entitlement acceptance matrix
+        run: psql -v ON_ERROR_STOP=1 -f phase3/staging/020_chat_staging_acceptance.sql
+
+      - name: Verify expected chat policies exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          count="$(psql -Atc "select count(*) from pg_policies where schemaname='public' and tablename like 'jacc_%' and policyname like 'jacc_chat_%';")"
+          test "$count" -ge 10
+          echo "chat_policy_count=$count"
+
+      - name: Confirm disposable database identity
+        run: |
+          psql -Atc "select current_database();"
+          test "$(psql -Atc 'select current_database();')" = "jacc_chat_staging"
