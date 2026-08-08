@@ -1,0 +1,177 @@
+name: Phase 3 Chat Hosted Staging
+
+on:
+  push:
+    branches:
+      - agent/jacc-phase3-chat-release-readiness
+  pull_request:
+    branches:
+      - agent/jacc-phase3-chat-attachment-preview-hardening
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STAGING_DB_URL: ${{ secrets.JACC_SUPABASE_STAGING_DB_URL }}
+      STAGING_PROJECT_REF: lqjfstzpyfbonbswafyj
+      PRODUCTION_PROJECT_REF: slhhncwrbyvocajijuir
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/psql --version
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Hard safety gate — isolated hosted staging only
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${STAGING_DB_URL:-}" ]; then
+            echo "JACC_HOSTED_STAGING_DB_URL_MISSING"
+            echo "Required repository secret: JACC_SUPABASE_STAGING_DB_URL"
+            exit 1
+          fi
+          if [ "$STAGING_PROJECT_REF" = "$PRODUCTION_PROJECT_REF" ]; then
+            echo "JACC_HOSTED_STAGING_PRODUCTION_REF_BLOCKED"
+            exit 1
+          fi
+          if [ "$STAGING_PROJECT_REF" != "lqjfstzpyfbonbswafyj" ]; then
+            echo "JACC_HOSTED_STAGING_UNEXPECTED_PROJECT_REF"
+            exit 1
+          fi
+          if ! printf '%s' "$STAGING_DB_URL" | grep -Eq '^postgres(ql)?://'; then
+            echo "JACC_HOSTED_STAGING_DB_URL_INVALID"
+            exit 1
+          fi
+          echo "JACC_HOSTED_STAGING_ISOLATION_GUARD_PASS"
+
+      - name: Verify hosted staging connectivity
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -Atqc "select current_database(), current_user, version();" >/tmp/staging_identity.txt
+          test -s /tmp/staging_identity.txt
+          echo "JACC_HOSTED_STAGING_CONNECTIVITY_PASS"
+
+      - name: Capture pre-migration rollback snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rollback-evidence
+          pg_dump "$STAGING_DB_URL" --format=custom --no-owner --no-acl --file=rollback-evidence/jacc-hosted-staging-pre-phase3.dump
+          pg_restore --list rollback-evidence/jacc-hosted-staging-pre-phase3.dump > rollback-evidence/archive.list
+          sha256sum rollback-evidence/jacc-hosted-staging-pre-phase3.dump > rollback-evidence/SHA256SUMS.txt
+          test -s rollback-evidence/archive.list
+          test -s rollback-evidence/SHA256SUMS.txt
+          echo "JACC_HOSTED_STAGING_SNAPSHOT_PASS"
+
+      - name: Prepare staging-only Phase 3 prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -f phase3/staging/000_chat_staging_prereqs.sql
+          echo "JACC_HOSTED_STAGING_PREREQS_PASS"
+
+      - name: Run migration 010
+        run: psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -f phase3/sql/010_chat_architecture.sql
+
+      - name: Run migration 011
+        run: psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -f phase3/sql/011_chat_security.sql
+
+      - name: Verify hosted managed Storage RLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          STORAGE_STATE="$(psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -Atqc "select pg_get_userbyid(c.relowner) || '|' || c.relrowsecurity::text from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='storage' and c.relname='objects';")"
+          if [ "$STORAGE_STATE" != "supabase_storage_admin|true" ]; then
+            echo "JACC_HOSTED_STORAGE_MANAGED_RLS_UNEXPECTED=$STORAGE_STATE"
+            exit 1
+          fi
+          echo "JACC_HOSTED_STORAGE_MANAGED_RLS_PASS"
+
+      - name: Run migration 012 with hosted managed Storage boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('phase3/sql/012_chat_storage_security.sql').read_text()
+          marker = 'alter table storage.objects enable row level security;'
+          if marker not in src:
+              raise SystemExit('JACC_HOSTED_STORAGE_RLS_MARKER_MISSING')
+          src = src.replace(marker, '-- Hosted Supabase already owns and enables RLS on storage.objects.', 1)
+          Path('/tmp/012_chat_storage_security_hosted.sql').write_text(src)
+          PY
+          psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -f /tmp/012_chat_storage_security_hosted.sql
+          echo "JACC_HOSTED_STORAGE_MIGRATION_PASS"
+
+      - name: Verify hosted schema, RLS and private storage contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          begin
+            if to_regclass('public.jacc_conversations') is null then raise exception 'missing jacc_conversations'; end if;
+            if to_regclass('public.jacc_messages') is null then raise exception 'missing jacc_messages'; end if;
+            if to_regclass('public.jacc_message_attachments') is null then raise exception 'missing jacc_message_attachments'; end if;
+            if not exists (select 1 from pg_class where oid='public.jacc_conversations'::regclass and relrowsecurity) then raise exception 'conversation RLS disabled'; end if;
+            if not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='storage' and c.relname='objects' and c.relrowsecurity) then raise exception 'storage objects RLS disabled'; end if;
+            if not exists (select 1 from storage.buckets where id='jacc-chat-attachments' and public=false) then raise exception 'private chat bucket missing'; end if;
+            if exists (select 1 from storage.buckets where id='jacc-chat-attachments' and public=true) then raise exception 'chat bucket unexpectedly public'; end if;
+            if not exists (select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname='jacc_chat_storage_select' and 'authenticated'=any(roles)) then raise exception 'storage select policy missing'; end if;
+            if not exists (select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname='jacc_chat_storage_insert' and 'authenticated'=any(roles)) then raise exception 'storage insert policy missing'; end if;
+            if exists (select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname in ('jacc_chat_storage_update','jacc_chat_storage_delete')) then raise exception 'unexpected storage mutation policy'; end if;
+          end $$;
+          SQL
+          echo "JACC_HOSTED_STAGING_DATABASE_ACCEPTANCE_PASS"
+
+      - name: Run client contract regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node phase3/tests/chat_attachment_client.test.js
+          node phase3/tests/chat_attachment_preview.test.js
+          echo "JACC_HOSTED_STAGING_CLIENT_REGRESSION_PASS"
+
+      - name: Verify rollback archive remains readable after acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg_restore --list rollback-evidence/jacc-hosted-staging-pre-phase3.dump >/dev/null
+          sha256sum -c rollback-evidence/SHA256SUMS.txt
+          echo "JACC_HOSTED_STAGING_ROLLBACK_EVIDENCE_PASS"
+
+      - name: Upload rollback evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacc-hosted-staging-rollback-${{ github.run_id }}
+          path: rollback-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Final hosted staging marker
+        run: echo "JACC_CHAT_HOSTED_STAGING_ACCEPTANCE_PASS"
