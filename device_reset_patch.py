@@ -185,6 +185,12 @@ ExtBot.set_my_commands = _set_my_commands_with_device_reset
 # reminder here keeps the active start command unchanged while starting the
 # daily Web Premium activation reminder through completion_launcher.main().
 import web_activation_reminder_patch as _web_activation_reminder_patch  # noqa: F401,E402
-# Apply the hardened direct-Google-Sheet credential loader immediately after
-# the reminder module is loaded and before completion_launcher.main() starts it.
+# Apply the hardened Apps Script DeviceID loader immediately after the reminder
+# module is loaded and before completion_launcher.main() starts it.
 import web_activation_reminder_credential_fix as _web_activation_reminder_credential_fix  # noqa: F401,E402
+
+# Railway's active start path imports queue_launcher directly, and queue_launcher
+# imports this module. Load the MMK auction deposit patches here as well so the
+# production runtime cannot bypass them through a custom Railway start command.
+import auction_deposit_mmk_patch as _auction_deposit_mmk_patch  # noqa: F401,E402
+import auction_deposit_text_patch as _auction_deposit_text_patch  # noqa: F401,E402
