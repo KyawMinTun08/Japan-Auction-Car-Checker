@@ -137,7 +137,7 @@ jobs:
           begin
             if to_regclass('public.jacc_conversations') is null then raise exception 'missing jacc_conversations'; end if;
             if to_regclass('public.jacc_messages') is null then raise exception 'missing jacc_messages'; end if;
-            if to_regclass('public.jacc_chat_attachments') is null then raise exception 'missing jacc_chat_attachments'; end if;
+            if to_regclass('public.jacc_message_attachments') is null then raise exception 'missing jacc_message_attachments'; end if;
             if not exists (select 1 from pg_class where oid='public.jacc_conversations'::regclass and relrowsecurity) then raise exception 'conversation RLS disabled'; end if;
             if not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='storage' and c.relname='objects' and c.relrowsecurity) then raise exception 'storage objects RLS disabled'; end if;
             if not exists (select 1 from storage.buckets where id='jacc-chat-attachments' and public=false) then raise exception 'private chat bucket missing'; end if;
