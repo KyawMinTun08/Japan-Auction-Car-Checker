@@ -88,6 +88,13 @@ jobs:
           test -s rollback-evidence/SHA256SUMS.txt
           echo "JACC_HOSTED_STAGING_SNAPSHOT_PASS"
 
+      - name: Prepare staging-only Phase 3 prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -f phase3/staging/000_chat_staging_prereqs.sql
+          echo "JACC_HOSTED_STAGING_PREREQS_PASS"
+
       - name: Run migration 010
         run: psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -f phase3/sql/010_chat_architecture.sql
 
