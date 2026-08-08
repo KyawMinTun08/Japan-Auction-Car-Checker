@@ -1,6 +1,6 @@
 """Use the deployed Apps Script getMembers response as the canonical reminder source.
 
-The Apps Script endpoint now exposes DeviceID.  This avoids the separate Google
+The Apps Script endpoint now exposes DeviceID. This avoids the separate Google
 service-account dependency that previously caused Railway diagnostics to fail.
 The loader fails closed unless the response explicitly contains a DeviceID
 field (or a 10-column row with DeviceID at column J), so blank DeviceID values
@@ -81,7 +81,7 @@ def assert_device_schema_is_safe(
 
 
 def _install_apkpure_button() -> None:
-    """Append a direct APKPure download button to the reminder keyboard."""
+    """Append a direct APKPure download button to reminder keyboards."""
     original_markup = _reminder.InlineKeyboardMarkup
 
     def markup_with_apkpure(inline_keyboard, *args, **kwargs):
@@ -108,6 +108,41 @@ def _install_apkpure_button() -> None:
     _reminder.InlineKeyboardMarkup = markup_with_apkpure
 
 
+async def notify_admins_with_links(bot, text: str) -> None:
+    """Show the same Web/App buttons on the startup ready diagnostic."""
+    reply_markup = None
+    if str(text or "").startswith("✅ Web Premium Reminder ready"):
+        reply_markup = _reminder.InlineKeyboardMarkup([
+            [
+                _reminder.InlineKeyboardButton(
+                    "🌐 JACC Web App ဖွင့်ရန်",
+                    url=_reminder._WEB_URL,
+                )
+            ],
+            [
+                _reminder.InlineKeyboardButton(
+                    "📲 Download JACC App (APKPure)",
+                    url=_APKPURE_URL,
+                )
+            ],
+        ])
+
+    for admin_id in getattr(_reminder._legacy, "ADMIN_IDS", []) or []:
+        try:
+            await bot.send_message(
+                chat_id=int(admin_id),
+                text=text,
+                reply_markup=reply_markup,
+            )
+        except Exception as exc:
+            _reminder._legacy.logger.warning(
+                "web reminder admin notify failed for %s: %s",
+                admin_id,
+                exc,
+            )
+
+
 _reminder._load_members = apps_script_deviceid_load_members
 _reminder._assert_device_state_is_safe = assert_device_schema_is_safe
 _install_apkpure_button()
+_reminder._notify_admins = notify_admins_with_links
