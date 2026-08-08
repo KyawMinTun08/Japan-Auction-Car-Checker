@@ -21,6 +21,7 @@ _DEVICE_KEYS = (
     "DEVICEID",
     "device_id",
 )
+_APKPURE_URL = "https://apkpure.com/japan-auction-car-checker/com.kyawmintun.jacc"
 
 
 async def apps_script_deviceid_load_members() -> tuple[list[dict[str, str]], str]:
@@ -79,5 +80,34 @@ def assert_device_schema_is_safe(
         raise RuntimeError("untrusted Web reminder member source")
 
 
+def _install_apkpure_button() -> None:
+    """Append a direct APKPure download button to the reminder keyboard."""
+    original_markup = _reminder.InlineKeyboardMarkup
+
+    def markup_with_apkpure(inline_keyboard, *args, **kwargs):
+        rows = [list(row) for row in inline_keyboard]
+        has_web_button = any(
+            getattr(button, "url", "") == _reminder._WEB_URL
+            for row in rows
+            for button in row
+        )
+        has_apkpure_button = any(
+            getattr(button, "url", "") == _APKPURE_URL
+            for row in rows
+            for button in row
+        )
+        if has_web_button and not has_apkpure_button:
+            rows.append([
+                _reminder.InlineKeyboardButton(
+                    "📲 Download JACC App (APKPure)",
+                    url=_APKPURE_URL,
+                )
+            ])
+        return original_markup(rows, *args, **kwargs)
+
+    _reminder.InlineKeyboardMarkup = markup_with_apkpure
+
+
 _reminder._load_members = apps_script_deviceid_load_members
 _reminder._assert_device_state_is_safe = assert_device_schema_is_safe
+_install_apkpure_button()
