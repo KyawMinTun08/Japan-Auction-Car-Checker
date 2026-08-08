@@ -21,6 +21,7 @@ import queue_launcher  # noqa: E402  (environment must be set first)
 import phase1_healthcheck  # noqa: F401,E402  (patch before handler registration)
 import device_reset_patch  # noqa: F401,E402  (admin /resetdevice command)
 import auction_deposit_mmk_patch  # noqa: F401,E402  (MMK 1,000,000 auction deposit)
+import auction_deposit_text_patch  # noqa: F401,E402  (legacy reply/edit deposit text)
 
 # Railway auto-deploy trigger: resetdevice command enabled in production.
 # Retry trigger after the previous Metal builder scheduling stall.
