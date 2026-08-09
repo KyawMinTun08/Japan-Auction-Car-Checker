@@ -19,8 +19,8 @@ android {
         applicationId = "com.kyawmintun.jacc"
         minSdk = 24
         targetSdk = 35
-        versionCode = 101
-        versionName = "1.01"
+        versionCode = 102
+        versionName = "1.02"
     }
 
     signingConfigs {
@@ -28,7 +28,7 @@ android {
             create("release") {
                 storeFile = file(keystoreProperties["storeFile"] as String)
                 storePassword = keystoreProperties["storePassword"] as String
-                keyAlias = keystoreProperties["keyAlias"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String)
                 keyPassword = keystoreProperties["keyPassword"] as String
             }
         }
