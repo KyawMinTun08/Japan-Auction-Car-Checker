@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/android-apkpure-wrapper
+      - agent/jacc-app-update-v102
       - main
     paths:
       - "android-app/**"
@@ -77,12 +78,12 @@ jobs:
 
       - name: Rename APK
         working-directory: android-app
-        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.01-signed.apk
+        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.02-signed.apk
 
       - name: Upload verified signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: JACC-v1.01-APKPure-ready
-          path: android-app/JACC-v1.01-signed.apk
+          name: JACC-v1.02-APKPure-ready
+          path: android-app/JACC-v1.02-signed.apk
           if-no-files-found: error
           retention-days: 30
