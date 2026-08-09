@@ -10,6 +10,12 @@ on:
     paths:
       - "android-app/**"
       - ".github/workflows/build-android-apk.yml"
+  pull_request:
+    branches:
+      - feature/android-apkpure-wrapper
+    paths:
+      - "android-app/**"
+      - ".github/workflows/build-android-apk.yml"
 
 jobs:
   build:
