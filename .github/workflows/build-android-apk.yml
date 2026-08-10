@@ -34,6 +34,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android build tools
+        run: sdkmanager "build-tools;35.0.0"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -76,9 +79,10 @@ jobs:
         working-directory: android-app
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           test -f "$APK"
-          apksigner verify --verbose --print-certs "$APK"
-          PACKAGE=$(aapt dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+          PACKAGE=$("$BUILD_TOOLS/aapt" dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
           echo "Detected package: $PACKAGE"
           test "$PACKAGE" = "com.kyawmintun.jacc"
 
