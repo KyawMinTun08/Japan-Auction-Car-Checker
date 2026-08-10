@@ -5,7 +5,14 @@ on:
   push:
     branches:
       - feature/android-apkpure-wrapper
+      - agent/jacc-app-update-v102
       - main
+    paths:
+      - "android-app/**"
+      - ".github/workflows/build-android-apk.yml"
+  pull_request:
+    branches:
+      - feature/android-apkpure-wrapper
     paths:
       - "android-app/**"
       - ".github/workflows/build-android-apk.yml"
@@ -27,6 +34,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android build tools
+        run: sdkmanager "build-tools;35.0.0"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -35,12 +45,12 @@ jobs:
       - name: Verify signing secrets
         env:
           KEYSTORE_BASE64: ${{ secrets.JACC_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.JACC_STORE_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.JACC_STORE_PASSWORD || secrets.JACC_KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.JACC_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.JACC_KEY_PASSWORD }}
         run: |
           test -n "$KEYSTORE_BASE64" || { echo "Missing JACC_KEYSTORE_BASE64"; exit 1; }
-          test -n "$STORE_PASSWORD" || { echo "Missing JACC_STORE_PASSWORD"; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "Missing store password candidate"; exit 1; }
           test -n "$KEY_ALIAS" || { echo "Missing JACC_KEY_ALIAS"; exit 1; }
           test -n "$KEY_PASSWORD" || { echo "Missing JACC_KEY_PASSWORD"; exit 1; }
 
@@ -48,7 +58,7 @@ jobs:
         working-directory: android-app
         env:
           KEYSTORE_BASE64: ${{ secrets.JACC_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.JACC_STORE_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.JACC_STORE_PASSWORD || secrets.JACC_KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.JACC_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.JACC_KEY_PASSWORD }}
         run: |
@@ -69,20 +79,21 @@ jobs:
         working-directory: android-app
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           test -f "$APK"
-          apksigner verify --verbose --print-certs "$APK"
-          PACKAGE=$(aapt dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+          PACKAGE=$("$BUILD_TOOLS/aapt" dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
           echo "Detected package: $PACKAGE"
           test "$PACKAGE" = "com.kyawmintun.jacc"
 
       - name: Rename APK
         working-directory: android-app
-        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.01-signed.apk
+        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.02-signed.apk
 
       - name: Upload verified signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: JACC-v1.01-APKPure-ready
-          path: android-app/JACC-v1.01-signed.apk
+          name: JACC-v1.02-APKPure-ready
+          path: android-app/JACC-v1.02-signed.apk
           if-no-files-found: error
           retention-days: 30
