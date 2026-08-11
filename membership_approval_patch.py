@@ -1,13 +1,15 @@
 """Safe membership approval retry patch for the production Telegram bot.
 
-This module is imported by ``phase1_production_launcher.py`` after the normal
-launch stack has loaded. It keeps payment approval data available when the
-Google Apps Script write fails and adds detailed, safe Railway logging for the
-real webhook response.
+This module is imported by ``queue_launcher.py`` after the normal launch stack
+has loaded. It keeps payment approval data available when the Google Apps Script
+write fails, keeps an existing Web member password stable across renewals, and
+ensures the password sent to the member is the password actually stored in the
+Members sheet.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import queue_launcher as _queue
@@ -15,7 +17,10 @@ import queue_launcher as _queue
 
 _legacy = _queue._legacy
 _original_button_callback = _legacy.button_callback
+_original_generate_password = _legacy.generate_password
+_original_send_approval_dm = _legacy.send_approval_dm
 _last_membership_save: dict[str, dict[str, Any]] = {}
+_approval_lock = asyncio.Lock()
 
 
 def _normalise_package(value: Any) -> str:
@@ -36,6 +41,41 @@ def _safe_response_text(response: Any) -> str:
         return "<response text unavailable>"
 
 
+async def _fetch_sheet_member(user_id: str, attempts: int = 3) -> dict[str, str]:
+    """Read the canonical password/package from Apps Script for one member."""
+    clean_user_id = str(user_id or "").strip()
+    if not clean_user_id or not _legacy.SHEET_WEBHOOK:
+        return {}
+
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            async with _legacy.httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=12.0,
+            ) as client:
+                response = await client.post(
+                    _legacy.SHEET_WEBHOOK,
+                    json={"action": "getPassword", "userId": clean_user_id},
+                )
+            if not response.is_error:
+                data = response.json()
+                if isinstance(data, dict) and data.get("status") == "ok":
+                    return {
+                        "password": str(data.get("password") or "").strip(),
+                        "package": _normalise_package(data.get("package") or ""),
+                    }
+        except Exception as exc:
+            if attempt == max(1, attempts):
+                _legacy.logger.warning(
+                    "Member password lookup failed user=%s: %s",
+                    clean_user_id,
+                    exc,
+                )
+        if attempt < max(1, attempts):
+            await _legacy.asyncio.sleep(0.35 * attempt)
+    return {}
+
+
 async def save_member_to_sheet(
     user_id: str,
     username: str,
@@ -43,7 +83,7 @@ async def save_member_to_sheet(
     password: str = "",
     package: str = "CH",
 ) -> bool:
-    """Write membership data with retries and useful failure diagnostics."""
+    """Write membership data safely and keep Web renewal passwords stable."""
     clean_user_id = str(user_id or "").strip()
     clean_username = str(username or "").strip()
     clean_password = str(password or "").strip()
@@ -71,6 +111,21 @@ async def save_member_to_sheet(
         }
         _legacy.logger.error("Membership save failed: %s", detail)
         return False
+
+    # Renewal rule: an existing Web member keeps the current Sheet password.
+    # This prevents the bot from showing a newly generated password while the
+    # Apps Script renewal path keeps the old password in Members!G.
+    if clean_package.startswith("WEB"):
+        current = await _fetch_sheet_member(clean_user_id, attempts=2)
+        current_password = str(current.get("password") or "").strip()
+        current_package = _normalise_package(current.get("package") or "")
+        if current_password and current_package.startswith("WEB"):
+            if clean_password and clean_password != current_password:
+                _legacy.logger.info(
+                    "Preserving existing Web password on renewal user=%s",
+                    clean_user_id,
+                )
+            clean_password = current_password
 
     payload = {
         "action": "saveMember",
@@ -125,6 +180,7 @@ async def save_member_to_sheet(
                         "ok": True,
                         "detail": "ok",
                         "result": result,
+                        "password": clean_password,
                     }
                     _legacy.logger.info(
                         "Membership saved user=%s package=%s days=%s result=%s",
@@ -171,8 +227,61 @@ async def save_member_to_sheet(
     return False
 
 
+async def send_approval_dm(
+    context,
+    member_id: int,
+    months: int,
+    password: str,
+    invite_url: str,
+    package: str = "CH",
+):
+    """Send only the password that is currently stored in the Members sheet."""
+    clean_package = _normalise_package(package)
+    verified_password = str(password or "").strip()
+
+    if clean_package.startswith("WEB"):
+        current = await _fetch_sheet_member(str(member_id), attempts=3)
+        sheet_password = str(current.get("password") or "").strip()
+        sheet_package = _normalise_package(current.get("package") or "")
+        if sheet_password and sheet_package.startswith("WEB"):
+            verified_password = sheet_password
+        else:
+            # Never send an unverified generated password. That is the exact
+            # mismatch that caused renewed members to be locked out.
+            verified_password = ""
+            _legacy.logger.error(
+                "Web approval password not verifiable in Sheet user=%s",
+                member_id,
+            )
+
+    await _original_send_approval_dm(
+        context,
+        member_id,
+        months,
+        verified_password,
+        invite_url,
+        package=clean_package,
+    )
+
+    if clean_package.startswith("WEB") and not verified_password:
+        try:
+            await context.bot.send_message(
+                chat_id=int(member_id),
+                text=(
+                    "⚠️ Web Password sync မပြီးသေးပါ။ Wrong password မပို့ထားပါ။\n\n"
+                    "ခဏနေရင် /mypassword ကိုနှိပ်ပါ။ မရသေးရင် Admin ကိုဆက်သွယ်ပါ။"
+                ),
+            )
+        except Exception as exc:
+            _legacy.logger.warning(
+                "Password sync warning DM failed user=%s: %s",
+                member_id,
+                exc,
+            )
+
+
 async def button_callback(update, context):
-    """Restore pending payment data when a membership Sheet write fails."""
+    """Keep approvals retryable and preserve the current Web password on renew."""
     query = update.callback_query
     callback_data = str(getattr(query, "data", "") or "")
 
@@ -190,8 +299,27 @@ async def button_callback(update, context):
     payment_snapshot = dict(_legacy.pending_payment.get(member_id, {}) or {})
     _last_membership_save.pop(str(member_id), None)
 
+    # For a Web renewal, make the legacy callback generate the already-stored
+    # password. This keeps its admin confirmation text, save payload and member
+    # DM all consistent. Serialize this tiny override because generate_password
+    # is a module global used by other handlers too.
+    forced_password = ""
+    target_package = _normalise_package(payment_snapshot.get("package", "CH"))
+    if target_package.startswith("WEB"):
+        current = await _fetch_sheet_member(str(member_id), attempts=2)
+        current_password = str(current.get("password") or "").strip()
+        current_package = _normalise_package(current.get("package") or "")
+        if current_password and current_package.startswith("WEB"):
+            forced_password = current_password
+
     try:
-        await _original_button_callback(update, context)
+        async with _approval_lock:
+            if forced_password:
+                _legacy.generate_password = lambda: forced_password
+            try:
+                await _original_button_callback(update, context)
+            finally:
+                _legacy.generate_password = _original_generate_password
     except Exception:
         if payment_snapshot:
             _legacy.pending_payment[member_id] = payment_snapshot
@@ -244,4 +372,5 @@ async def button_callback(update, context):
 # The legacy main function resolves these names only when it registers handlers,
 # so patching here is early enough for the production runtime.
 _legacy.save_member_to_sheet = save_member_to_sheet
+_legacy.send_approval_dm = send_approval_dm
 _legacy.button_callback = button_callback
