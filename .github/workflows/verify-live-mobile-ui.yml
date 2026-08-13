@@ -1,0 +1,52 @@
+name: Verify Live Mobile UI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - index.html
+      - sw.js
+      - jdm-config.js
+      - scripts/verify_live_mobile_ui.mjs
+      - .github/workflows/verify-live-mobile-ui.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-mobile-ui:
+    name: Verify GitHub Pages mobile UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright Chromium
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Wait for GitHub Pages and verify mobile UI
+        env:
+          JACC_INITIAL_DELAY_MS: "90000"
+          JACC_RETRY_DELAY_MS: "30000"
+          JACC_MAX_ATTEMPTS: "10"
+        run: node scripts/verify_live_mobile_ui.mjs
+
+      - name: Upload live mobile UI report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-mobile-ui-verification
+          path: artifacts/live-mobile-ui
+          if-no-files-found: warn
+          retention-days: 14
