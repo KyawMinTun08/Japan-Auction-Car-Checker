@@ -7,6 +7,7 @@ import string
 import logging
 import httpx
 from phase1.phase1_client import JaccPhase1Client, JaccPhase1Error
+from jdm_lookup_service import build_jdm_http_service
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat
@@ -5896,6 +5897,15 @@ async def main():
     port = int(os.environ.get("PORT", 8080))
     web_app = web.Application()
     web_app.router.add_get("/", health_check)
+
+    # JDM lookup is an optional read-only Website/App endpoint. It is disabled
+    # automatically when the server-side Supabase credentials are unavailable.
+    jdm_http = build_jdm_http_service()
+    if jdm_http is not None:
+        web_app.router.add_options("/api/jdm/lookup", jdm_http.options)
+        web_app.router.add_get("/api/jdm/lookup", jdm_http.lookup)
+        logger.info("JDM lookup endpoint mounted at /api/jdm/lookup")
+
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
