@@ -1,15 +1,16 @@
 // JACC PWA Service Worker
-// Version 2026.08.02
+// Version 2026.08.13-jdm-ui.1
 
 const CACHE_PREFIX = 'jacc-';
-const CACHE_NAME = 'jacc-2026.08.02';
+const CACHE_NAME = 'jacc-2026.08.13-jdm-ui.1';
 const BASE_PATH = '/Japan-Auction-Car-Checker';
 const APP_SHELL = [
   BASE_PATH + '/',
   BASE_PATH + '/index.html',
   BASE_PATH + '/manifest.json',
   BASE_PATH + '/icon-192.png',
-  BASE_PATH + '/icon-512.png'
+  BASE_PATH + '/icon-512.png',
+  BASE_PATH + '/jdm-config.js'
 ];
 
 self.addEventListener('install', event => {
@@ -39,7 +40,8 @@ function isBackendRequest(url) {
   return url.hostname.includes('script.google.com') ||
     url.hostname.includes('script.googleusercontent.com') ||
     url.hostname.includes('docs.google.com') ||
-    url.hostname.includes('ipapi.co');
+    url.hostname.includes('ipapi.co') ||
+    url.pathname.includes('/api/jdm/lookup');
 }
 
 function isRuntimeAsset(url) {
