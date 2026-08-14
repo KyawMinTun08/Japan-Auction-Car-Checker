@@ -1,8 +1,8 @@
 // JACC PWA Service Worker
-// Version 2026.08.13-jdm-ui.1
+// Version 2026.08.14-chassis-spec.1
 
 const CACHE_PREFIX = 'jacc-';
-const CACHE_NAME = 'jacc-2026.08.13-jdm-ui.1';
+const CACHE_NAME = 'jacc-2026.08.14-chassis-spec.1';
 const BASE_PATH = '/Japan-Auction-Car-Checker';
 const APP_SHELL = [
   BASE_PATH + '/',
@@ -10,6 +10,7 @@ const APP_SHELL = [
   BASE_PATH + '/manifest.json',
   BASE_PATH + '/icon-192.png',
   BASE_PATH + '/icon-512.png',
+  BASE_PATH + '/vehicle-specs.js',
   BASE_PATH + '/jdm-config.js'
 ];
 
