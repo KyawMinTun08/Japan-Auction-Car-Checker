@@ -1,5 +1,7 @@
 # JACC Source-Check Demo Tasks
 
+- [x] Verify the combined car-detail → source-handoff demo and clearly distinguish preview-only Telegram UI from the live bot.
+- [x] Confirm which pull request must be merged for the combined website flow and report the exact deployment state.
 - [x] Add a contextual Japan Source Check action to every existing car detail flow without altering Sheet vehicle data.
 - [x] Reuse the Chassis Lookup source handoff as the fallback destination with the selected car chassis pre-filled.
 - [x] Validate price/detail clicks, direct chassis lookup, mobile layout, login gating, and PWA update behavior before creating a PR.
