@@ -17,6 +17,7 @@ import sys
 import traceback
 from typing import Any
 
+from japan_source_check import is_valid_chassis, normalize_chassis
 import completion_launcher as _completion
 from telegram.ext import ExtBot
 
@@ -406,6 +407,28 @@ import phase1_healthcheck as _phase1_healthcheck  # noqa: F401,E402
 import phase1_restore_latest as _phase1_restore_latest  # noqa: F401,E402
 import membership_approval_patch as _membership_approval_patch  # noqa: F401,E402
 import device_reset_patch as _device_reset_patch  # noqa: F401,E402
+
+_existing_button_callback = _legacy.button_callback
+
+
+async def _button_callback_with_source_check(update, context):
+    """Preserve all runtime callbacks and add the `/check` copy action."""
+    query = update.callback_query
+    data = query.data or ""
+    if not data.startswith("jsc_copy:"):
+        await _existing_button_callback(update, context)
+        return
+
+    chassis = normalize_chassis(data.replace("jsc_copy:", "", 1))
+    if not is_valid_chassis(chassis):
+        await query.answer("Chassis format မမှန်ပါ", show_alert=True)
+        return
+
+    await query.answer("Chassis ကို message အသစ်နဲ့ပို့ပြီးပါပြီ")
+    await context.bot.send_message(chat_id=query.message.chat_id, text=chassis)
+
+
+_legacy.button_callback = _button_callback_with_source_check
 
 
 async def main() -> None:
