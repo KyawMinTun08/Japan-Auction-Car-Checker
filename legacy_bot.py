@@ -702,15 +702,16 @@ TRANSACTION_NO:
   - Wave: number next to "Transaction ID" (e.g. 894983741)
   - KPay: full number next to "Transaction No." (e.g. 01004089020139330692) — ALL digits
   - CB: number next to "Transaction No." or "Reference No."
-AMOUNT: (positive number only, no commas, no Ks, no minus/plus — from top large amount, e.g. 1000000)
+AMOUNT: Read ONLY the actual payment amount shown inside the original slip. For Wave, use the number beside the label "Total"; do NOT use any Telegram caption, expected amount, message text, transaction ID, date, or other number. For KPay/CB, use the number beside the payment label "Amount". Inspect every digit one by one, including the first digit, and preserve leading digits exactly. Return a positive integer only, with no commas, no Ks, and no minus/plus (e.g. 55000). If the amount digits are not clearly readable, return UNKNOWN instead of guessing.
 DATE: (dd/mm/yyyy — from "Date & Time" for Wave, "Transaction Time" for KPay)
 TIME: (HH:MM 24hr — convert PM/AM, e.g. 02:55 PM = 14:55)
 TRANSFER_TO: (name next to "Transfer To" for KPay, or "Receiver" for Wave Send view — who received the money)
 SENDER: (name next to "Sender" for Wave Receive view only — UNKNOWN for KPay and Wave Send view)
 
 TRANSACTION_NO is most critical — read every digit carefully.
+AMOUNT is also critical — do not infer or calculate it from any other field. Ignore text outside the original payment-slip image, including Telegram overlays or captions.
 
-Return EXACTLY in this format with no extra text. Write UNKNOWN if not found."""},
+Return EXACTLY in this format with no extra text. Write UNKNOWN if not found or if any required digits are unclear."""},
             {"inline_data":{"mime_type":"image/jpeg","data":img_b64}}
         ]}]}
         async with httpx.AsyncClient() as client:
