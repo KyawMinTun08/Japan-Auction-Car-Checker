@@ -12,6 +12,7 @@ from contextvars import ContextVar
 from typing import Any
 
 import legacy_bot as _legacy
+from japan_source_check import is_valid_chassis, normalize_chassis, reply_text, source_links
 from telegram import BotCommand, BotCommandScopeChat
 from telegram.ext import ExtBot
 
@@ -81,6 +82,8 @@ _BASE_SET_MY_COMMANDS = ExtBot.set_my_commands
 _ORIGINAL_START = _legacy.start
 _ORIGINAL_MYSTATUS = _legacy.mystatus_cmd
 _ORIGINAL_BROKERS = _legacy.brokers_cmd
+_ORIGINAL_FIND = _legacy.find_car
+_ORIGINAL_BUTTON_CALLBACK = _legacy.button_callback
 
 _STATUS_LABELS = {
     "submitted": "📥 Request တင်ပြီး",
@@ -335,6 +338,88 @@ async def brokers_cmd(update, context):
     await update.effective_message.reply_text(_queue_text(rows))
 
 
+async def check_cmd(update, context):
+    """Offer active members a copy-and-link handoff to Japan public sources."""
+    user_id = int(update.effective_user.id)
+    message = update.effective_message
+
+    if not _legacy.check_rate_limit(user_id):
+        await message.reply_text(
+            "⚠️ တစ်မိနစ်အတွင်း Request များသွားတယ် — ခဏစောင့်ပါ"
+        )
+        return
+    if not await _legacy.is_active_member(user_id):
+        await message.reply_text(
+            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\n"
+            "Membership ရယူရန် /start နှိပ်ပါ",
+            parse_mode="Markdown",
+        )
+        return
+    if not context.args:
+        await message.reply_text(
+            "❌ Chassis ထည့်ပါ\n"
+            "ဥပမာ: `/check AGH30-0015779`",
+            parse_mode="Markdown",
+        )
+        return
+
+    chassis = normalize_chassis(" ".join(context.args))
+    if not is_valid_chassis(chassis):
+        await message.reply_text(
+            "❌ Chassis format မမှန်ပါ\n\n"
+            "ဥပမာ: `/check AGH30-0015779`\n"
+            "Space မပါဘဲ Prefix-Serial ပုံစံဖြင့်ထည့်ပါ။",
+            parse_mode="Markdown",
+        )
+        return
+
+    rows = [[
+        _legacy.InlineKeyboardButton(
+            "📋 Copy chassis",
+            callback_data=f"jsc_copy:{chassis}",
+        )
+    ]]
+    for label, url in source_links(chassis):
+        rows.append([_legacy.InlineKeyboardButton(label, url=url)])
+
+    await message.reply_text(
+        reply_text(chassis),
+        parse_mode="Markdown",
+        reply_markup=_legacy.InlineKeyboardMarkup(rows),
+        disable_web_page_preview=True,
+    )
+
+
+async def find_or_check_cmd(update, context):
+    command = (
+        (update.effective_message.text or "")
+        .split(maxsplit=1)[0]
+        .split("@", 1)[0]
+        .lower()
+    )
+    if command == "/check":
+        await check_cmd(update, context)
+        return
+    await _ORIGINAL_FIND(update, context)
+
+
+async def source_check_button_callback(update, context):
+    """Return plain chassis text only after the member presses Copy chassis."""
+    query = update.callback_query
+    data = query.data or ""
+    if not data.startswith("jsc_copy:"):
+        await _ORIGINAL_BUTTON_CALLBACK(update, context)
+        return
+
+    chassis = normalize_chassis(data.replace("jsc_copy:", "", 1))
+    if not is_valid_chassis(chassis):
+        await query.answer("Chassis format မမှန်ပါ", show_alert=True)
+        return
+
+    await query.answer("Chassis ကို message အသစ်နဲ့ပို့ပြီးပါပြီ")
+    await context.bot.send_message(chat_id=query.message.chat_id, text=chassis)
+
+
 def command_handler(command, callback, *args, **kwargs):
     if command == "start":
         return _BASE_COMMAND_HANDLER(
@@ -345,11 +430,17 @@ def command_handler(command, callback, *args, **kwargs):
     if command == "brokers":
         command = ["brokers", "queue"]
         callback = brokers_cmd
+    if command == "find":
+        command = ["find", "check"]
+        callback = find_or_check_cmd
     return _BASE_COMMAND_HANDLER(command, callback, *args, **kwargs)
 
 
 async def set_my_commands(self, commands, scope=None, language_code=None, *args, **kwargs):
     command_list = list(commands)
+    existing = {item.command for item in command_list}
+    if "check" not in existing:
+        command_list.append(BotCommand("check", "🌐 Japan Source Check"))
     if isinstance(scope, BotCommandScopeChat):
         try:
             chat_id = int(scope.chat_id)
@@ -375,4 +466,5 @@ _legacy.CommandHandler = command_handler
 _legacy.mypassword_cmd = mypassword_cmd
 _legacy.mystatus_cmd = mystatus_cmd
 _legacy.brokers_cmd = brokers_cmd
+_legacy.button_callback = source_check_button_callback
 ExtBot.set_my_commands = set_my_commands
