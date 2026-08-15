@@ -694,11 +694,11 @@ HOW TO IDENTIFY:
     * Sender name is usually NOT shown on this slip type; return UNKNOWN
 
 - CB Bank slip = GREEN background, "CB Bank" or "CB Pay" logo
-    * Prioritize and carefully read the fields labelled "Account Number" / "A/C No.", "ID" / "Account ID", and "Name" / "Account Name"
-    * Also read "Transaction Date", "Transaction No." or "Reference No.", "Receiver", and "Amount"
-    * Do not confuse Account Number, Account ID, and Transaction/Reference Number; return each in its own field
-    * "Receiver" = the person or merchant who RECEIVED the money
-    * If a sender field is visible, read it; otherwise return UNKNOWN
+    * This E-Receipt has two account sections in order: first "Current Account - Personal" and then "Digital Account"
+    * For each section, carefully read the account type, masked/full account number, and account name exactly as shown
+    * The first section is the FROM_ACCOUNT section and the second section is the TO_ACCOUNT section; do not merge their numbers or names
+    * The lower receipt details include amount, fee, transaction date, transaction date/time, reference number, and purpose
+    * Do not confuse account numbers with the reference number; preserve hyphens, masked x characters, leading zeroes, and names exactly
 
 Extract these fields:
 TYPE: Return exactly one of: Wave, KPay, CB, Other. Use Wave for Wave Money, KPay for KBZPay/KBZ Bank, and CB for CB Bank/CB Pay.
@@ -711,9 +711,17 @@ DATE: For Wave use "Date & Time"; for KPay use "Transaction Time"; for CB use "T
 TIME: For Wave/KPay, read the time from the corresponding date/time field and convert PM/AM to 24-hour HH:MM. For CB, return the visible transaction time in HH:MM, or UNKNOWN if no time is shown.
 TRANSFER_TO: For KPay, read the name next to "Transfer To". For Wave Send view or CB, read the name next to "Receiver". This is the person or merchant who received the money. For Wave Receive view, return UNKNOWN for TRANSFER_TO.
 SENDER: For Wave Receive view, read the name next to "Sender". For CB, read a visible sender/originator field if present. For KPay and Wave Send view, return UNKNOWN.
-ACCOUNT_NUMBER: CB only — read the value next to "Account Number" or "A/C No."; UNKNOWN for other types.
-ACCOUNT_ID: CB only — read the value next to "ID" or "Account ID"; UNKNOWN for other types. Do not substitute Transaction No. unless the slip explicitly labels it as Account ID.
-ACCOUNT_NAME: CB only — read the value next to "Name" or "Account Name"; UNKNOWN for other types.
+ACCOUNT_NUMBER: CB only — legacy alias for the primary account number; use the FROM_ACCOUNT_NUMBER value when available. UNKNOWN for other types.
+ACCOUNT_ID: CB only — read the value next to an explicit "ID" or "Account ID" label; do not substitute Transaction No. or Reference No. UNKNOWN if no Account ID label is visible. UNKNOWN for other types.
+ACCOUNT_NAME: CB only — legacy alias for the primary account name; use the FROM_ACCOUNT_NAME value when available. UNKNOWN for other types.
+FROM_ACCOUNT_TYPE: CB only — the first account section type, such as "Current Account - Personal".
+FROM_ACCOUNT_NUMBER: CB only — the account number shown in the first account section, preserving hyphens, masked x characters, and leading zeroes.
+FROM_ACCOUNT_NAME: CB only — the name shown in the first account section, preserving spelling and spacing.
+TO_ACCOUNT_TYPE: CB only — the second account section type, such as "Digital Account".
+TO_ACCOUNT_NUMBER: CB only — the account number shown in the second account section, preserving hyphens, masked x characters, and leading zeroes.
+TO_ACCOUNT_NAME: CB only — the name shown in the second account section, preserving spelling and spacing.
+FEE: CB only — the value next to the fee/charges label; return a numeric value without currency text, or UNKNOWN.
+PURPOSE: CB only — the value next to the purpose/description label, such as "Rent"; UNKNOWN if not shown.
 
 TRANSACTION_NO is most critical — read every digit carefully.
 AMOUNT is also critical — do not infer or calculate it from any other field. Ignore text outside the original payment-slip image, including Telegram overlays or captions.
@@ -1990,6 +1998,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             account_number = slip_info.get("ACCOUNT_NUMBER", "UNKNOWN")
             account_id = slip_info.get("ACCOUNT_ID", "UNKNOWN")
             account_name = slip_info.get("ACCOUNT_NAME", "UNKNOWN")
+            from_account_type = slip_info.get("FROM_ACCOUNT_TYPE", "UNKNOWN")
+            from_account_number = slip_info.get("FROM_ACCOUNT_NUMBER", account_number)
+            from_account_name = slip_info.get("FROM_ACCOUNT_NAME", account_name)
+            to_account_type = slip_info.get("TO_ACCOUNT_TYPE", "UNKNOWN")
+            to_account_number = slip_info.get("TO_ACCOUNT_NUMBER", "UNKNOWN")
+            to_account_name = slip_info.get("TO_ACCOUNT_NAME", "UNKNOWN")
+            fee = slip_info.get("FEE", "UNKNOWN")
+            purpose = slip_info.get("PURPOSE", "UNKNOWN")
             ADMIN_REAL_NAME = os.environ.get("ADMIN_REAL_NAME", "Kyaw Min Tun")
             receiver_ok = ""
             if pay_type == "KPay" and transfer_to != "UNKNOWN":
@@ -2036,7 +2052,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💵 Amount: {amount} ks {amount_ok}\n"
                 f"📅 Date: {date_str} {time_str}\n"
                 + (f"📨 Transfer To: {transfer_to} {receiver_ok}\n" if pay_type == "KPay" else f"👤 Sender: {sender}\n")
-                + (f"🏦 Account Number: {account_number}\n🆔 Account ID: {account_id}\n👤 Account Name: {account_name}\n" if pay_type == "CB" else "")
+                + (f"📤 From: {from_account_type}\n   Account: {from_account_number}\n   Name: {from_account_name}\n📥 To: {to_account_type}\n   Account: {to_account_number}\n   Name: {to_account_name}\n🆔 Account ID: {account_id}\n💸 Fee: {fee}\n📝 Purpose: {purpose}\n" if pay_type == "CB" else "")
                 + f"\n⚠️ {pay_type} app မှာ `{reference}` စစ်ပြီးမှ Confirm လုပ်ပါ"
             )
             admin_kb = InlineKeyboardMarkup([
@@ -3330,6 +3346,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "accountNumber": slip_info.get("ACCOUNT_NUMBER", ""),
                             "accountId": slip_info.get("ACCOUNT_ID", ""),
                             "accountName": slip_info.get("ACCOUNT_NAME", ""),
+                            "fromAccountType": slip_info.get("FROM_ACCOUNT_TYPE", ""),
+                            "fromAccountNumber": slip_info.get("FROM_ACCOUNT_NUMBER", ""),
+                            "fromAccountName": slip_info.get("FROM_ACCOUNT_NAME", ""),
+                            "toAccountType": slip_info.get("TO_ACCOUNT_TYPE", ""),
+                            "toAccountNumber": slip_info.get("TO_ACCOUNT_NUMBER", ""),
+                            "toAccountName": slip_info.get("TO_ACCOUNT_NAME", ""),
+                            "fee": slip_info.get("FEE", ""),
+                            "purpose": slip_info.get("PURPOSE", ""),
                             "status": "APPROVED",
                         },
                     },
