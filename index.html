@@ -195,8 +195,9 @@ tr:hover td{background:var(--brand-soft)}
 .car-make{font-size:10px;font-weight:700;color:var(--ink-4);text-transform:uppercase;letter-spacing:1px}
 .car-model{font-size:15px;font-weight:700;color:var(--ink-1);margin:3px 0 10px;letter-spacing:-0.2px}
 .car-spec{font-size:11px;color:var(--ink-4);display:inline-block;margin-right:8px}
-.car-price{font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--brand)}
-.car-footer{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:11px;border-top:1px solid var(--line-soft)}
+	.car-price{font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--brand)}
+	.car-footer{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:11px;border-top:1px solid var(--line-soft)}
+	.car-detail-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}.car-source-action{min-height:31px;padding:0 9px;border:1px solid var(--brand);border-radius:var(--r-sm);background:var(--brand-soft);color:var(--brand);font:700 10px var(--font-sans);cursor:pointer;white-space:nowrap;transition:all .16s}.car-source-action:hover{background:var(--brand);color:#fff;transform:translateY(-1px)}.car-source-action:active{transform:scale(.97)}
 select,.input{border:1.5px solid var(--line);border-radius:var(--r-sm);padding:9px 12px;font-size:13px;font-family:var(--font-sans);color:var(--ink-1);background:var(--surface);cursor:pointer;outline:none;transition:border-color 0.15s,box-shadow 0.15s;min-height:38px}
 select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-glow)}
 .field-label{display:block;font-size:10.5px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px}
@@ -220,6 +221,18 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
 .lookup-input:focus{border-color:var(--brand);box-shadow:0 0 0 4px var(--brand-glow)}
 .detail-grid{display:grid;grid-template-columns:repeat(3,1fr);background:var(--surface-2)}
 .di{padding:14px 18px;border-right:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);background:var(--surface)}
+.japan-source-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;margin-bottom:14px;box-shadow:var(--sh-sm)}
+.japan-source-title{font-size:14px;font-weight:800;color:var(--ink-1);margin-bottom:4px}
+.japan-source-subtitle{font-size:11px;color:var(--ink-4);line-height:1.55;margin-bottom:12px}
+.japan-source-chassis{font-family:var(--font-mono);font-weight:800;color:var(--brand);letter-spacing:.5px}
+.japan-source-grid{display:flex;flex-wrap:wrap;gap:8px}
+.japan-source-link,.japan-source-copy{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 11px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface-2);color:var(--ink-1);font-size:11px;font-weight:700;text-decoration:none;transition:all .16s ease}
+.japan-source-link:hover,.japan-source-copy:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-soft);transform:translateY(-1px)}
+.japan-source-copy{font-family:inherit;cursor:pointer}
+.japan-source-note{font-size:10.5px;color:var(--ink-5);line-height:1.55;margin-top:12px}
+@media(max-width:600px){.japan-source-grid{display:grid;grid-template-columns:1fr 1fr}.japan-source-link{width:100%;font-size:10.5px;padding-left:7px;padding-right:7px}}
+@media(max-width:400px){.japan-source-grid{grid-template-columns:1fr}}
+
 .di:nth-child(3n){border-right:none}
 .dk{font-size:10px;font-weight:700;color:var(--ink-4);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px}
 .dv{font-size:14px;font-weight:600;color:var(--ink-1)}
@@ -248,7 +261,7 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
 #sideOverlay.open{display:block}
 .desktop-only{display:inline-flex}
 @media(max-width:900px){.dashboard-hero{align-items:flex-start;flex-direction:column;gap:16px}.dashboard-hero-form{width:100%;min-width:0;max-width:none}.dashboard-recent-grid{grid-template-columns:repeat(2,1fr)}.sidebar{transform:translateX(-100%);transition:transform 0.28s cubic-bezier(0.4,0,0.2,1)}.sidebar.open{transform:translateX(0);box-shadow:8px 0 32px rgba(10,14,26,0.4)}.main{margin-left:0 !important}#mobileMenuBtn{display:flex;align-items:center;justify-content:center;width:38px;height:38px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);color:var(--ink-1);font-size:18px;cursor:pointer;flex-shrink:0}.kpi-grid{grid-template-columns:repeat(2,1fr)}.grid-2,.grid-eq{grid-template-columns:1fr}.car-grid{grid-template-columns:repeat(2,1fr)}.mgrid{grid-template-columns:repeat(2,1fr)}.detail-grid{grid-template-columns:repeat(2,1fr)}.header{padding:0 14px;gap:10px}.header-title{font-size:14px}}
-@media(max-width:600px){.dashboard-hero{padding:20px 16px}.dashboard-hero-title{font-size:20px}.dashboard-hero-form{flex-direction:column;align-items:stretch}.dashboard-hero-btn{width:100%}.dashboard-recent-grid{grid-template-columns:1fr 1fr;gap:8px}.dashboard-recent-img{height:92px}.dashboard-recent-body{padding:9px}.car-grid{grid-template-columns:1fr !important}.kpi-grid{grid-template-columns:1fr 1fr;gap:10px}.mgrid{grid-template-columns:1fr}.desktop-only{display:none !important}.content{padding:12px}.tab-bar{padding:0 6px}.tab{padding:12px 10px;font-size:11.5px}.kpi-value{font-size:22px}.kpi-card{padding:14px}.card-body{padding:14px}.card-header{padding:12px 14px}select,.input{font-size:12px;padding:7px 10px}.lookup-row{flex-direction:column}.lookup-input{letter-spacing:1px}.live-pill{display:none}.header{padding:0 12px}.toast-stack{right:12px;bottom:12px}.update-banner{bottom:12px}}
+	@media(max-width:600px){.dashboard-hero{padding:20px 16px}.dashboard-hero-title{font-size:20px}.dashboard-hero-form{flex-direction:column;align-items:stretch}.dashboard-hero-btn{width:100%}.dashboard-recent-grid{grid-template-columns:1fr 1fr;gap:8px}.dashboard-recent-img{height:92px}.dashboard-recent-body{padding:9px}.car-grid{grid-template-columns:1fr !important}.kpi-grid{grid-template-columns:1fr 1fr;gap:10px}.mgrid{grid-template-columns:1fr}.desktop-only{display:none !important}.content{padding:12px}.tab-bar{padding:0 6px}.tab{padding:12px 10px;font-size:11.5px}.kpi-value{font-size:22px}.kpi-card{padding:14px}.card-body{padding:14px}.card-header{padding:12px 14px}select,.input{font-size:12px;padding:7px 10px}.lookup-row{flex-direction:column}.lookup-input{letter-spacing:1px}.live-pill{display:none}.header{padding:0 12px}.toast-stack{right:12px;bottom:12px}.update-banner{bottom:12px}.car-footer{align-items:flex-end}.car-detail-actions{gap:5px}.car-source-action{padding:0 8px;font-size:9.5px}}
 @media(max-width:400px){.tab{padding:10px 8px;font-size:11px}.kpi-card{padding:12px}.kpi-value{font-size:20px}}
 </style>
 </head>
@@ -548,7 +561,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.14-brand-icon.1';
+const APP_VERSION     = '2026.08.15-source-links.1';
 let deferredInstallPrompt = null;
 let waitingServiceWorker = null;
 
@@ -937,7 +950,7 @@ function renderDashDrillDown(){
   if(dashState.view==='model'){
     const cars=allCars.filter(c=>c.model.toUpperCase()===(dashState.model||'').toUpperCase()).sort((a,b)=>parseDate(b.date)-parseDate(a.date));
     if(!cars.length){drillArea.innerHTML=breadcrumb+'<div class="empty"><div class="ei">🚗</div><p>ကားမတွေ့ဘူး</p></div>';return;}
-    const carCards=cars.map((c,i)=>{const hi=c.imageUrl&&c.imageUrl.startsWith('http');return '<div class="car-card"><div class="car-img" style="'+(hi?'':'background:'+BGs[i%BGs.length])+'">'+(hi?'<img src="'+escAttr(c.imageUrl)+'" loading="lazy" alt="'+esc(c.model)+'" onerror="this.parentElement.textContent=\'🚗\'">':'🚗')+'<div class="car-img-badge">'+esc(c.location)+'</div></div><div class="car-body"><div class="car-make">'+esc(c.addedBy)+'</div><div class="car-model">'+esc(c.model)+'</div><div style="margin-bottom:8px">'+(c.year>0?'<span class="car-spec">📅 '+esc(c.year)+'</span>':'')+(c.color!=='-'?'<span class="car-spec">🎨 '+esc(c.color)+'</span>':'')+'</div><div class="car-footer"><div><div class="car-price">'+(c.price>0?'฿'+c.price.toLocaleString():'N/A')+'</div><div style="font-size:11px;color:var(--ink-4);margin-top:2px">'+esc(c.date)+'</div></div><button class="btn btn-primary btn-sm" onclick="goLookup(\''+esc(c.chassis)+'\')">View</button></div></div></div>';}).join('');
+	  const carCards=cars.map((c,i)=>{const hi=c.imageUrl&&c.imageUrl.startsWith('http');return '<div class="car-card"><div class="car-img" style="'+(hi?'':'background:'+BGs[i%BGs.length])+'">'+(hi?'<img src="'+escAttr(c.imageUrl)+'" loading="lazy" alt="'+esc(c.model)+'" onerror="this.parentElement.textContent=\'🚗\'">':'🚗')+'<div class="car-img-badge">'+esc(c.location)+'</div></div><div class="car-body"><div class="car-make">'+esc(c.addedBy)+'</div><div class="car-model">'+esc(c.model)+'</div><div style="margin-bottom:8px">'+(c.year>0?'<span class="car-spec">📅 '+esc(c.year)+'</span>':'')+(c.color!=='-'?'<span class="car-spec">🎨 '+esc(c.color)+'</span>':'')+'</div><div class="car-footer"><div><div class="car-price">'+(c.price>0?'฿'+c.price.toLocaleString():'N/A')+'</div><div style="font-size:11px;color:var(--ink-4);margin-top:2px">'+esc(c.date)+'</div></div><div class="car-detail-actions"><button class="btn btn-primary btn-sm" onclick="goLookup(\''+esc(c.chassis)+'\')">View</button><button class="car-source-action" type="button" onclick="goSourceCheck(\''+esc(c.chassis)+'\')" title="Japan source pages ကိုဖွင့်ရန်">Japan Source ↗</button></div></div></div></div>';}).join('');
     drillArea.innerHTML=breadcrumb+'<div style="font-size:12px;color:var(--ink-4);margin-bottom:12px;font-weight:500">'+cars.length+' cars found</div><div class="car-grid">'+carCards+'</div>';
   }
 }
@@ -968,7 +981,7 @@ function renderExplorer(resetPage){
   const g=document.getElementById('carGrid');
   if(!total){g.innerHTML='<div class="empty" style="grid-column:1/-1"><div class="ei">🚗</div><p>No cars match filters</p></div>';return;}
   const pageStart=(explorerPage-1)*EXPLORER_PAGE_SIZE;
-  const cards=f.slice(pageStart,showing).map((c,i)=>{const hi=c.imageUrl&&c.imageUrl.startsWith('http');return '<div class="car-card"><div class="car-img" style="'+(hi?'':'background:'+BGs[i%BGs.length])+'">'+(hi?'<img src="'+escAttr(c.imageUrl)+'" loading="lazy" alt="'+esc(c.model)+'" onerror="this.parentElement.textContent=\'🚗\'">':'🚗')+'<div class="car-img-badge">'+esc(c.location)+'</div></div><div class="car-body"><div class="car-make">'+esc(c.addedBy)+'</div><div class="car-model">'+esc(c.model)+'</div><div style="margin-bottom:8px">'+(c.year>0?'<span class="car-spec">📅 '+esc(c.year)+'</span>':'')+(c.color!=='-'?'<span class="car-spec">🎨 '+esc(c.color)+'</span>':'')+'</div><div class="car-footer"><div><div class="car-price">'+(c.price>0?'฿'+c.price.toLocaleString():'N/A')+'</div><div style="font-size:11px;color:var(--ink-4);margin-top:2px">'+esc(c.date)+'</div></div><button class="btn btn-primary btn-sm" onclick="goLookup(\''+esc(c.chassis)+'\')">View</button></div></div></div>';}).join('');
+	  const cards=f.slice(pageStart,showing).map((c,i)=>{const hi=c.imageUrl&&c.imageUrl.startsWith('http');return '<div class="car-card"><div class="car-img" style="'+(hi?'':'background:'+BGs[i%BGs.length])+'">'+(hi?'<img src="'+escAttr(c.imageUrl)+'" loading="lazy" alt="'+esc(c.model)+'" onerror="this.parentElement.textContent=\'🚗\'">':'🚗')+'<div class="car-img-badge">'+esc(c.location)+'</div></div><div class="car-body"><div class="car-make">'+esc(c.addedBy)+'</div><div class="car-model">'+esc(c.model)+'</div><div style="margin-bottom:8px">'+(c.year>0?'<span class="car-spec">📅 '+esc(c.year)+'</span>':'')+(c.color!=='-'?'<span class="car-spec">🎨 '+esc(c.color)+'</span>':'')+'</div><div class="car-footer"><div><div class="car-price">'+(c.price>0?'฿'+c.price.toLocaleString():'N/A')+'</div><div style="font-size:11px;color:var(--ink-4);margin-top:2px">'+esc(c.date)+'</div></div><div class="car-detail-actions"><button class="btn btn-primary btn-sm" onclick="goLookup(\''+esc(c.chassis)+'\')">View</button><button class="car-source-action" type="button" onclick="goSourceCheck(\''+esc(c.chassis)+'\')" title="Japan source pages ကိုဖွင့်ရန်">Japan Source ↗</button></div></div></div></div>';}).join('');
   g.innerHTML=cards;
   const pc=document.getElementById('paginationContainer');
   if(pc){const totalPages=Math.ceil(total/EXPLORER_PAGE_SIZE);if(totalPages>1){pc.style.display='block';let btns='';btns+=explorerPage>1?'<button onclick="explorerPage--;renderExplorer(false)" style="'+pgBtn(false)+'">‹</button>':'<button style="'+pgBtn(false)+';opacity:0.3;cursor:default">‹</button>';const start=Math.max(1,explorerPage-2);const end=Math.min(totalPages,explorerPage+2);if(start>1)btns+='<button onclick="explorerPage=1;renderExplorer(false)" style="'+pgBtn(false)+'">1</button>';if(start>2)btns+='<span style="padding:0 4px;color:var(--ink-4)">…</span>';for(let i=start;i<=end;i++){btns+='<button onclick="explorerPage='+i+';renderExplorer(false)" style="'+pgBtn(i===explorerPage)+'">'+i+'</button>';}if(end<totalPages-1)btns+='<span style="padding:0 4px;color:var(--ink-4)">…</span>';if(end<totalPages)btns+='<button onclick="explorerPage='+totalPages+';renderExplorer(false)" style="'+pgBtn(false)+'">'+totalPages+'</button>';btns+=explorerPage<totalPages?'<button onclick="explorerPage++;renderExplorer(false)" style="'+pgBtn(false)+'">›</button>':'<button style="'+pgBtn(false)+';opacity:0.3;cursor:default">›</button>';pc.innerHTML='<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap">'+btns+'</div>';}else pc.style.display='none';}
@@ -1005,18 +1018,42 @@ function renderChassisTbl(filter){
 }
 function filterChassisTbl(v){renderChassisTbl(v);}
 
+function normalizeJapanSourceChassis(value){
+  return String(value||'').replace(/[\u0000-\u001f\u007f\u200b-\u200d\u2060\ufeff]/g,'').replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g,'-').trim().toUpperCase().replace(/\s+/g,'').replace(/[^A-Z0-9-]/g,'').replace(/-+/g,'-').replace(/^-|-$/g,'');
+}
+async function copyJapanSourceChassis(chassis){
+  const safeChassis=normalizeJapanSourceChassis(chassis);if(!safeChassis)return;
+  try{await navigator.clipboard.writeText(safeChassis);showToast('Chassis '+safeChassis+' copied','ok');}catch(e){window.prompt('ဒီ chassis ကို copy လုပ်ပါ',safeChassis);}
+}
+function renderJapanSourceLinks(chassis, car){
+  const safeChassis=normalizeJapanSourceChassis(chassis);if(!safeChassis)return '';
+  const encoded=encodeURIComponent(safeChassis);
+  const model=String(car&&car.model||'').toUpperCase();
+  const gooUrl=model.includes('ALPHARD')?'https://www.goo-net.com/catalog/TOYOTA/ALPHARD/':'https://www.goo-net.com/catalog/';
+  const sources=[
+    {label:'SBT Japan Chassis Check',url:'https://www.sbtjapan.com/support/vehicle_inspection/chassis-check'},
+    {label:model.includes('ALPHARD')?'Goo-net Alphard Catalog':'Goo-net Japan Catalog',url:gooUrl},
+    {label:'Real Motor Chassis Catalog',url:'https://www.realmotor.jp/catalog'},
+    {label:'CAR VX Chassis Info',url:'https://carvx.jp/chassis-number'},
+    {label:'Free JDM Decoder',url:'https://www.ts-export.com/page.php?page=about_vin_decoders'}
+  ];
+  return '<section class="japan-source-card" aria-label="Free Japan source links"><div class="japan-source-title">Japan Source Check</div><div class="japan-source-subtitle">ဒီ chassis ကို free public source page များတွင် ထပ်စစ်ရန် — <span class="japan-source-chassis">'+esc(safeChassis)+'</span></div><div class="japan-source-grid"><button type="button" class="japan-source-copy" onclick="copyJapanSourceChassis(\''+escAttr(safeChassis)+'\')">⧉ Copy chassis</button>'+sources.map(source=>'<a class="japan-source-link" href="'+escAttr(source.url)+'" target="_blank" rel="noopener noreferrer" data-chassis="'+escAttr(encoded)+'">↗ '+esc(source.label)+'</a>').join('')+'</div><div class="japan-source-note">ဒီ buttons တွေက source website ကိုသာ ဖွင့်ပေးပါတယ်။ JACC က source content ကို auto မကူးပါ။ Source website ရဲ့ own result၊ login/CAPTCHA၊ terms နှင့် accuracy disclaimer အတိုင်း အသုံးပြုပါ။</div></section>';
+}
 function lookupChassis(){
   const v=document.getElementById('chassisInput').value.trim();if(!v)return;
   const car=allCars.find(c=>c.chassis.toUpperCase().includes(v.toUpperCase()));
   const el=document.getElementById('chassisResult');
+  const sourceLinks=renderJapanSourceLinks(v,car);
   if(car){
     const imgSection=car.imageUrl?'<div style="padding:0;border-top:1px solid var(--line);background:var(--ink-1);display:flex;justify-content:center;max-height:280px;overflow:hidden"><img src="'+escAttr(car.imageUrl)+'" alt="'+esc(car.model)+'" style="max-height:280px;width:100%;object-fit:contain" onerror="this.parentElement.innerHTML=\'<div style=padding:24px;text-align:center;color:var(--ink-4);background:var(--surface-2)>📷 ကားပုံ မရှိသေးဘူး</div>\'"></div>':'<div style="padding:24px;text-align:center;color:var(--ink-4);background:var(--surface-2);border-top:1px solid var(--line)"><div style="font-size:42px;margin-bottom:6px;opacity:0.4">🚗</div><div style="font-size:12px">ဒီကားအတွက် ပုံမရှိသေးဘူး</div></div>';
-    el.innerHTML='<div style="background:var(--surface);border-radius:var(--r-lg);border:1px solid var(--line);overflow:hidden;box-shadow:var(--sh-md)"><div style="background:var(--brand);color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><div style="font-size:16px;font-weight:800;letter-spacing:-0.3px">'+esc(car.chassis)+' — '+esc(car.model)+'</div><div style="font-size:12px;opacity:0.85;margin-top:3px">✓ Found in Sheet · '+esc(car.date)+'</div></div><span class="badge" style="background:rgba(255,255,255,0.2);color:#fff">'+esc(car.location)+'</span></div>'+imgSection+'<div class="detail-grid"><div class="di"><div class="dk">Model</div><div class="dv">'+esc(car.model)+'</div></div><div class="di"><div class="dk">Color</div><div class="dv">'+esc(car.color)+'</div></div><div class="di"><div class="dk">Year</div><div class="dv">'+(car.year>0?esc(car.year):'-')+'</div></div><div class="di"><div class="dk">Price (THB)</div><div class="dv" style="color:var(--brand);font-weight:700;font-family:var(--font-mono)">'+(car.price>0?'฿'+car.price.toLocaleString():'Not listed')+'</div></div><div class="di"><div class="dk">Location</div><div class="dv">'+esc(car.location)+'</div></div><div class="di"><div class="dk">Added By</div><div class="dv">'+esc(car.addedBy)+'</div></div></div></div>';
+    const recordHtml='<div style="background:var(--surface);border-radius:var(--r-lg);border:1px solid var(--line);overflow:hidden;box-shadow:var(--sh-md)"><div style="background:var(--brand);color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><div style="font-size:16px;font-weight:800;letter-spacing:-0.3px">'+esc(car.chassis)+' — '+esc(car.model)+'</div><div style="font-size:12px;opacity:0.85;margin-top:3px">✓ Found in Sheet · '+esc(car.date)+'</div></div><span class="badge" style="background:rgba(255,255,255,0.2);color:#fff">'+esc(car.location)+'</span></div>'+imgSection+'<div class="detail-grid"><div class="di"><div class="dk">Model</div><div class="dv">'+esc(car.model)+'</div></div><div class="di"><div class="dk">Color</div><div class="dv">'+esc(car.color)+'</div></div><div class="di"><div class="dk">Year</div><div class="dv">'+(car.year>0?esc(car.year):'-')+'</div></div><div class="di"><div class="dk">Price (THB)</div><div class="dv" style="color:var(--brand);font-weight:700;font-family:var(--font-mono)">'+(car.price>0?'฿'+car.price.toLocaleString():'Not listed')+'</div></div><div class="di"><div class="dk">Location</div><div class="dv">'+esc(car.location)+'</div></div><div class="di"><div class="dk">Added By</div><div class="dv">'+esc(car.addedBy)+'</div></div></div></div>';
+    el.innerHTML=sourceLinks+recordHtml;
   }else{
-    el.innerHTML='<div class="empty" style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg)"><div class="ei">❌</div><p>Chassis "<strong>'+esc(v)+'</strong>" not found in records</p></div>';
+    el.innerHTML=sourceLinks+'<div class="empty" style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg)"><div class="ei">❌</div><p>Chassis "<strong>'+esc(v)+'</strong>" not found in records</p></div>';
   }
 }
-function goLookup(chassis){switchTab('chassis');document.getElementById('chassisInput').value=chassis;lookupChassis();}
+	function goSourceCheck(chassis){switchTab('chassis');const input=document.getElementById('chassisInput');if(!input)return;input.value=normalizeJapanSourceChassis(chassis);lookupChassis();window.setTimeout(()=>document.getElementById('chassisResult')?.scrollIntoView({behavior:'smooth',block:'start'}),60);}
+	function goLookup(chassis){goSourceCheck(chassis);}
 
 function jdmApiBase(){return String(window.JACC_JDM_API_BASE_URL||'').trim().replace(/\/$/,'');}
 function renderJdmGradeResult(data){
