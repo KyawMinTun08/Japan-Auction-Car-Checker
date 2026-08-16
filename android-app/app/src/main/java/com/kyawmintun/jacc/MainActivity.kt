@@ -52,7 +52,7 @@ class MainActivity : AppCompatActivity() {
             displayZoomControls = false
             allowFileAccess = false
             allowContentAccess = false
-            userAgentString = "$userAgentString JACC-Android/1.0"
+            userAgentString = "$userAgentString JACC-Android/1.02"
         }
 
         webView.webChromeClient = object : WebChromeClient() {

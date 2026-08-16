@@ -6,7 +6,7 @@ This repository now includes an Android WebView wrapper in `android-app/`.
 
 - App name: Japan Auction Car Checker
 - Package: `com.kyawmintun.jacc`
-- Version: `1.0.0` (`versionCode` 1)
+- Version: `1.02` (`versionCode` 102)
 - Website: `https://kyawmintun08.github.io/Japan-Auction-Car-Checker/`
 
 ## Features
@@ -54,7 +54,7 @@ The release file will be under:
 The workflow `.github/workflows/build-android-apk.yml` supports these repository secrets:
 
 - `JACC_KEYSTORE_BASE64`
-- `JACC_STORE_PASSWORD`
+- `JACC_KEYSTORE_PASSWORD`
 - `JACC_KEY_ALIAS`
 - `JACC_KEY_PASSWORD`
 
