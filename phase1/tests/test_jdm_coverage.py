@@ -38,6 +38,9 @@ def test_reference_rows_are_not_presented_as_auction_grades() -> None:
 
 def test_frontend_has_direct_chassis_and_authorized_provider_links() -> None:
     source = INDEX.read_text(encoding="utf-8")
+    assert "https://carvx.jp/chassis-number" in source
+    assert "japan-source-primary" in source
+    assert '<details class="japan-source-more">' in source
     assert "autoparts.beforward.jp/vehicle/TOYOTA/?frame_no=" in source
     assert "jp-carparts.com/toyota/cartypelist.php?maker=toyota&type=3311D0" in source
     assert "auctiondatasearch.jp" in source
