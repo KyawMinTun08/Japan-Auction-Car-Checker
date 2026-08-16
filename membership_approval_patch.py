@@ -300,8 +300,9 @@ async def button_callback(update, context):
     _last_membership_save.pop(str(member_id), None)
 
     # For a Web renewal, make the legacy callback generate the already-stored
-    # password. This keeps its admin confirmation text, save payload and member
-    # DM all consistent. Serialize this tiny override because generate_password
+    # password. This keeps the Sheet write and customer DM consistent; the
+    # admin confirmation intentionally contains no password. Serialize this
+    # tiny override because generate_password
     # is a module global used by other handlers too.
     forced_password = ""
     target_package = _normalise_package(payment_snapshot.get("package", "CH"))

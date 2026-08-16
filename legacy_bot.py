@@ -3375,14 +3375,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         expire_date = (
             datetime.now() + timedelta(days=months * 30)
         ).strftime("%d/%m/%Y")
-        pw_line = f"🔑 Password: `{password}`\n" if package == "WEB" else ""
+        # Never include the Web password in an admin-facing confirmation.
+        # The customer DM is the only place where the verified Sheet password is sent.
+        password_notice = (
+            "🔐 Password ကို Customer DM သို့ ပို့ပြီးပြီ ✅\n"
+            if package == "WEB"
+            else ""
+        )
 
         await query.message.reply_text(
             f"✅ *Payment Confirmed + Approved!*\n\n"
             f"👤 {name} ({username})\n"
             f"📦 {PLAN_NAMES.get(package, package)} — {months} လ\n"
             f"⏰ ကုန်ဆုံး: `{expire_date}`\n"
-            f"{pw_line}\n"
+            f"{password_notice}"
             f"Member ကို DM ပို့ပြီးပြီ ✅",
             parse_mode="Markdown",
         )
@@ -3470,7 +3476,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
         await query.message.reply_text(
             f"✅ *Quick Approve ပြီး!*\n\n👤 @{member_username}\n📅 {months} လ\n"
-            f"⏰ ကုန်ဆုံး: `{expire_date}`\n🔑 Password: `{password}`",
+            f"⏰ ကုန်ဆုံး: `{expire_date}`\n"
+            f"🔐 Password ကို Customer DM သို့ ပို့ပြီးပြီ ✅",
             parse_mode='Markdown')
 
     elif data.startswith("req_budget_"):
@@ -4182,7 +4189,7 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
            f"📦 Package: {PLAN_NAMES.get(package,'')}\n"
            f"📅 <b>{months} လ</b>\n"
            f"⏰ ကုန်ဆုံး: <code>{expire_date}</code>\n"
-           f"🔑 Password: <code>{password}</code>\n")
+           f"🔐 Password ကို Customer DM သို့ ပို့ပြီးပြီ ✅\n")
     if invite_url: txt += f"\n🔗 {invite_url}"
     await update.message.reply_text(txt, parse_mode='HTML')
 
