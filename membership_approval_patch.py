@@ -320,16 +320,40 @@ async def button_callback(update, context):
                 await _original_button_callback(update, context)
             finally:
                 _legacy.generate_password = _original_generate_password
-    except Exception:
+    except Exception as exc:
+        # The legacy handler removes pending_payment before the Sheet write. If
+        # the write already succeeded and a later Telegram response failed,
+        # restoring the payment data would make the next tap renew the member a
+        # second time. Treat that case as approved and never replay the write.
+        save_result = _last_membership_save.get(str(member_id), {})
+        if save_result.get("ok"):
+            _legacy.logger.exception(
+                "Membership approval completed but post-save step failed "
+                "user=%s error=%s",
+                member_id,
+                exc,
+            )
+            try:
+                await query.message.reply_text(
+                    "✅ Membership Sheet ထဲသိမ်းပြီးပါပြီ။ Duplicate မဖြစ်အောင် "
+                    "Approve ကို ထပ်မနှိပ်ပါနဲ့။ Customer ကို /mypassword သုံးခိုင်းပါ။"
+                )
+            except Exception:
+                pass
+            return
+
         if payment_snapshot:
             _legacy.pending_payment[member_id] = payment_snapshot
         _legacy.logger.exception(
-            "Membership approval callback crashed; payment data restored user=%s",
+            "Membership approval callback crashed before completion; "
+            "payment data restored user=%s error=%s",
             member_id,
+            exc,
         )
         try:
             await query.message.reply_text(
-                "❌ Approve လုပ်နေစဉ် Error ဖြစ်သွားပါတယ်။ Data မပျောက်ပါ — ခဏနေရင် Yes — Approve ကို ထပ်နှိပ်ပါ။"
+                "❌ Approve လုပ်နေစဉ် Error ဖြစ်သွားပါတယ်။ Data မပျောက်ပါ — "
+                "Webhook စစ်ပြီး Yes — Approve ကို တစ်ကြိမ်ပဲ ထပ်နှိပ်ပါ။"
             )
         except Exception:
             pass
