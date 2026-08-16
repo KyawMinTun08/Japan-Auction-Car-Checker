@@ -297,8 +297,8 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
 
 <div class="load-overlay" id="loadingOverlay" style="display:none">
   <div class="load-mark"><img src="icon-192.png" alt="JACC logo"></div>
-  <div class="load-text">Google Sheets ထဲမှ Data ဆွဲနေသည်</div>
-  <div class="load-sub">Japan Auction Car Checker</div>
+  <div class="load-text">JACC App ချိတ်ဆက်နေသည်</div>
+  <div class="load-sub">Server response စောင့်နေသည်</div>
 </div>
 
 <aside class="sidebar" id="sidebar">
@@ -561,7 +561,10 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.15-source-links.1';
+const APP_VERSION     = '2026.08.16-startup-reliability.1';
+const REQUEST_TIMEOUT_MS = 12000;
+const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
+const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 let deferredInstallPrompt = null;
 let waitingServiceWorker = null;
 
@@ -592,6 +595,33 @@ function showToast(message,type=''){
 function updateNetworkStatus(){
   const pill=document.getElementById('networkStatus');const txt=document.getElementById('networkStatusText');if(!pill||!txt)return;
   const online=navigator.onLine;pill.classList.toggle('offline',!online);txt.textContent=online?'Live':'Offline';pill.title=online?'Online — live data available':'Offline — cached app only';
+}
+async function fetchWithTimeout(url,options={},timeoutMs=REQUEST_TIMEOUT_MS){
+  const controller=typeof AbortController==='function'?new AbortController():null;
+  const requestOptions=Object.assign({},options);if(controller)requestOptions.signal=controller.signal;
+  let timer;
+  const request=fetch(url,requestOptions);
+  const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{if(controller)controller.abort();const e=new Error('request_timeout');e.code='REQUEST_TIMEOUT';reject(e);},Math.max(1000,timeoutMs));});
+  try{return await Promise.race([request,timeout]);}finally{clearTimeout(timer);}
+}
+function dataCacheKey(){return DATA_CACHE_KEY+'_'+String(SESSION&&SESSION.userId||'guest');}
+function readCarsCache(){
+  if(!SESSION||!SESSION.userId)return null;
+  try{
+    const parsed=JSON.parse(localStorage.getItem(dataCacheKey())||'null');
+    if(!parsed||parsed.version!==APP_VERSION||!Array.isArray(parsed.cars)||!parsed.cars.length)return null;
+    const age=Date.now()-Number(parsed.savedAt||0);if(!Number.isFinite(age)||age<0||age>DATA_CACHE_MAX_AGE_MS)return null;
+    return parsed;
+  }catch(e){return null;}
+}
+function writeCarsCache(cars){
+  if(!SESSION||!SESSION.userId)return;
+  try{localStorage.setItem(dataCacheKey(),JSON.stringify({version:APP_VERSION,savedAt:Date.now(),cars:Array.isArray(cars)?cars:[]}));}catch(e){console.warn('[JACC] local cache write failed',e);}
+}
+function renderCarsData(cars){
+  allCars=Array.isArray(cars)?cars:[];
+  document.getElementById('liveCount').textContent=allCars.length;
+  populateFilters();renderDashboard();renderExplorer();renderPrice();renderChassisTbl();renderTrends();
 }
 async function shareApp(){
   const data={title:'JACC — Japan Auction Car Checker',text:'Japan auction car price, model and chassis checker',url:location.origin+location.pathname};
@@ -633,7 +663,7 @@ async function doLogin(){
   if(!pw){err.style.display='block';err.textContent='Password ထည့်ပါ';return;}
   btn.querySelector('span').textContent='⏳ Checking...';btn.disabled=true;err.style.display='none';
   try{
-    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('verifyLogin',{password:pw}))});
+    const res=await fetchWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('verifyLogin',{password:pw}))});
     if(!res.ok)throw new Error('http_'+res.status);
     let result;
     try{result=await res.json();}catch(parseError){throw new Error('invalid_server_response');}
@@ -667,7 +697,7 @@ async function doLogin(){
 
 async function restoreSession(){
   window.JACC_SESSION_ERROR='';
-  const restored=await JACCDeviceBinding.verifyStoredSession({webhook:WEBHOOK});
+  const restored=await JACCDeviceBinding.verifyStoredSession({webhook:WEBHOOK,timeoutMs:REQUEST_TIMEOUT_MS});
   if(restored.ok){SESSION=restored.session;return true;}
   if(restored.deviceError){
     window.JACC_SESSION_ERROR=JACCDeviceBinding.deviceErrorMessage(restored.response||{message:restored.reason});
@@ -680,6 +710,10 @@ async function restoreSession(){
 function showApp(){
   document.getElementById('loginOverlay').style.display='none';
   document.getElementById('loadingOverlay').style.display='flex';
+  const loadingText=document.querySelector('#loadingOverlay .load-text');
+  const loadingSub=document.querySelector('#loadingOverlay .load-sub');
+  if(loadingText)loadingText.textContent='Google Sheets ထဲမှ Data ဆွဲနေသည်';
+  if(loadingSub)loadingSub.textContent='Live data update လုပ်နေသည်';
   if(!SESSION||(SESSION.package!=='WEB'&&SESSION.package!=='WEB-PROMO')){
     document.getElementById('loadingOverlay').style.display='none';
     document.querySelector('.main').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;padding:24px;background:var(--bg)"><div style="text-align:center;max-width:440px"><div style="font-size:60px;margin-bottom:18px">📱</div><div style="font-size:24px;font-weight:800;color:var(--ink-1);margin-bottom:10px;letter-spacing:-0.5px">Channel Only Package</div><div style="font-size:14px;color:var(--ink-4);margin-bottom:26px;line-height:1.6">သင်၏ Package သည် <strong>Channel Only</strong> ဖြစ်သောကြောင့်<br>Web App ဝင်ခွင့် မရှိပါ</div><div style="background:var(--brand-soft);border:1px solid var(--line);border-radius:var(--r-md);padding:20px;margin-bottom:24px;text-align:left"><div style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:12px;text-align:center">⬆️ Upgrade to Channel + Web</div><div style="font-size:13px;color:var(--ink-2);line-height:1.9">✓ Web App အပြည့်အဝ ဝင်ရောက်နိုင်<br>✓ Chassis Lookup<br>✓ Price Analysis & Charts<br>✓ Export CSV</div></div><a href="https://t.me/JapanAuctionCar_Bot" target="_blank" rel="noopener" style="display:inline-block;background:var(--ink-1);color:#fff;border-radius:var(--r-md);padding:14px 28px;font-size:14px;font-weight:700;text-decoration:none">Bot ဆက်သွယ်ရန် →</a><div style="margin-top:16px"><button onclick="doLogout()" class="btn btn-outline btn-sm">🚪 Logout</button></div></div></div>';
@@ -696,7 +730,7 @@ function updateUserBar(){
   const expire=esc(SESSION.expireDate||'-');
   document.getElementById('sideFooter').innerHTML='<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r-md);padding:12px;margin-bottom:10px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div class="member-av" style="width:34px;height:34px;font-size:14px;border-radius:var(--r-sm)">'+initial+'</div><div style="flex:1;min-width:0"><div style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Account</div><div style="font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@'+username+'</div></div></div><div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:rgba(255,255,255,0.5)">📦 Package</span><strong style="color:#fff;font-family:var(--font-mono);font-size:10px">'+esc(pkg)+'</strong></div><div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:rgba(255,255,255,0.5)">⏰ ကုန်ဆုံး</span><strong style="color:#FCD34D;font-family:var(--font-mono);font-size:10px">'+expire+'</strong></div></div></div><button onclick="doLogout()" style="width:100%;background:rgba(200,16,46,0.12);border:1px solid rgba(200,16,46,0.3);border-radius:var(--r-sm);padding:9px;font-size:12px;color:#FCA5A5;cursor:pointer;font-family:inherit;font-weight:600">🚪 Logout</button>';
 }
-function doLogout(){JACCDeviceBinding.clearSession();location.reload();}
+function doLogout(){try{if(SESSION&&SESSION.userId)localStorage.removeItem(dataCacheKey());}catch(e){}JACCDeviceBinding.clearSession();location.reload();}
 
 async function logVisitor(){
   try{
@@ -774,10 +808,21 @@ const BODY_TYPE_MAP={
 function fixImgUrl(url){if(!url||url.trim()==='')return '';const m=url.match(/\/d\/([a-zA-Z0-9_-]+)/);if(m)return 'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w400';if(url.startsWith('http'))return url;return '';}
 
 async function init(){
+  const cached=readCarsCache();
+  let allowCacheFallback=true;
+  if(cached){
+    renderCarsData(cached.cars);
+    document.getElementById('loadingOverlay').style.display='none';
+    showToast('Cached data ပြထားပါတယ် — Live data update လုပ်နေသည်','warn');
+  }
   try{
-    const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))});
+    const res=await fetchWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))});
+    if(!res.ok)throw new Error('http_'+res.status);
     const result=await res.json();
     if(result.status!=='ok'){
+      const reason=String(result.msg||result.message||result.error||'').toLowerCase();
+      const authFailure=JACCDeviceBinding.isDeviceError(result)||/expired|invalid.?token|unauthori[sz]ed|session|device/.test(reason);
+      if(authFailure)allowCacheFallback=false;
       if(JACCDeviceBinding.isDeviceError(result)){
         JACCDeviceBinding.clearSession();
         throw new Error(JACCDeviceBinding.deviceErrorMessage(result));
@@ -838,16 +883,18 @@ async function init(){
       return{date:String(r.date||''),chassis:String(r.chassis||''),model,color:String(r.color||'-').trim(),year:parseInt(String(r.year||0))||0,price:parseInt(String(r.price||0).replace(/[^0-9]/g,''))||0,location:String(r.location||'-').trim(),addedBy:String(r.addedBy||'-').trim(),imageUrl:fixImgUrl(String(r.imageUrl||''))};
     }).filter(r=>r&&(r.chassis||r.model));
 
-    document.getElementById('liveCount').textContent=allCars.length;
-    populateFilters();
-    renderDashboard();
-    renderExplorer();
-    renderPrice();
-    renderChassisTbl();
-    renderTrends();
+    renderCarsData(allCars);
+    writeCarsCache(allCars);
     document.getElementById('loadingOverlay').style.display='none';
+    if(cached)showToast('Live data update ပြီးပါပြီ','ok');
   }catch(e){
-    document.getElementById('loadingOverlay').innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">Connection Failed</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:18px">'+esc(e.message)+'</div><button onclick="location.reload()" class="btn btn-primary">🔄 Retry</button></div>';
+    if(allowCacheFallback&&cached){
+      document.getElementById('loadingOverlay').style.display='none';
+      showToast('Live data မရသေးပါ — Cached data ဖြင့် ဆက်သုံးနိုင်ပါတယ်','warn');
+      return;
+    }
+    const message=e&&e.code==='REQUEST_TIMEOUT'?'Google Sheets response ကြာနေပါတယ်':'Connection မအောင်မြင်ပါ';
+    document.getElementById('loadingOverlay').innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">'+message+'</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:18px">Internet စစ်ပြီး Retry နှိပ်ပါ။</div><button onclick="init()" class="btn btn-primary">🔄 Retry</button></div>';
   }
 }
 
