@@ -146,8 +146,8 @@ async def save_member_to_sheet(
     days: int,
     password: str = "",
     package: str = "CH",
-) -> bool:
-    """Clean membership values while preserving promo package codes."""
+) -> dict:
+    """Clean membership values while preserving structured Sheet results."""
     clean_package = str(package or "CH").strip().upper().replace("_", "-")
     aliases = {
         "STANDARD": "CH",
@@ -172,12 +172,13 @@ async def send_approval_dm(
     password: str,
     invite_url: str,
     package: str = "CH",
+    expire_date: str = "",
 ):
     """Send approval details without wrapping the password in quotes or labels."""
     clean_package = str(package or "CH").strip().upper()
     is_web = clean_package.startswith("WEB")
     clean_password = str(password or "").strip()
-    expire_date = (
+    expire_date = expire_date or (
         _legacy.datetime.now() + _legacy.timedelta(days=int(months) * 30)
     ).strftime("%d/%m/%Y")
 

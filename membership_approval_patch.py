@@ -82,8 +82,8 @@ async def save_member_to_sheet(
     days: int,
     password: str = "",
     package: str = "CH",
-) -> bool:
-    """Write membership data safely and keep Web renewal passwords stable."""
+) -> dict:
+    """Write membership data safely and return canonical Sheet fields."""
     clean_user_id = str(user_id or "").strip()
     clean_username = str(username or "").strip()
     clean_password = str(password or "").strip()
@@ -101,7 +101,7 @@ async def save_member_to_sheet(
             "detail": detail,
         }
         _legacy.logger.error("Membership save failed for %s: %s", clean_user_id, detail)
-        return False
+        return {"status": "error", "message": detail}
 
     if not clean_user_id or clean_days <= 0:
         detail = f"invalid payload: user_id={clean_user_id!r}, days={clean_days!r}"
@@ -110,7 +110,7 @@ async def save_member_to_sheet(
             "detail": detail,
         }
         _legacy.logger.error("Membership save failed: %s", detail)
-        return False
+        return {"status": "error", "message": detail}
 
     # Renewal rule: an existing Web member keeps the current Sheet password.
     # This prevents the bot from showing a newly generated password while the
@@ -176,20 +176,24 @@ async def save_member_to_sheet(
                     )
 
                 if isinstance(result, dict) and result.get("status") == "ok":
+                    canonical = dict(result)
+                    canonical.setdefault("package", clean_package)
+                    canonical.setdefault("password", clean_password)
+                    canonical["status"] = "ok"
                     _last_membership_save[clean_user_id] = {
                         "ok": True,
                         "detail": "ok",
-                        "result": result,
-                        "password": clean_password,
+                        "result": canonical,
+                        "password": str(canonical.get("password") or clean_password),
                     }
                     _legacy.logger.info(
                         "Membership saved user=%s package=%s days=%s result=%s",
                         clean_user_id,
                         clean_package,
                         clean_days,
-                        result.get("result", "ok"),
+                        canonical.get("result", "ok"),
                     )
-                    return True
+                    return canonical
 
                 if isinstance(result, dict):
                     message = (
@@ -224,7 +228,7 @@ async def save_member_to_sheet(
         "ok": False,
         "detail": last_detail,
     }
-    return False
+    return {"status": "error", "message": last_detail}
 
 
 async def send_approval_dm(
@@ -234,8 +238,9 @@ async def send_approval_dm(
     password: str,
     invite_url: str,
     package: str = "CH",
+    expire_date: str = "",
 ):
-    """Send only the password that is currently stored in the Members sheet."""
+    """Send only the password and canonical expiry stored in the Members sheet."""
     clean_package = _normalise_package(package)
     verified_password = str(password or "").strip()
 
@@ -261,6 +266,7 @@ async def send_approval_dm(
         verified_password,
         invite_url,
         package=clean_package,
+        expire_date=expire_date,
     )
 
     if clean_package.startswith("WEB") and not verified_password:

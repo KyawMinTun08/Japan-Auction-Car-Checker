@@ -371,15 +371,13 @@ async def activate_promo10d(context, user_id: int, username: str) -> bool:
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(SHEET_WEBHOOK, json={
-                "action":     "saveMember",
-                "userId":     str(user_id),
-                "username":   username,
-                "startDate":  start_date,
-                "expireDate": expire_date,
-                "status":     "ACTIVE",
-                "password":   password,
-                "package":    "PROMO10D",
-            }, timeout=10)
+                "action":   "saveMember",
+                "userId":   str(user_id),
+                "username": username,
+                "days":     10,
+                "password": password,
+                "package":  "PROMO10D",
+            }, timeout=10, follow_redirects=True)
         return resp.json().get("status") == "ok"
     except Exception as e:
         logger.error(f"activate_promo10d: {e}")
@@ -816,9 +814,9 @@ async def set_payment_qr(method: str, file_id: str, admin_name: str) -> bool:
 
 # ── Save Member with Password ─────────────────────────
 async def save_member_to_sheet(user_id: str, username: str, days: int,
-                                password: str = "", package: str = "CH") -> bool:
+                                password: str = "", package: str = "") -> dict:
     if not SHEET_WEBHOOK:
-        return False
+        return {"status": "error", "message": "sheet_webhook_missing"}
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(SHEET_WEBHOOK, json={
@@ -827,12 +825,61 @@ async def save_member_to_sheet(user_id: str, username: str, days: int,
                 "username": username,
                 "days":     days,
                 "password": password,
-                "package":  package,
+                "package":  package or "CH",
             }, timeout=10, follow_redirects=True)
-        return resp.json().get("status") == "ok"
+        payload = resp.json()
+        if not isinstance(payload, dict):
+            return {"status": "error", "message": "invalid_sheet_response"}
+        return payload
     except Exception as e:
         logger.error(f"saveMember: {e}")
-        return False
+        return {"status": "error", "message": "sheet_request_failed"}
+
+
+async def enrich_member_save_result(user_id: str, saved: dict, package: str) -> dict:
+    """Fill missing canonical expiry/password fields without changing Members columns."""
+    result = dict(saved or {})
+    result.setdefault("status", "error")
+    if result.get("status") != "ok" or not SHEET_WEBHOOK:
+        return result
+
+    needs_member = not result.get("expireDate") or not result.get("package")
+    if needs_member:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    SHEET_WEBHOOK,
+                    json={"action": "getMembers"},
+                    timeout=10,
+                    follow_redirects=True,
+                )
+            members = resp.json().get("members", [])
+            target = next(
+                (m for m in members if str(m.get("userId", "")).strip() == str(user_id).strip()),
+                None,
+            )
+            if target:
+                result.setdefault("expireDate", target.get("expireDate", ""))
+                result.setdefault("package", target.get("package", package))
+        except Exception as e:
+            logger.warning("canonical member lookup after save failed: %s", e)
+
+    normalized_package = str(result.get("package") or package or "").upper().replace("-", "")
+    if normalized_package in ("WEB", "WEBPROMO") and not result.get("password"):
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    SHEET_WEBHOOK,
+                    json={"action": "getPassword", "userId": str(user_id)},
+                    timeout=10,
+                    follow_redirects=True,
+                )
+            password_result = resp.json()
+            if password_result.get("status") == "ok":
+                result["password"] = str(password_result.get("password") or "")
+        except Exception as e:
+            logger.warning("canonical password lookup after save failed: %s", e)
+    return result
 
 async def create_invite_link(context, days: int) -> str:
     """Create a single-use channel link that stays valid long enough to use.
@@ -901,9 +948,10 @@ async def channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def send_approval_dm(context, member_id: int, months: int,
-                           password: str, invite_url: str, package: str = "CH"):
-    is_web      = package == "WEB"
-    expire_date = (datetime.now() + timedelta(days=months * 30)).strftime("%d/%m/%Y")
+                           password: str, invite_url: str, package: str = "CH",
+                           expire_date: str = ""):
+    is_web      = str(package).upper().replace("-", "") in ("WEB", "WEBPROMO")
+    expire_date = expire_date or (datetime.now() + timedelta(days=months * 30)).strftime("%d/%m/%Y")
     cust_kb = []
     if invite_url:
         cust_kb.append([InlineKeyboardButton("📢 Channel ဝင်ရန်", url=invite_url)])
@@ -3302,7 +3350,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             password,
             package,
         )
-        if not saved:
+        saved = await enrich_member_save_result(str(member_id), saved, package)
+        if saved.get("status") != "ok":
             await query.message.reply_text(
                 "❌ Membership ကို Sheet ထဲ မသိမ်းနိုင်ပါ။ Customer ကို approve မလုပ်ရသေးပါ။"
             )
@@ -3362,20 +3411,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"logPayment: {e}")
 
+        canonical_password = str(saved.get("password") or password or "")
+        canonical_expire = str(saved.get("expireDate") or "")
+        canonical_package = str(saved.get("package") or package).upper()
         invite_url = await create_invite_link(context, months * 30)
         await send_approval_dm(
             context,
             member_id,
             months,
-            password,
+            canonical_password,
             invite_url,
-            package=package,
+            package=canonical_package,
+            expire_date=canonical_expire,
         )
 
-        expire_date = (
+        expire_date = canonical_expire or (
             datetime.now() + timedelta(days=months * 30)
         ).strftime("%d/%m/%Y")
-        pw_line = f"🔑 Password: `{password}`\n" if package == "WEB" else ""
+        pw_line = f"🔑 Password: `{canonical_password}`\n" if canonical_package == "WEB" else ""
 
         await query.message.reply_text(
             f"✅ *Payment Confirmed + Approved!*\n\n"
@@ -3463,14 +3516,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             member_username = str(target_id)
 
-        password   = generate_password()
-        await save_member_to_sheet(str(target_id), member_username, days, password, "CH")
+        saved = await save_member_to_sheet(str(target_id), member_username, days, "", "CH")
+        saved = await enrich_member_save_result(str(target_id), saved, "CH")
+        if saved.get("status") != "ok":
+            await query.message.reply_text(
+                "❌ Sheet ထဲ မသိမ်းနိုင်သေးပါ။ Quick Approve မဖြစ်သေးပါ။"
+            )
+            return
+        canonical_expire = str(saved.get("expireDate") or "")
+        canonical_package = str(saved.get("package") or "CH").upper()
         invite_url = await create_invite_link(context, days)
-        await send_approval_dm(context, target_id, months, password, invite_url)
-        expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
+        await send_approval_dm(
+            context, target_id, months, "", invite_url,
+            package=canonical_package, expire_date=canonical_expire)
+        expire_date = canonical_expire or (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
         await query.message.reply_text(
             f"✅ *Quick Approve ပြီး!*\n\n👤 @{member_username}\n📅 {months} လ\n"
-            f"⏰ ကုန်ဆုံး: `{expire_date}`\n🔑 Password: `{password}`",
+            f"⏰ ကုန်ဆုံး: `{expire_date}`",
             parse_mode='Markdown')
 
     elif data.startswith("req_budget_"):
@@ -4167,22 +4229,40 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"get_chat: {e}")
 
-    password   = generate_password()
-    await save_member_to_sheet(
+    password   = generate_password() if package == "WEB" else ""
+    saved = await save_member_to_sheet(
         str(member_id) if member_id else username_or_id,
         member_username, days, password, package)
+    saved = await enrich_member_save_result(
+        str(member_id) if member_id else username_or_id, saved, package)
+    if saved.get("status") != "ok":
+        await update.message.reply_text(
+            "❌ Sheet ထဲ မသိမ်းနိုင်သေးပါ။ Membership Approved မဖြစ်သေးပါ။",
+            parse_mode="HTML",
+        )
+        return
+
+    canonical_password = str(saved.get("password") or password or "")
+    canonical_expire = str(saved.get("expireDate") or "")
+    canonical_package = str(saved.get("package") or package).upper()
     invite_url = await create_invite_link(context, days)
     if member_id:
-        await send_approval_dm(context, member_id, months, password, invite_url , package=package)
+        await send_approval_dm(
+            context, member_id, months, canonical_password, invite_url,
+            package=canonical_package, expire_date=canonical_expire)
 
-    expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
+    expire_date = canonical_expire or (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
+    password_line = (
+        f"🔑 Password: <code>{canonical_password}</code>\n"
+        if canonical_package == "WEB" and canonical_password else ""
+    )
     txt = (f"✅ <b>Membership Approved!</b>\n\n"
            f"👤 @{member_username}\n"
            f"🆔 <code>{member_id or 'N/A'}</code>\n"
-           f"📦 Package: {PLAN_NAMES.get(package,'')}\n"
+           f"📦 Package: {PLAN_NAMES.get(canonical_package, canonical_package)}\n"
            f"📅 <b>{months} လ</b>\n"
            f"⏰ ကုန်ဆုံး: <code>{expire_date}</code>\n"
-           f"🔑 Password: <code>{password}</code>\n")
+           f"{password_line}")
     if invite_url: txt += f"\n🔗 {invite_url}"
     await update.message.reply_text(txt, parse_mode='HTML')
 
@@ -5189,10 +5269,24 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         member_pkg = "CH-PROMO"
         pkg_label  = "📱 Channel Only"
 
-    password   = generate_password()
-    await save_member_to_sheet(str(user_id), username, days, password, member_pkg)
+    password = generate_password() if pkg == "WEB" else ""
+    saved = await save_member_to_sheet(str(user_id), username, days, password, member_pkg)
+    saved = await enrich_member_save_result(str(user_id), saved, member_pkg)
+    if saved.get("status") != "ok":
+        await update.message.reply_text(
+            "❌ Promo ရပါပြီ၊ ဒါပေမယ့် Member Sheet ထဲ မသိမ်းနိုင်သေးပါ။ Admin ကို ဆက်သွယ်ပါ။"
+        )
+        await notify_admins(
+            context,
+            f"⚠️ Promo save failed for {user_id}. Code={code}; payment/member data needs review.",
+        )
+        return
+    canonical_password = str(saved.get("password") or password or "")
+    canonical_expire = str(saved.get("expireDate") or "")
     invite_url = await create_invite_link(context, days)
-    await send_approval_dm(context, user_id, days // 30, password, invite_url, package=pkg)
+    await send_approval_dm(
+        context, user_id, max(1, days // 30), canonical_password, invite_url,
+        package=str(saved.get("package") or pkg), expire_date=canonical_expire)
 
     await update.message.reply_text(
         f"🎉 *Promo Code အောင်မြင်!*\n\n"

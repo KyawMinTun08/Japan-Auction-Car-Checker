@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+LEGACY = ROOT / "legacy_bot.py"
+QUEUE = ROOT / "queue_launcher.py"
+PATCH = ROOT / "membership_approval_patch.py"
+CODE = ROOT / "Code.gs"
+INDEX = ROOT / "index.html"
+
+
+def test_website_and_apps_script_contract_stays_unchanged() -> None:
+    web = INDEX.read_text(encoding="utf-8")
+    apps_script = CODE.read_text(encoding="utf-8")
+    assert 'JACCDeviceBinding.withDevice(\'verifyLogin\'' in web
+    assert 'verifyStoredSession' in web
+    assert 'withDevice(\'verifyLogin\'' in web
+    assert 'case "saveMember":' in apps_script
+    assert 'data.userId, data.username, data.days' in apps_script
+    assert 'case "getPassword":' in apps_script
+    assert 'case "verifyToken":' in apps_script
+    assert 'package:    _normalizePackage(rows[i][C_PACKAGE])' in apps_script
+    assert 'expireDate: Utilities.formatDate(expireDate' in apps_script
+
+
+def test_bot_uses_canonical_save_response_for_approval_and_renewal() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    assert ') -> dict:' in bot[bot.index('async def save_member_to_sheet'):bot.index('async def create_invite_link')]
+    assert 'saved = await enrich_member_save_result' in bot
+    assert 'canonical_password = str(saved.get("password") or password or "")' in bot
+    assert 'canonical_expire = str(saved.get("expireDate") or "")' in bot
+    assert 'package=canonical_package, expire_date=canonical_expire' in bot
+    assert 'if saved.get("status") != "ok":' in bot
+
+
+def test_promo_payload_matches_apps_script_days_contract() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    promo = bot[bot.index('async def activate_promo10d'):bot.index('def generate_password')]
+    assert '"days":     10' in promo
+    assert '"startDate"' not in promo
+    assert '"expireDate"' not in promo
+
+
+def test_railway_wrappers_preserve_structured_result_and_expiry() -> None:
+    queue = QUEUE.read_text(encoding="utf-8")
+    patch = PATCH.read_text(encoding="utf-8")
+    assert ') -> dict:' in queue[queue.index('async def save_member_to_sheet'):queue.index('async def send_approval_dm')]
+    assert 'expire_date: str = ""' in queue
+    assert 'expire_date = expire_date or' in queue
+    assert ') -> dict:' in patch[patch.index('async def save_member_to_sheet'):patch.index('async def send_approval_dm')]
+    assert 'return canonical' in patch
+    assert 'expire_date=expire_date' in patch
+    assert 'return {"status": "error", "message": last_detail}' in patch
+
+
+def test_standard_paths_do_not_advertise_a_web_password() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    quick = bot[bot.index('elif data.startswith("qa_")'):bot.index('elif data.startswith("req_budget_")')]
+    assert '"CH")' in quick
+    assert 'Password: `{password}`' not in quick
