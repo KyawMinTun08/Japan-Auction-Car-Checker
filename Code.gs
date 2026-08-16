@@ -9,6 +9,7 @@ var SS_ID    = "1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHDO6K3zG1mpY";
 var MEMBERS  = "Members";
 var LOG_SHEET = "ID_Change_Log";
 var PAY_SHEET = "Payment_History";
+var FINANCE_SHEET = "Finance";
 
 // Column indexes (0-based)
 var C_USERID   = 0;
@@ -233,24 +234,37 @@ function doPost(e) {
 
       // ── Log Payment to Finance Sheet ───────────────
       case "logPayment":
-        var finSheet = ss.getSheetByName("Finance");
-        if (!finSheet) {
-          finSheet = ss.insertSheet("Finance");
-          finSheet.appendRow([
-            "Date","Time","UserID","Username","Package","Months",
-            "Amount(Ks)","PayType","TransactionNo","TransferTo","Sender","Status"
-          ]);
-          finSheet.getRange(1,1,1,12).setFontWeight("bold")
-            .setBackground("#1A2535").setFontColor("#FFFFFF");
-        }
+        var finSheet = ss.getSheetByName(FINANCE_SHEET);
+        if (!finSheet) finSheet = ss.insertSheet(FINANCE_SHEET);
+        _ensureFinanceHeaders_(finSheet);
         var fp = data.payment || {};
+        var paymentId = String(fp.paymentId || fp.transactionNo || "").trim();
+        if (paymentId.toUpperCase() === "UNKNOWN") paymentId = "";
+        if (paymentId) {
+          var existingFinanceRows = finSheet.getDataRange().getValues();
+          for (var ei = 1; ei < existingFinanceRows.length; ei++) {
+            var existingTransaction = String(existingFinanceRows[ei][8] || "").trim();
+            var existingPaymentId = String(existingFinanceRows[ei][14] || "").trim();
+            if (existingTransaction === paymentId || existingPaymentId === paymentId) {
+              return _json({status:"ok", result:"duplicate", duplicate:true});
+            }
+          }
+        }
         finSheet.appendRow([
           fp.date || "", fp.time || "", fp.userId || "",
           fp.username || "", fp.package || "", fp.months || "",
-          fp.amount || "", fp.payType || "", fp.transactionNo || "",
-          fp.receiver || "", fp.sender || "", fp.status || "APPROVED"
+          fp.amount || "", fp.payType || fp.method || "", fp.transactionNo || "",
+          fp.receiver || fp.transferTo || "", fp.sender || "", fp.status || "APPROVED",
+          fp.entryType || "", fp.source || "PAYMENT_SLIP", fp.paymentId || "",
+          fp.approvedBy || "", fp.expireDate || "", fp.note || ""
         ]);
         return _json({status:"ok"});
+
+      // ── Admin Finance Summary ───────────────────────
+      case "getFinanceReport":
+        var financeAuth = _authorizeFinanceReport_(data.serverKey);
+        if (financeAuth) return _json(financeAuth);
+        return _json(getFinanceReport_(data.month));
       case "getBrokers":
         var gbSheet = ss.getSheetByName("Brokers");
         if (!gbSheet) return _json({status:"ok", brokers:[]});
@@ -929,6 +943,210 @@ function _normalizePackage(value) {
   return pkg.replace(/\s+/g, "-") || "CH";
 }
 
+// ── Finance report helpers ─────────────────────────────────
+function _financeHeaders_() {
+  return [
+    "Date","Time","UserID","Username","Package","Months",
+    "Amount(Ks)","PayType","TransactionNo","TransferTo","Sender","Status",
+    "EntryType","Source","PaymentID","ApprovedBy","ExpireDate","Note"
+  ];
+}
+
+function _financeHeaderKey_(value) {
+  return String(value || "").trim().toUpperCase().replace(/[\s_()\-]/g, "");
+}
+
+function _ensureFinanceHeaders_(sheet) {
+  var headers = _financeHeaders_();
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  } else {
+    var firstWidth = Math.max(sheet.getLastColumn(), headers.length);
+    var firstRow = sheet.getRange(1, 1, 1, firstWidth).getValues()[0];
+    var firstKey = _financeHeaderKey_(firstRow[0]);
+    var amountKey = _financeHeaderKey_(firstRow[6]);
+    if (firstKey !== "DATE" || amountKey.indexOf("AMOUNT") === -1) {
+      sheet.insertRowBefore(1);
+    }
+    var currentWidth = Math.max(sheet.getLastColumn(), headers.length);
+    var current = sheet.getRange(1, 1, 1, currentWidth).getValues()[0];
+    for (var hi = 0; hi < headers.length; hi++) {
+      if (!String(current[hi] || "").trim()) {
+        sheet.getRange(1, hi + 1).setValue(headers[hi]);
+      }
+    }
+  }
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold")
+    .setBackground("#1A2535").setFontColor("#FFFFFF");
+}
+
+function _financeColumns_(headers) {
+  var map = {};
+  for (var ci = 0; ci < headers.length; ci++) {
+    var key = _financeHeaderKey_(headers[ci]);
+    if (key && map[key] === undefined) map[key] = ci;
+  }
+  return map;
+}
+
+function _financeColumn_(map, names, fallback) {
+  for (var ni = 0; ni < names.length; ni++) {
+    var idx = map[_financeHeaderKey_(names[ni])];
+    if (idx !== undefined) return idx;
+  }
+  return fallback;
+}
+
+function _financeDateKey_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, "Asia/Bangkok", "yyyy-MM-dd");
+  }
+  var text = String(value || "").trim();
+  var match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (match) return match[3] + "-" + ("0" + match[2]).slice(-2) + "-" + ("0" + match[1]).slice(-2);
+  match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (match) return match[1] + "-" + ("0" + match[2]).slice(-2) + "-" + ("0" + match[3]).slice(-2);
+  return "";
+}
+
+function _financeAmount_(value) {
+  var text = String(value === null || value === undefined ? "" : value)
+    .trim().replace(/,/g, "").replace(/ks/ig, "").trim();
+  if (!text || text.toUpperCase() === "UNKNOWN") return null;
+  var amount = Number(text);
+  return isFinite(amount) && amount >= 0 ? amount : null;
+}
+
+function _financeMethod_(value) {
+  var text = String(value || "").trim().toUpperCase();
+  if (text.indexOf("KPAY") !== -1 || text.indexOf("KBZPAY") !== -1 || text.indexOf("KBZ BANK") !== -1) return "KPay";
+  if (text.indexOf("WAVE") !== -1) return "Wave";
+  if (text.indexOf("BANK") !== -1 || text === "CB" || text.indexOf("CB PAY") !== -1) return "Bank";
+  if (text === "MANUAL") return "Manual";
+  if (text === "PROMO") return "Promo";
+  return text ? "Other" : "Other";
+}
+
+function _financeEntryType_(entryType, source) {
+  var text = String(entryType || "").trim().toUpperCase();
+  var src = String(source || "").trim().toUpperCase();
+  if (text.indexOf("UPGRADE") !== -1) return "UPGRADE";
+  if (text.indexOf("RENEW") !== -1) return "RENEW";
+  if (text.indexOf("NEW") !== -1 || text.indexOf("ADD") !== -1) return "NEW";
+  if (text.indexOf("MANUAL") !== -1 || src.indexOf("MANUAL") !== -1) return "MANUAL";
+  if (text.indexOf("PROMO") !== -1 || src.indexOf("PROMO") !== -1) return "PROMO";
+  return "UNKNOWN";
+}
+
+function _authorizeFinanceReport_(serverKey) {
+  var expected = String(PropertiesService.getScriptProperties().getProperty("JACC_SERVER_KEY") || "").trim();
+  if (!expected) return {status:"error", message:"server_key_not_configured"};
+  if (!serverKey || String(serverKey).trim() !== expected) return {status:"error", message:"unauthorized"};
+  return null;
+}
+
+function getFinanceReport_(month) {
+  var monthText = String(month || "").trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthText)) {
+    return {status:"error", message:"invalid_month"};
+  }
+  var finSheet = SpreadsheetApp.openById(SS_ID).getSheetByName(FINANCE_SHEET);
+  var summary = {
+    month: monthText,
+    recordCount: 0,
+    paymentCount: 0,
+    activityCount: 0,
+    totalAmount: 0,
+    knownAmountCount: 0,
+    unknownAmountCount: 0,
+    duplicateCount: 0,
+    missingTransactionCount: 0,
+    byMethod: {
+      KPay:{count:0,total:0}, Wave:{count:0,total:0},
+      Bank:{count:0,total:0}, Other:{count:0,total:0}
+    },
+    byEntryType: {NEW:0, RENEW:0, UPGRADE:0, MANUAL:0, PROMO:0, UNKNOWN:0},
+    bySource: {PAYMENT_SLIP:0, MANUAL:0, PROMO:0, OTHER:0},
+    reviewItems: []
+  };
+  if (!finSheet || finSheet.getLastRow() < 1) return {status:"ok", summary:summary};
+
+  _ensureFinanceHeaders_(finSheet);
+  var rows = finSheet.getDataRange().getValues();
+  if (rows.length < 2) return {status:"ok", summary:summary};
+  var columns = _financeColumns_(rows[0]);
+  var dateCol = _financeColumn_(columns, ["Date"], 0);
+  var userCol = _financeColumn_(columns, ["UserID", "TelegramID"], 2);
+  var usernameCol = _financeColumn_(columns, ["Username"], 3);
+  var packageCol = _financeColumn_(columns, ["Package"], 4);
+  var amountCol = _financeColumn_(columns, ["Amount(Ks)", "Amount"], 6);
+  var payTypeCol = _financeColumn_(columns, ["PayType", "Method"], 7);
+  var txCol = _financeColumn_(columns, ["TransactionNo", "Transaction No"], 8);
+  var statusCol = _financeColumn_(columns, ["Status"], 11);
+  var entryCol = _financeColumn_(columns, ["EntryType", "Action", "MembershipType"], 12);
+  var sourceCol = _financeColumn_(columns, ["Source"], 13);
+
+  var seenTransactions = {};
+  for (var ri = 1; ri < rows.length; ri++) {
+    var row = rows[ri];
+    var dateKey = _financeDateKey_(row[dateCol]);
+    if (!dateKey || dateKey.slice(0, 7) !== monthText) continue;
+    var status = String(row[statusCol] || "").trim().toUpperCase();
+    var source = String(row[sourceCol] || "").trim().toUpperCase();
+    if (!source && status === "APPROVED") source = "PAYMENT_SLIP";
+    var tx = String(row[txCol] || "").trim();
+    var amount = _financeAmount_(row[amountCol]);
+    var method = _financeMethod_(row[payTypeCol]);
+    var entryType = _financeEntryType_(row[entryCol], source);
+    var reviewReason = "";
+    var isActivity = status === "APPROVED" || status === "NO_PAYMENT" || status === "PROMO" || source === "MANUAL" || source === "PROMO";
+    if (!isActivity) {
+      summary.reviewItems.push({row:ri + 1, date:dateKey, userId:String(row[userCol] || ""), reason:"status:" + (status || "missing")});
+      continue;
+    }
+    if (tx && seenTransactions[tx]) {
+      summary.duplicateCount++;
+      summary.reviewItems.push({row:ri + 1, date:dateKey, userId:String(row[userCol] || ""), reason:"duplicate_transaction"});
+      continue;
+    }
+    if (tx) seenTransactions[tx] = true;
+    if (!tx && method !== "Manual" && method !== "Promo") {
+      summary.missingTransactionCount++;
+      reviewReason = "missing_transaction";
+    }
+
+    summary.recordCount++;
+    summary.activityCount++;
+    summary.byEntryType[entryType] = (summary.byEntryType[entryType] || 0) + 1;
+    var sourceBucket = source === "PAYMENT_SLIP" ? "PAYMENT_SLIP" : (source === "MANUAL" ? "MANUAL" : (source === "PROMO" ? "PROMO" : "OTHER"));
+    summary.bySource[sourceBucket] = (summary.bySource[sourceBucket] || 0) + 1;
+    var isRevenue = status === "APPROVED" && method !== "Manual" && method !== "Promo" && source !== "MANUAL" && source !== "PROMO";
+    if (isRevenue) {
+      summary.paymentCount++;
+      if (amount === null) {
+        summary.unknownAmountCount++;
+        reviewReason = reviewReason || "missing_amount";
+      } else {
+        summary.knownAmountCount++;
+        summary.totalAmount += amount;
+        if (!summary.byMethod[method]) method = "Other";
+        summary.byMethod[method].count++;
+        summary.byMethod[method].total += amount;
+      }
+    }
+    if (entryType === "UNKNOWN") reviewReason = reviewReason || "missing_entry_type";
+    if (reviewReason && summary.reviewItems.length < 25) {
+      summary.reviewItems.push({
+        row:ri + 1, date:dateKey, userId:String(row[userCol] || ""),
+        username:String(row[usernameCol] || ""), package:String(row[packageCol] || ""),
+        amount:amount === null ? "" : amount, method:method, entryType:entryType,
+        reason:reviewReason
+      });
+    }
+  }
+  return {status:"ok", summary:summary};
+}
+
 // ── saveMember ─────────────────────────────────────────────
 function saveMember(userId, username, expireDays, password, pkg) {
   var ss     = SpreadsheetApp.openById(SS_ID);
@@ -973,9 +1191,13 @@ function saveMember(userId, username, expireDays, password, pkg) {
       // Force a fresh login only after the admin approves the renewal.
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
       writeAuditLog('Admin', 'RENEW', username, 'pkg:' + normalizedPackage);
+      var renewalType = currentPackage === "CH" && normalizedPackage === "WEB" ? "UPGRADE" : "RENEW";
       return {
         status:"ok",
         result:"renewed",
+        entryType:renewalType,
+        previousPackage:currentPackage,
+        package:normalizedPackage,
         password:effectivePassword,
         passwordPreserved:normalizedPackage === "WEB" && currentPackage === "WEB" && !!currentPassword,
         expireDate:expireStr
@@ -998,6 +1220,9 @@ function saveMember(userId, username, expireDays, password, pkg) {
   return {
     status:"ok",
     result:"added",
+    entryType:"NEW",
+    previousPackage:"",
+    package:normalizedPackage,
     password:newPassword,
     passwordPreserved:false,
     expireDate:expireStr

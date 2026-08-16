@@ -8,7 +8,7 @@ import logging
 import httpx
 from phase1.phase1_client import JaccPhase1Client, JaccPhase1Error
 from jdm_lookup_service import build_jdm_http_service
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ChatMemberHandler, filters, ContextTypes
@@ -29,6 +29,7 @@ GEMINI_API_KEY        = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL          = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 TOKEN                 = os.environ.get('BOT_TOKEN', '')
 SHEET_WEBHOOK         = os.environ.get('SHEET_WEBHOOK', '')
+SHEET_SERVER_KEY      = os.environ.get('SHEET_SERVER_KEY', '').strip()
 CHANNEL_ID            = os.environ.get('CHANNEL_ID', '-1003749046571')
 ADMIN_IDS             = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip().isdigit()]
 ADMIN_USERNAME        = os.environ.get('ADMIN_USERNAME', '')
@@ -881,6 +882,55 @@ async def enrich_member_save_result(user_id: str, saved: dict, package: str) -> 
             logger.warning("canonical password lookup after save failed: %s", e)
     return result
 
+
+async def log_finance_entry(payment: dict) -> bool:
+    """Append one auditable Finance row; never change Members columns here."""
+    if not SHEET_WEBHOOK:
+        return False
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.post(
+                SHEET_WEBHOOK,
+                json={
+                    "action": "logPayment",
+                    "payment": dict(payment or {}),
+                    "serverKey": SHEET_SERVER_KEY,
+                },
+                timeout=15,
+            )
+        result = response.json()
+        return response.status_code < 400 and result.get("status") == "ok"
+    except Exception as exc:
+        logger.error("log_finance_entry failed: %s", exc)
+        return False
+
+
+async def get_finance_report(month: str) -> dict:
+    """Fetch a protected monthly summary from Apps Script."""
+    if not SHEET_WEBHOOK:
+        return {"status": "error", "message": "sheet_webhook_missing"}
+    if not SHEET_SERVER_KEY:
+        return {"status": "error", "message": "server_key_missing"}
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.post(
+                SHEET_WEBHOOK,
+                json={
+                    "action": "getFinanceReport",
+                    "month": month,
+                    "serverKey": SHEET_SERVER_KEY,
+                },
+                timeout=20,
+            )
+        result = response.json()
+        if response.status_code >= 400:
+            return {"status": "error", "message": f"http_{response.status_code}"}
+        return result if isinstance(result, dict) else {"status": "error", "message": "invalid_response"}
+    except Exception as exc:
+        logger.error("get_finance_report failed: %s", exc)
+        return {"status": "error", "message": "request_failed"}
+
+
 async def create_invite_link(context, days: int) -> str:
     """Create a single-use channel link that stays valid long enough to use.
 
@@ -1029,6 +1079,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🆔 `/updateid @user newID` → ID update\n"
             "💳 `/setqr` → Payment QR ထည့်/ပြောင်း\n"
             "💾 `/backup` → CSV backup\n"
+            "📊 `/finance 2026-08` → လစဉ်ငွေစာရင်း\n"
         )
     else:
         cmd_text = (
@@ -1632,6 +1683,95 @@ async def backup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Backup မရနိုင်ပါ — Sheet စစ်ဆေးပါ")
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
+
+
+async def finance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show an Admin-only monthly revenue and membership activity summary."""
+    user_id = update.effective_user.id
+    if not ADMIN_IDS or user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+
+    bangkok_now = datetime.now(timezone.utc) + timedelta(hours=7)
+    month = (context.args[0].strip() if context.args else bangkok_now.strftime("%Y-%m"))
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        await update.message.reply_text(
+            "အသုံးပြုပုံ: `/finance YYYY-MM`\nဥပမာ: `/finance 2026-08`",
+            parse_mode="Markdown",
+        )
+        return
+
+    await update.message.reply_text(f"⏳ {month} Finance Report ဆွဲနေပါတယ်...")
+    result = await get_finance_report(month)
+    if result.get("status") != "ok":
+        message = result.get("message", "unknown_error")
+        if message in {"server_key_missing", "server_key_not_configured"}:
+            text = "❌ Finance report မရပါ။ Railway `SHEET_SERVER_KEY` နှင့် Apps Script `JACC_SERVER_KEY` ကို စစ်ပါ။"
+        elif message == "unauthorized":
+            text = "❌ Finance report authorization မအောင်မြင်ပါ။ Server key ကို စစ်ပါ။"
+        else:
+            text = f"❌ Finance report မရပါ။ ({message})"
+        await update.message.reply_text(text, parse_mode="Markdown")
+        return
+
+    summary = result.get("summary", {})
+    by_method = summary.get("byMethod", {})
+    by_type = summary.get("byEntryType", {})
+    by_source = summary.get("bySource", {})
+    lines = [
+        f"📊 Finance Report — {month}",
+        "",
+        f"💵 စုစုပေါင်းဝင်ငွေ: {int(summary.get('totalAmount', 0) or 0):,} Ks",
+        f"💳 Paid records: {summary.get('paymentCount', 0)}",
+        f"👥 Membership activity: {summary.get('activityCount', 0)}",
+        f"✅ Amount သိရ: {summary.get('knownAmountCount', 0)}",
+        f"⚠️ Amount မသိရ: {summary.get('unknownAmountCount', 0)}",
+        "",
+        "📥 Payment Method",
+    ]
+    for method, label in (("KPay", "KPay"), ("Wave", "Wave"), ("Bank", "Bank / CB"), ("Other", "Other")):
+        item = by_method.get(method, {}) or {}
+        lines.append(
+            f"• {label}: {item.get('count', 0)} records — {int(item.get('total', 0) or 0):,} Ks"
+        )
+    lines.extend([
+        "",
+        "👥 Member အမျိုးအစား",
+        f"• အသစ်: {by_type.get('NEW', 0)}",
+        f"• Renew: {by_type.get('RENEW', 0)}",
+        f"• Upgrade: {by_type.get('UPGRADE', 0)}",
+        f"• Manual: {by_type.get('MANUAL', 0)}",
+        f"• Promo: {by_type.get('PROMO', 0)}",
+        f"• မခွဲရသေး: {by_type.get('UNKNOWN', 0)}",
+        "",
+        "🧾 Record source",
+        f"• Payment slip: {by_source.get('PAYMENT_SLIP', 0)}",
+        f"• Manual approve: {by_source.get('MANUAL', 0)}",
+        f"• Promo: {by_source.get('PROMO', 0)}",
+        "",
+        f"🔎 Duplicate transaction: {summary.get('duplicateCount', 0)}",
+        f"⚠️ Transaction မရှိ: {summary.get('missingTransactionCount', 0)}",
+    ])
+
+    review_items = summary.get("reviewItems", []) or []
+    if review_items:
+        reason_names = {
+            "missing_amount": "Amount မပါ",
+            "missing_transaction": "Transaction No မပါ",
+            "missing_entry_type": "NEW/RENEW မခွဲရ",
+            "duplicate_transaction": "Duplicate transaction",
+        }
+        lines.extend(["", "🧾 စစ်ရန်လိုသော row များ"])
+        for item in review_items[:8]:
+            reason = reason_names.get(item.get("reason"), item.get("reason", "စစ်ရန်"))
+            lines.append(
+                f"• Row {item.get('row', '?')} — {item.get('date', '?')} — {reason}"
+            )
+        if len(review_items) > 8:
+            lines.append(f"• ... နောက်ထပ် {len(review_items) - 8} rows")
+
+    await update.message.reply_text("\n".join(lines))
+
 
 async def upgrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
@@ -3367,6 +3507,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         slip_info = pay_data.get("slip_info", {})
         chosen_method = pay_data.get("method", "")
+        canonical_password = str(saved.get("password") or password or "")
+        canonical_expire = str(saved.get("expireDate") or "")
+        canonical_package = str(saved.get("package") or package).upper()
+        entry_type = str(saved.get("entryType") or ("NEW" if saved.get("result") == "added" else "RENEW")).upper()
+        transaction_no = str(
+            slip_info.get("TRANSACTION_NO")
+            or slip_info.get("REFERENCE")
+            or ""
+        ).strip()
+        if transaction_no.upper() == "UNKNOWN":
+            transaction_no = ""
+        approved_by = str(
+            getattr(query.from_user, "username", "")
+            or getattr(query.from_user, "id", "")
+        ).strip()
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 await client.post(
@@ -3378,15 +3533,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "time": slip_info.get("TIME", datetime.now().strftime("%H:%M")),
                             "userId": str(member_id),
                             "username": username,
-                            "package": PLAN_NAMES.get(package, package),
+                            "package": PLAN_NAMES.get(canonical_package, canonical_package),
                             "months": months,
                             "amount": slip_info.get("AMOUNT", pay_data.get("amount", "")),
-                            "payType": slip_info.get("TYPE", ""),
+                            "payType": slip_info.get("TYPE", "") or chosen_method.upper(),
                             "method": chosen_method.upper() if chosen_method else "",
-                            "transactionNo": slip_info.get(
-                                "TRANSACTION_NO",
-                                slip_info.get("REFERENCE", ""),
-                            ),
+                            "transactionNo": transaction_no,
                             "receiver": slip_info.get(
                                 "TRANSFER_TO",
                                 slip_info.get("RECEIVER", ""),
@@ -3404,16 +3556,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "fee": slip_info.get("FEE", ""),
                             "purpose": slip_info.get("PURPOSE", ""),
                             "status": "APPROVED",
+                            "entryType": entry_type,
+                            "source": "PAYMENT_SLIP",
+                            "paymentId": transaction_no,
+                            "approvedBy": approved_by,
+                            "expireDate": canonical_expire,
                         },
                     },
                     timeout=10,
                 )
         except Exception as e:
             logger.error(f"logPayment: {e}")
-
-        canonical_password = str(saved.get("password") or password or "")
-        canonical_expire = str(saved.get("expireDate") or "")
-        canonical_package = str(saved.get("package") or package).upper()
         invite_url = await create_invite_link(context, months * 30)
         await send_approval_dm(
             context,
@@ -4245,6 +4398,23 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     canonical_password = str(saved.get("password") or password or "")
     canonical_expire = str(saved.get("expireDate") or "")
     canonical_package = str(saved.get("package") or package).upper()
+    await log_finance_entry({
+        "date": datetime.now(timezone.utc).strftime("%d/%m/%Y"),
+        "time": datetime.now(timezone.utc).strftime("%H:%M"),
+        "userId": str(member_id) if member_id else username_or_id,
+        "username": member_username,
+        "package": PLAN_NAMES.get(canonical_package, canonical_package),
+        "months": months,
+        "amount": "",
+        "payType": "MANUAL",
+        "transactionNo": "",
+        "status": "NO_PAYMENT",
+        "entryType": str(saved.get("entryType") or "UNKNOWN").upper(),
+        "source": "MANUAL",
+        "approvedBy": str(getattr(update.effective_user, "username", "") or user_id),
+        "expireDate": canonical_expire,
+        "note": "Manual admin approval; no payment slip recorded",
+    })
     invite_url = await create_invite_link(context, days)
     if member_id:
         await send_approval_dm(
@@ -5283,6 +5453,23 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     canonical_password = str(saved.get("password") or password or "")
     canonical_expire = str(saved.get("expireDate") or "")
+    await log_finance_entry({
+        "date": datetime.now(timezone.utc).strftime("%d/%m/%Y"),
+        "time": datetime.now(timezone.utc).strftime("%H:%M"),
+        "userId": str(user_id),
+        "username": username,
+        "package": str(saved.get("package") or pkg),
+        "months": max(1, days // 30),
+        "amount": "",
+        "payType": "PROMO",
+        "transactionNo": "",
+        "status": "PROMO",
+        "entryType": "PROMO",
+        "source": "PROMO",
+        "approvedBy": "",
+        "expireDate": canonical_expire,
+        "note": "Promo code: " + code,
+    })
     invite_url = await create_invite_link(context, days)
     await send_approval_dm(
         context, user_id, max(1, days // 30), canonical_password, invite_url,
@@ -5914,6 +6101,7 @@ async def main():
     app.add_handler(CommandHandler("resetpass",   resetpass_cmd))
     app.add_handler(CommandHandler("updateid",    updateid_cmd))
     app.add_handler(CommandHandler("backup",      backup_cmd))
+    app.add_handler(CommandHandler("finance",     finance_cmd))
     app.add_handler(CommandHandler("setqr",       setqr_cmd))
     app.add_handler(CommandHandler("broadcast",   broadcast_cmd))
     app.add_handler(CommandHandler("upgrade",     upgrade_cmd))
@@ -5975,6 +6163,7 @@ async def main():
         BotCommand("updateid",      "🆔 Member ID update (Admin)"),
         BotCommand("setqr",         "💳 Payment QR setup (Admin)"),
         BotCommand("backup",        "💾 CSV Backup (Admin)"),
+        BotCommand("finance",       "📊 Monthly Finance Report (Admin)"),
         BotCommand("broadcast",     "📢 Broadcast ပို့ရန် (Admin)"),
         BotCommand("addbroker",     "👷 Broker ထည့်ရန် (Admin)"),
         BotCommand("kickbroker",    "🚫 Broker ဖြတ်ရန် (Admin)"),
