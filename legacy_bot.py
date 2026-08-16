@@ -29,6 +29,7 @@ GEMINI_API_KEY        = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL          = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 TOKEN                 = os.environ.get('BOT_TOKEN', '')
 SHEET_WEBHOOK         = os.environ.get('SHEET_WEBHOOK', '')
+SHEET_SERVER_KEY      = os.environ.get('SHEET_SERVER_KEY', '').strip()
 CHANNEL_ID            = os.environ.get('CHANNEL_ID', '-1003749046571')
 ADMIN_IDS             = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip().isdigit()]
 ADMIN_USERNAME        = os.environ.get('ADMIN_USERNAME', '')
@@ -37,6 +38,15 @@ CLOUDINARY_API_KEY    = os.environ.get('CLOUDINARY_API_KEY', '')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+
+def sheet_admin_payload(action: str, **values) -> dict:
+    """Build authenticated Apps Script payloads without logging the key."""
+    payload = {"action": action, **values}
+    if SHEET_SERVER_KEY:
+        payload["serverKey"] = SHEET_SERVER_KEY
+    return payload
+
 phase1 = None
 if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
     phase1 = JaccPhase1Client(
@@ -816,7 +826,8 @@ async def set_payment_qr(method: str, file_id: str, admin_name: str) -> bool:
 
 # ── Save Member with Password ─────────────────────────
 async def save_member_to_sheet(user_id: str, username: str, days: int,
-                                password: str = "", package: str = "CH") -> bool:
+                                password: str = "", package: str = "CH",
+                                operation_id: str = "") -> bool:
     if not SHEET_WEBHOOK:
         return False
     try:
@@ -828,11 +839,32 @@ async def save_member_to_sheet(user_id: str, username: str, days: int,
                 "days":     days,
                 "password": password,
                 "package":  package,
+                **({"operationId": str(operation_id).strip()} if str(operation_id or "").strip() else {}),
             }, timeout=10, follow_redirects=True)
         return resp.json().get("status") == "ok"
     except Exception as e:
         logger.error(f"saveMember: {e}")
         return False
+
+async def get_member_snapshot(user_id: str) -> dict:
+    """Read the canonical member row after a write; never invent expiry dates."""
+    if not SHEET_WEBHOOK:
+        return {}
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=12) as client:
+            response = await client.post(
+                SHEET_WEBHOOK,
+                json={"action": "getMembers"},
+            )
+        response.raise_for_status()
+        members = response.json().get("members", [])
+        for member in members:
+            if str(member.get("userId", "")).strip() == str(user_id).strip():
+                return dict(member)
+    except Exception as exc:
+        logger.error("get_member_snapshot %s: %s", user_id, exc)
+    return {}
+
 
 async def create_invite_link(context, days: int) -> str:
     """Create a single-use channel link that stays valid long enough to use.
@@ -1561,29 +1593,97 @@ async def backup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ADMIN_IDS and user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
         return
-    await update.message.reply_text("⏳ Sheet မှ data ဆွဲနေသည်...")
+    await update.message.reply_text("⏳ Members + Finance backup ဆွဲနေပါတယ်...")
+
+    timestamp = datetime.now().strftime("%Y_%m_%d_%H%M")
+    from io import BytesIO
+
+    async def send_csv(filename: str, content: str, caption: str) -> None:
+        bio = BytesIO(str(content).encode("utf-8-sig"))
+        bio.name = filename
+        await context.bot.send_document(
+            chat_id=user_id,
+            document=bio,
+            filename=filename,
+            caption=caption,
+        )
+
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(SHEET_WEBHOOK, json={
-                "action": "getBackupCSV"
-            }, timeout=30, follow_redirects=True)
-        data = resp.json()
-        if data.get("status") == "ok" and data.get("csv"):
-            csv_content = data["csv"]
-            filename    = f"Members_backup_{datetime.now().strftime('%Y_%m_%d')}.csv"
-            csv_bytes   = csv_content.encode('utf-8-sig')
-            from io import BytesIO
-            bio = BytesIO(csv_bytes)
-            bio.name = filename
-            await context.bot.send_document(
-                chat_id=user_id,
-                document=bio,
-                filename=filename,
-                caption=f"✅ Members Backup\n📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+            member_resp = await client.post(
+                SHEET_WEBHOOK,
+                json=sheet_admin_payload("getRecoveryMembersCSV"),
+            )
+            finance_resp = await client.post(
+                SHEET_WEBHOOK,
+                json=sheet_admin_payload("getFinanceBackupCSV"),
+            )
+            duplicate_resp = await client.post(
+                SHEET_WEBHOOK,
+                json=sheet_admin_payload("getDuplicateMembers"),
+            )
+
+        member_data = member_resp.json()
+        finance_data = finance_resp.json()
+        duplicate_data = duplicate_resp.json()
+        sent_count = 0
+
+        if member_data.get("status") == "ok" and member_data.get("csv"):
+            await send_csv(
+                f"JACC_Members_Recovery_{timestamp}.csv",
+                member_data["csv"],
+                "🔐 JACC Members Recovery Backup — PRIVATE\n"
+                "Password ပါဝင်သဖြင့် မျှဝေမထားပါနှင့်။",
+            )
+            sent_count += 1
+        elif not SHEET_SERVER_KEY:
+            # Keep the old non-password backup available if the new server key
+            # has not yet been configured, but make the coverage limitation clear.
+            async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+                legacy_resp = await client.post(
+                    SHEET_WEBHOOK,
+                    json={"action": "getBackupCSV"},
+                )
+            legacy_data = legacy_resp.json()
+            if legacy_data.get("status") == "ok" and legacy_data.get("csv"):
+                await send_csv(
+                    f"JACC_Members_Legacy_{timestamp}.csv",
+                    legacy_data["csv"],
+                    "⚠️ Legacy Members backup — Password/Finance မပါပါ။",
+                )
+                sent_count += 1
+
+        if finance_data.get("status") == "ok" and finance_data.get("csv"):
+            await send_csv(
+                f"JACC_Finance_{timestamp}.csv",
+                finance_data["csv"],
+                "✅ JACC Finance Payment Backup",
+            )
+            sent_count += 1
+
+        duplicates = duplicate_data.get("duplicates", [])
+        if duplicate_data.get("status") == "ok" and duplicates:
+            duplicate_text = "⚠️ Duplicate UserID တွေ့ရှိပါသည်\n\n" + "\n".join(
+                f"UserID {item.get('userId')} — rows {item.get('firstRow')} / {item.get('duplicateRow')}"
+                for item in duplicates
+            )
+            await context.bot.send_message(chat_id=user_id, text=duplicate_text)
+        elif duplicate_data.get("status") == "ok":
+            await context.bot.send_message(chat_id=user_id, text="✅ Duplicate UserID မတွေ့ပါ")
+
+        if sent_count == 0:
+            await update.message.reply_text(
+                "❌ Backup မရနိုင်ပါ။ `SHEET_SERVER_KEY` နှင့် Apps Script `JACC_SERVER_KEY` ကို စစ်ပါ။"
+            )
         else:
-            await update.message.reply_text("❌ Backup မရနိုင်ပါ — Sheet စစ်ဆေးပါ")
+            await update.message.reply_text(
+                f"✅ Backup ပြီးပါပြီ — {sent_count} file(s) ပို့ပြီးပါပြီ။"
+            )
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        logger.exception("Full JACC backup failed")
+        await update.message.reply_text(
+            "❌ Backup မအောင်မြင်ပါ — အပေါ်က error ကို မဖုံးကွယ်ဘဲ Admin စစ်ဆေးရန်လိုပါတယ်။"
+        )
 
 async def upgrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
@@ -3319,8 +3419,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         slip_info = pay_data.get("slip_info", {})
         chosen_method = pay_data.get("method", "")
         try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                await client.post(
+            async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+                payment_log_response = await client.post(
                     SHEET_WEBHOOK,
                     json={
                         "action": "logPayment",
@@ -3357,8 +3457,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "status": "APPROVED",
                         },
                     },
-                    timeout=10,
                 )
+            payment_log_result = payment_log_response.json()
+            if payment_log_result.get("status") != "ok":
+                logger.error("logPayment rejected: %s", payment_log_result)
         except Exception as e:
             logger.error(f"logPayment: {e}")
 
@@ -3372,18 +3474,27 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             package=package,
         )
 
-        expire_date = (
-            datetime.now() + timedelta(days=months * 30)
-        ).strftime("%d/%m/%Y")
-        pw_line = f"🔑 Password: `{password}`\n" if package == "WEB" else ""
+        # Read back the canonical row. The Apps Script renewal rule may add
+        # days after the existing expiry, so a local now + days calculation is
+        # not authoritative and must not be shown to the admin.
+        member_snapshot = await get_member_snapshot(str(member_id))
+        canonical_expire = str(member_snapshot.get("expireDate") or "").strip()
+        canonical_package = str(member_snapshot.get("package") or "").strip().upper()
+        if not canonical_expire:
+            await query.message.reply_text(
+                "✅ Sheet ထဲ Membership သိမ်းပြီးပါပြီ။\n"
+                "⚠️ Canonical expiry date ပြန်စစ်မရသေးပါ။ Duplicate မဖြစ်အောင် "
+                "Approve ကို ထပ်မနှိပ်ပါနဲ့။ `/members` နဲ့ စစ်ပါ။"
+            )
+            return
 
         await query.message.reply_text(
             f"✅ *Payment Confirmed + Approved!*\n\n"
             f"👤 {name} ({username})\n"
-            f"📦 {PLAN_NAMES.get(package, package)} — {months} လ\n"
-            f"⏰ ကုန်ဆုံး: `{expire_date}`\n"
-            f"{pw_line}\n"
-            f"Member ကို DM ပို့ပြီးပြီ ✅",
+            f"📦 {PLAN_NAMES.get(canonical_package, canonical_package or package)}\n"
+            f"⏰ Canonical expiry: `{canonical_expire}`\n\n"
+            "Member ကို DM ပို့ပြီးပါပြီ ✅\n"
+            "🔐 Password ကို Admin message ထဲ မပြတော့ပါ။ Premium member က `/mypassword` နဲ့ ပြန်ယူနိုင်ပါတယ်။",
             parse_mode="Markdown",
         )
 
@@ -3463,14 +3574,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             member_username = str(target_id)
 
-        password   = generate_password()
-        await save_member_to_sheet(str(target_id), member_username, days, password, "CH")
+        password = ""
+        saved = await save_member_to_sheet(str(target_id), member_username, days, password, "CH")
+        if not saved:
+            await query.message.reply_text(
+                "❌ Quick Approve အတွက် Sheet save မအောင်မြင်ပါ။ Approve မပြီးသေးပါ။"
+            )
+            return
         invite_url = await create_invite_link(context, days)
         await send_approval_dm(context, target_id, months, password, invite_url)
-        expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
+        member_snapshot = await get_member_snapshot(str(target_id))
+        expire_date = str(member_snapshot.get("expireDate") or "").strip()
+        if not expire_date:
+            await query.message.reply_text(
+                "✅ Sheet save ပြီးပါပြီ။ Canonical expiry ပြန်စစ်မရသေးပါ။ "
+                "Duplicate မဖြစ်အောင် ထပ်မနှိပ်ပါနဲ့။"
+            )
+            return
         await query.message.reply_text(
             f"✅ *Quick Approve ပြီး!*\n\n👤 @{member_username}\n📅 {months} လ\n"
-            f"⏰ ကုန်ဆုံး: `{expire_date}`\n🔑 Password: `{password}`",
+            f"⏰ Canonical expiry: `{expire_date}`",
             parse_mode='Markdown')
 
     elif data.startswith("req_budget_"):
@@ -4167,23 +4290,39 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"get_chat: {e}")
 
-    password   = generate_password()
-    await save_member_to_sheet(
+    password = generate_password() if package == "WEB" else ""
+    saved = await save_member_to_sheet(
         str(member_id) if member_id else username_or_id,
         member_username, days, password, package)
+    if not saved:
+        await update.message.reply_text(
+            "❌ Sheet ထဲ Membership မသိမ်းနိုင်ပါ။ Approve မပြီးသေးပါ။ "
+            "Data မပျက်စေရန် ပြန်မနှိပ်ခင် log စစ်ပါ။"
+        )
+        return
+
     invite_url = await create_invite_link(context, days)
     if member_id:
-        await send_approval_dm(context, member_id, months, password, invite_url , package=package)
+        await send_approval_dm(context, member_id, months, password, invite_url, package=package)
 
-    expire_date = (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
+    member_snapshot = await get_member_snapshot(str(member_id)) if member_id else {}
+    expire_date = str(member_snapshot.get("expireDate") or "").strip()
+    if not expire_date:
+        await update.message.reply_text(
+            "✅ Sheet ထဲ Membership သိမ်းပြီးပါပြီ။\n"
+            "⚠️ Canonical expiry date ပြန်စစ်မရသေးပါ။ Duplicate မဖြစ်အောင် "
+            "Approve ကို ထပ်မလုပ်ပါနဲ့။ `/members` နဲ့ စစ်ပါ။"
+        )
+        return
+
     txt = (f"✅ <b>Membership Approved!</b>\n\n"
            f"👤 @{member_username}\n"
            f"🆔 <code>{member_id or 'N/A'}</code>\n"
-           f"📦 Package: {PLAN_NAMES.get(package,'')}\n"
+           f"📦 Package: {PLAN_NAMES.get(str(member_snapshot.get('package') or package).upper(), package)}\n"
            f"📅 <b>{months} လ</b>\n"
-           f"⏰ ကုန်ဆုံး: <code>{expire_date}</code>\n"
-           f"🔑 Password: <code>{password}</code>\n")
+           f"⏰ Canonical expiry: <code>{expire_date}</code>\n")
     if invite_url: txt += f"\n🔗 {invite_url}"
+    txt += "\n🔐 Password ကို Admin message ထဲ မပြပါ။ Premium member က `/mypassword` သုံးနိုင်ပါတယ်။"
     await update.message.reply_text(txt, parse_mode='HTML')
 
 async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
