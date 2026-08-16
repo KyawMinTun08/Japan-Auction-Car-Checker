@@ -1,8 +1,8 @@
 // JACC PWA Service Worker
-// Version 2026.08.16-startup-reliability.1
+// Version 2026.08.16-brand-cards.1
 
 const CACHE_PREFIX = 'jacc-';
-const CACHE_NAME = 'jacc-2026.08.16-startup-reliability.1';
+const CACHE_NAME = 'jacc-2026.08.16-brand-cards.1';
 const BASE_PATH = '/Japan-Auction-Car-Checker';
 const APP_SHELL = [
   BASE_PATH + '/',
@@ -11,7 +11,15 @@ const APP_SHELL = [
   BASE_PATH + '/icon-192.png',
   BASE_PATH + '/icon-512.png',
   BASE_PATH + '/jdm-config.js',
-  BASE_PATH + '/phase2/website_device_binding.js'
+  BASE_PATH + '/phase2/website_device_binding.js',
+  BASE_PATH + '/assets/brand-logos/Toyota.svg',
+  BASE_PATH + '/assets/brand-logos/Honda.svg',
+  BASE_PATH + '/assets/brand-logos/Nissan.svg',
+  BASE_PATH + '/assets/brand-logos/Mazda.svg',
+  BASE_PATH + '/assets/brand-logos/Suzuki.svg',
+  BASE_PATH + '/assets/brand-logos/Mitsubishi.svg',
+  BASE_PATH + '/assets/brand-logos/Subaru.svg',
+  BASE_PATH + '/assets/brand-logos/Volkswagen.svg'
 ];
 
 self.addEventListener('install', event => {
