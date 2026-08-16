@@ -129,16 +129,34 @@
     storageOrThrow(storage).removeItem(SESSION_KEY);
   }
 
-  async function postJson(webhook, payload, fetchImpl) {
+  async function postJson(webhook, payload, fetchImpl, timeoutMs) {
     const sender = fetchImpl || global.fetch;
     if (typeof sender !== 'function') throw new Error('fetch_unavailable');
-    const response = await sender(webhook, {
+    const milliseconds = Math.max(1000, Number(timeoutMs) || 12000);
+    const controller = typeof global.AbortController === 'function' ? new global.AbortController() : null;
+    let timer;
+    const requestOptions = {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload),
+    };
+    if (controller) requestOptions.signal = controller.signal;
+    const request = sender(webhook, requestOptions);
+    const timeout = new Promise(function (_, reject) {
+      timer = setTimeout(function () {
+        if (controller) controller.abort();
+        const error = new Error('request_timeout');
+        error.code = 'REQUEST_TIMEOUT';
+        reject(error);
+      }, milliseconds);
     });
-    if (!response.ok) throw new Error('http_' + response.status);
-    return response.json();
+    try {
+      const response = await Promise.race([request, timeout]);
+      if (!response.ok) throw new Error('http_' + response.status);
+      return response.json();
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function verifyStoredSession(options) {
@@ -152,7 +170,8 @@
       result = await postJson(
         config.webhook,
         withDevice('verifyToken', { token: session.token, userId: session.userId }, config),
-        config.fetchImpl
+        config.fetchImpl,
+        config.timeoutMs
       );
     } catch (error) {
       return { ok: false, reason: 'backend_unavailable', error: error };
