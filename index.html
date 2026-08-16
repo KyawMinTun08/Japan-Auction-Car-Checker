@@ -455,13 +455,13 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
 
     <!-- CHASSIS -->
     <div class="tab-content" id="tab-chassis">
-      <div class="lookup-box">
-        <h2>🔍 Chassis Lookup</h2>
-        <p>Chassis number ထည့်ပြီး ကားအချက်အလက်ရှာရန်</p>
+        <div class="lookup-box">
+        <h2>🔍 Chassis / JDM Reference Lookup</h2>
+        <p>Chassis number သို့မဟုတ် model + year (ဥပမာ <span class="mono">Crown 2013</span>) ထည့်ပြီး ရှာရန်</p>
         <div class="lookup-row">
-          <input class="lookup-input" type="text" placeholder="GRS210-6007724" id="chassisInput" autocapitalize="characters" autocomplete="off" spellcheck="false" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')lookupChassis()">
+          <input class="lookup-input" type="text" placeholder="GRS210-6007724 or Crown 2013" id="chassisInput" autocapitalize="characters" autocomplete="off" spellcheck="false" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')lookupChassis()">
           <button class="btn btn-primary" onclick="lookupChassis()">Search →</button>
-          <button class="btn btn-outline" onclick="lookupJdmGrade()">JDM Grade ↗</button>
+          <button class="btn btn-outline" onclick="lookupJdmGrade()">JDM Reference ↗</button>
         </div>
       </div>
       <div id="chassisResult" style="margin-bottom:20px"></div>
@@ -1029,15 +1029,20 @@ function renderJapanSourceLinks(chassis, car){
   const safeChassis=normalizeJapanSourceChassis(chassis);if(!safeChassis)return '';
   const encoded=encodeURIComponent(safeChassis);
   const model=String(car&&car.model||'').toUpperCase();
-  const gooUrl=model.includes('ALPHARD')?'https://www.goo-net.com/catalog/TOYOTA/ALPHARD/':'https://www.goo-net.com/catalog/';
+  const parts=safeChassis.split('-').filter(Boolean);const prefix=/^(?:DAA|DBA|DLA|ZBA|3BA|5BA|6AA|6BA)$/.test(parts[0])&&parts[1]?parts[1]:parts[0];
+  const isCrown=model.includes('CROWN')||/^(?:GRS210|GRS211|GRS214|AWS210|AWS211|AWS215|GWS214)$/.test(prefix);
+  const gooUrl=model.includes('ALPHARD')?'https://www.goo-net-exchange.com/catalog/TOYOTA__ALPHARD/':isCrown&&/^(?:AWS210|AWS211|AWS215|GWS214)$/.test(prefix)?'https://www.goo-net-exchange.com/catalog/TOYOTA__CROWN_HYBRID/':'https://www.goo-net-exchange.com/catalog/TOYOTA__CROWN/';
   const sources=[
-    {label:'SBT Japan Chassis Check',url:'https://www.sbtjapan.com/support/vehicle_inspection/chassis-check'},
-    {label:model.includes('ALPHARD')?'Goo-net Alphard Catalog':'Goo-net Japan Catalog',url:gooUrl},
-    {label:'Real Motor Chassis Catalog',url:'https://www.realmotor.jp/catalog'},
-    {label:'CAR VX Chassis Info',url:'https://carvx.jp/chassis-number'},
+    {label:'BE FORWARD Chassis Search',url:'https://autoparts.beforward.jp/vehicle/TOYOTA/?frame_no='+encoded},
+    {label:isCrown?'Goo-net Crown Catalog':'Goo-net Japan Catalog',url:gooUrl},
+    {label:isCrown?'JP-CARPARTS Crown Model Codes':'JP-CARPARTS Catalog',url:isCrown?'https://jp-carparts.com/toyota/cartypelist.php?maker=toyota&type=3311D0':'https://jp-carparts.com/'},
+    {label:'JapanCarTrade Stock Search',url:isCrown?'https://www.japanesecartrade.com/make-model/toyota-1-crown-58.html':'https://www.japanesecartrade.com/stock_list.php'},
+    {label:'ADS Past Auction Results',url:'https://www.auctiondatasearch.jp/'},
+    {label:'JapanStat Auction History',url:'https://japanstat.com/en'},
+    {label:'OTOFACTS Provider/API',url:'https://otofacts.com/api'},
     {label:'Free JDM Decoder',url:'https://www.ts-export.com/page.php?page=about_vin_decoders'}
   ];
-  return '<section class="japan-source-card" aria-label="Free Japan source links"><div class="japan-source-title">Japan Source Check</div><div class="japan-source-subtitle">ဒီ chassis ကို free public source page များတွင် ထပ်စစ်ရန် — <span class="japan-source-chassis">'+esc(safeChassis)+'</span></div><div class="japan-source-grid"><button type="button" class="japan-source-copy" onclick="copyJapanSourceChassis(\''+escAttr(safeChassis)+'\')">⧉ Copy chassis</button>'+sources.map(source=>'<a class="japan-source-link" href="'+escAttr(source.url)+'" target="_blank" rel="noopener noreferrer" data-chassis="'+escAttr(encoded)+'">↗ '+esc(source.label)+'</a>').join('')+'</div><div class="japan-source-note">ဒီ buttons တွေက source website ကိုသာ ဖွင့်ပေးပါတယ်။ JACC က source content ကို auto မကူးပါ။ Source website ရဲ့ own result၊ login/CAPTCHA၊ terms နှင့် accuracy disclaimer အတိုင်း အသုံးပြုပါ။</div></section>';
+  return '<section class="japan-source-card" aria-label="Japan source links"><div class="japan-source-title">Japan Source Check</div><div class="japan-source-subtitle">ဒီ chassis ကို source များတွင် ထပ်စစ်ရန် — <span class="japan-source-chassis">'+esc(safeChassis)+'</span></div><div class="japan-source-grid"><button type="button" class="japan-source-copy" onclick="copyJapanSourceChassis(\''+escAttr(safeChassis)+'\')">⧉ Copy chassis</button>'+sources.map(source=>'<a class="japan-source-link" href="'+escAttr(source.url)+'" target="_blank" rel="noopener noreferrer" data-chassis="'+escAttr(encoded)+'">↗ '+esc(source.label)+'</a>').join('')+'</div><div class="japan-source-note">BE FORWARD/JP-CARPARTS/Goo-net များက catalog/stock reference ဖြစ်ပြီး auction score မဟုတ်ပါ။ ADS, JapanStat, OTOFACTS တို့တွင် login၊ paid access၊ provider key သို့မဟုတ် CAPTCHA လိုနိုင်ပါတယ်။ JACC က source content ကို auto မကူးဘဲ source website ကိုသာ ဖွင့်ပေးပါတယ်။</div></section>';
 }
 function lookupChassis(){
   const v=document.getElementById('chassisInput').value.trim();if(!v)return;
@@ -1063,10 +1068,12 @@ function renderJdmGradeResult(data){
     el.innerHTML='<div class="card" style="border-color:var(--line)"><div class="card-body"><div style="font-weight:700;color:var(--ink-1);margin-bottom:5px">JDM Factory Grade</div><div style="font-size:12px;color:var(--ink-4)">ဒီ chassis အတွက် verified local mapping မတွေ့သေးပါ — Auction condition grade မဟုတ်ပါ။</div></div></div>';
     return;
   }
-  el.innerHTML='<div class="card"><div class="card-header"><div class="card-title">JDM Vehicle Information</div><span class="badge badge-brand">Local Verified Map</span></div><div class="card-body">'+matches.map(m=>{
+  const isReference=matches.some(m=>m.confidence==='reference'&&!m.verified);
+  el.innerHTML='<div class="card"><div class="card-header"><div class="card-title">JDM Vehicle Information</div><span class="badge '+(isReference?'badge-warn':'badge-brand')+'">'+(isReference?'Reference Coverage':'Local Verified Map')+'</span></div><div class="card-body">'+matches.map(m=>{
     const grades=Array.isArray(m.factory_grades)&&m.factory_grades.length?m.factory_grades.map(g=>esc(g.grade_code||'')).join(', '):'Not loaded yet';
-    return '<div class="jdm-grade-grid"><div class="jdm-grade-card factory"><div class="jdm-grade-label">Factory Grade / Trim</div><div class="jdm-grade-value">'+esc(grades)+'</div><div class="jdm-grade-sub">Model trim data · local database</div></div><div class="jdm-grade-card auction"><div class="jdm-grade-label">Auction Condition Grade</div><div class="jdm-grade-value">Provider required</div><div class="jdm-grade-sub">4.5 / 4 / 3.5 / R/RA ကို history provider ရမှပြမည်</div></div></div><div class="jdm-model-grid"><div class="di"><div class="dk">Brand</div><div class="dv">'+esc(m.make||'-')+'</div></div><div class="di"><div class="dk">Model</div><div class="dv">'+esc(m.model||'-')+'</div></div><div class="di"><div class="dk">Body Type</div><div class="dv">'+esc(m.body_type||'-')+'</div></div><div class="di"><div class="dk">Year Range</div><div class="dv">'+esc((m.production_from_year||'-')+' — '+(m.production_to_year||'-'))+'</div></div></div>';
-  }).join('')+'<div class="grade-legend"><span class="grade-legend-item"><span class="grade-legend-dot factory"></span>Factory Grade / Trim</span><span class="grade-legend-item"><span class="grade-legend-dot auction"></span>Auction Condition Grade</span></div></div></div>';
+    const referenceNote=m.confidence==='reference'?'Reference family/trim map · not auction result':'Model trim data · local database';
+    return '<div class="jdm-grade-grid"><div class="jdm-grade-card factory"><div class="jdm-grade-label">Factory Grade / Trim</div><div class="jdm-grade-value">'+esc(grades)+'</div><div class="jdm-grade-sub">'+esc(referenceNote)+'</div></div><div class="jdm-grade-card auction"><div class="jdm-grade-label">Auction Condition Grade</div><div class="jdm-grade-value">Provider required</div><div class="jdm-grade-sub">4.5 / 4 / 3.5 / R/RA ကို authorized history provider ရမှပြမည်</div></div></div><div class="jdm-model-grid"><div class="di"><div class="dk">Brand</div><div class="dv">'+esc(m.make||'-')+'</div></div><div class="di"><div class="dk">Model</div><div class="dv">'+esc(m.model||'-')+'</div></div><div class="di"><div class="dk">Chassis Family</div><div class="dv">'+esc(m.chassis_prefix||'-')+'</div></div><div class="di"><div class="dk">Body Type</div><div class="dv">'+esc(m.body_type||'-')+'</div></div><div class="di"><div class="dk">Year Range</div><div class="dv">'+esc((m.production_from_year||'-')+' — '+(m.production_to_year||'-'))+'</div></div></div>';
+  }).join('')+'<div class="grade-legend"><span class="grade-legend-item"><span class="grade-legend-dot factory"></span>Factory Grade / Trim</span><span class="grade-legend-item"><span class="grade-legend-dot auction"></span>Auction Condition Grade — provider required</span></div></div></div>';
 }
 async function lookupJdmGrade(){
   const input=document.getElementById('chassisInput');const el=document.getElementById('jdmGradeResult');if(!input||!el)return;
