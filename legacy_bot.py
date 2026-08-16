@@ -33,6 +33,7 @@ SHEET_SERVER_KEY      = os.environ.get('SHEET_SERVER_KEY', '').strip()
 CHANNEL_ID            = os.environ.get('CHANNEL_ID', '-1003749046571')
 ADMIN_IDS             = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip().isdigit()]
 ADMIN_USERNAME        = os.environ.get('ADMIN_USERNAME', '')
+BOT_USERNAME          = os.environ.get('BOT_USERNAME', 'JapanAuctionCar_Bot').strip().lstrip('@')
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
 CLOUDINARY_API_KEY    = os.environ.get('CLOUDINARY_API_KEY', '')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
@@ -980,58 +981,111 @@ async def send_approval_dm(context, member_id: int, months: int,
         logger.error(f"Send approval DM: {e}")
 
 # ── Commands ──────────────────────────────────────────
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id  = update.effective_user.id
-    is_admin = user_id in ADMIN_IDS
+def bot_action_url(action: str) -> str:
+    """Build a Telegram deep link that routes through the existing command flow."""
+    return f"https://t.me/{BOT_USERNAME}?start={action}"
 
-    kb = []
-    kb.append([InlineKeyboardButton("🆕 Membership ဝယ်ရန်", callback_data="join_start")])
+
+def build_main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
+    """Compact phone-first menu; business logic remains in existing commands."""
+    rows = [
+        [
+            InlineKeyboardButton("🆕 Membership ဝယ်ရန်", callback_data="join_start"),
+            InlineKeyboardButton("🔄 သက်တမ်းတိုး", url=bot_action_url("renew")),
+        ],
+        [
+            InlineKeyboardButton("🌐 Web App", url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/"),
+            InlineKeyboardButton("🔑 Password", url=bot_action_url("mypassword")),
+        ],
+        [
+            InlineKeyboardButton("📢 Channel Link", url=bot_action_url("channel")),
+            InlineKeyboardButton("🚙 Car Request", url=bot_action_url("carrequest")),
+        ],
+        [
+            InlineKeyboardButton("📋 Request Status", url=bot_action_url("mystatus")),
+            InlineKeyboardButton("❔ Help", url=bot_action_url("help")),
+        ],
+    ]
     if ADMIN_USERNAME:
-        kb.append([InlineKeyboardButton("💬 Admin ကို ဆက်သွယ်", url=f"https://t.me/{ADMIN_USERNAME}")])
-    kb.append([InlineKeyboardButton("🌐 Web App ကြည့်",
-               url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/")])
-
+        rows.append([InlineKeyboardButton("💬 Admin ကို ဆက်သွယ်", url=f"https://t.me/{ADMIN_USERNAME.lstrip('@')}")])
     if is_admin:
-        cmd_text = (
-            "*Member Commands:*\n"
-            "🔍 `/find NT32-504837` → Chassis ရှာ\n"
-            "🔎 `/model xtrail` → Model ရှာ\n"
-            "📋 `/history NT32-504837` → ဈေးမှတ်တမ်း\n"
-            "📊 `/list` → ကားအားလုံး\n"
-            "🌐 `/web` → Web Link\n"
-            "🔄 `/renew` → Membership သက်တမ်းတိုး\n"
-            "🔑 `/mypassword` → Password ပြန်ယူ\n\n"
-            "*Admin Commands:*\n"
-            "📸 ကားပုံ တင် → Chassis auto ဖတ်\n"
-            "📋 ပုံ + caption `list` → Auction List (Auto detect location)\n"
-            "💰 `/price NT32-504837 150000` → ဈေးထည့်\n"
-            "✅ `/approve @user 30 WEB` → Member approve\n"
-            "👥 `/members` → Member list\n"
-            "🔄 `/renew` → Member renew\n"
-            "🚫 `/kick @user` → Member kick\n"
-            "🔑 `/resetpass @user` → Password reset\n"
-            "🆔 `/updateid @user newID` → ID update\n"
-            "💳 `/setqr` → Payment QR ထည့်/ပြောင်း\n"
-            "💾 `/backup` → CSV backup\n"
+        rows.append([
+            InlineKeyboardButton("👥 Members", url=bot_action_url("members")),
+            InlineKeyboardButton("💾 Backup", url=bot_action_url("backup")),
+        ])
+    return InlineKeyboardMarkup(rows)
+
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Short help screen designed for reading on a phone."""
+    is_admin = update.effective_user.id in ADMIN_IDS
+    if is_admin:
+        text = (
+            "❔ *JACC အသုံးပြုနည်း*\n\n"
+            "အောက်က Menu button တွေကို နှိပ်ပြီး အသုံးပြုနိုင်ပါတယ်။\n\n"
+            "*Member အတွက်*\n"
+            "• `/renew` — Package / လ ရွေးပြီး payment တင်ရန်\n"
+            "• `/mypassword` — Premium Web Password ပြန်ယူရန်\n"
+            "• `/channel` — Channel link ပြန်ယူရန်\n"
+            "• `/carrequest` — ကားရှာရန် Request တင်ရန်\n"
+            "• `/mystatus` — Request status စစ်ရန်\n\n"
+            "*Admin အတွက်*\n"
+            "• Payment message မှ `Confirm → Yes — Approve` ကို တစ်ကြိမ်သာနှိပ်ပါ\n"
+            "• `/members` — Member စာရင်း\n"
+            "• `/backup` — Members + Finance + Payments backup\n"
+            "• `/approve USERID MONTHS WEB` — Manual approve\n"
+            "• `/resetpass USERID` — Password ကို ကိုယ်တိုင် reset လုပ်ရန်"
         )
     else:
-        cmd_text = (
-            "*Commands:*\n"
-            "🔍 `/find NT32-504837` → Chassis ရှာ\n"
-            "🔎 `/model xtrail` → Model ရှာ\n"
-            "📋 `/history NT32-504837` → ဈေးမှတ်တမ်း\n"
-            "📊 `/list` → ကားအားလုံး\n"
-            "🌐 `/web` → Web Link\n"
-            "🔄 `/renew` → Membership သက်တမ်းတိုး\n"
-            "🔑 `/mypassword` → Password ပြန်ယူ\n"
+        text = (
+            "❔ *JACC အသုံးပြုနည်း*\n\n"
+            "အောက်က Menu button ကိုနှိပ်ပြီး စတင်အသုံးပြုပါ။\n\n"
+            "• 🆕 Membership ဝယ်ရန်\n"
+            "• 🔄 သက်တမ်းတိုး / Upgrade လုပ်ရန်\n"
+            "• 🔑 Premium Password ပြန်ယူရန်\n"
+            "• 📢 Channel link ပြန်ယူရန်\n"
+            "• 🚙 ကား Request တင်ရန်\n"
+            "• 📋 Request status စစ်ရန်\n\n"
+            "Password မမှတ်မိပါက Password button သို့မဟုတ် `/mypassword` ကိုနှိပ်ပါ။"
         )
+    await update.effective_message.reply_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=build_main_menu(is_admin),
+    )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    deep_action = str(context.args[0] if context.args else "").strip().lower()
+    deep_routes = {
+        "renew": renew_cmd,
+        "upgrade": upgrade_cmd,
+        "mypassword": mypassword_cmd,
+        "channel": channel_cmd,
+        "carrequest": carrequest_cmd,
+        "mystatus": mystatus_cmd,
+        "members": members_list,
+        "backup": backup_cmd,
+        "help": help_cmd,
+    }
+    if deep_action in deep_routes:
+        await deep_routes[deep_action](update, context)
+        return
+    user_id = update.effective_user.id
+    is_admin = user_id in ADMIN_IDS
+    intro = (
+        "🚗 *Japan Auction Car Checker*\n\n"
+        "အောက်က Menu ကနေ လိုတဲ့အရာကို တစ်ချက်နှိပ်ပြီး သုံးနိုင်ပါတယ်။\n"
+        "မတွေ့ရင် ❔ Help ကိုနှိပ်ပါ။"
+    )
+    if is_admin:
+        intro += "\n\n👑 Admin mode — Payment approve ကို တစ်ကြိမ်သာ နှိပ်ပါ။"
 
     await update.message.reply_text(
-        f"🚗 *Japan Auction Car Checker*\n"
-        f"📍 {LOC_MAESOT} & {LOC_KLANG9} & {LOC_BORDER44}\n\n"
-        + cmd_text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(kb))
+        intro,
+        parse_mode="Markdown",
+        reply_markup=build_main_menu(is_admin),
+    )
 
 async def find_car(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_rate_limit(update.effective_user.id):
@@ -5957,6 +6011,7 @@ async def main():
                           params={"drop_pending_updates":True})
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start",       start))
+    app.add_handler(CommandHandler("help",        help_cmd))
     app.add_handler(CommandHandler("find",        find_car))
     app.add_handler(CommandHandler("model",       find_model))
     app.add_handler(CommandHandler("price",       add_price))
@@ -6004,6 +6059,7 @@ async def main():
 
     member_commands = [
         BotCommand("start",         "🚗 Bot စတင်ရန်"),
+        BotCommand("help",          "❔ အသုံးပြုနည်း"),
         BotCommand("carrequest",    "🚙 ကားလိုအပ်ပါက ဒီနေရာနှိပ်ပါ"),
         BotCommand("mystatus",      "📋 Request Status စစ်ရန်"),
         BotCommand("find",          "🔍 Chassis ဖြင့်ရှာရန်"),
