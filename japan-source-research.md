@@ -68,3 +68,19 @@ Drom's robots file contains extensive path/query restrictions; regardless of whe
 The feature branch adds a `Japan Source Check` card after chassis lookup. For `AGH30-0015779` with a representative ALPHARD Sheet record, the browser test confirmed five source buttons, a copy-chassis button, and preservation of the existing Sheet record price. The ALPHARD model also resolves to the Goo-net Alphard catalog landing page. The source buttons open external pages only; JACC does not fetch or copy their content.
 
 A second local browser test used an unknown chassis `ZZZ99-1234567` with no Sheet records. The `Japan Source Check` card still rendered five source buttons and the copy button while the normal `not found in records` message remained. This confirms source links are independent of JACC Sheet data availability.
+
+## 2026-08-16 Crown coverage audit
+
+The current `jdm_lookup_service.py` only queries the local Supabase table `jacc_chassis_codes` with an exact `chassis_prefix_normalized` equality filter and returns only local factory/model mappings. It does not query a Japan auction-history provider, does not expand Toyota model-code variants, and does not apply a year-aware fallback. The frontend label correctly states that auction condition grades are not currently loaded.
+
+Public reference checks show that a 2013 Toyota Crown is not one chassis family. Toyota's official December 2012 launch covers Crown Royal and Crown Athlete variants, including 2.5L/3.5L V6 and hybrid versions. JP-CarParts lists the 210-series families and periods including `GRS210`, `GRS211`, `GRS214`, `AWS210` (from 2013/01), and `GWS214` (from 2013/09), with grade variants such as Royal, Royal Saloon, Athlete, Athlete S, and Athlete G. BE FORWARD's 2013 Crown filter lists model codes `DAA-AWS210`, `DBA-GRS210`, `DBA-GRS211`, and `DBA-GRS214` and shows 108 chassis-related records in its public filter page. A JapanCarTrade example confirms `DAA-AWS210` with chassis `AWS210-6015461` and registration 2013/3.
+
+Potential source limitations remain important. ADS provides auction statistics and past auction-result features behind membership. OTOFACTS advertises a developer API, but its public page does not establish that Japanese chassis auction-grade data is freely available or permitted under a free tier. Existing project research records that SBT, Real Motor, Goo-net, and Drom should not be scraped without permission or a licensed integration. The safest near-term fix is query expansion and better local reference coverage; auction grades require a licensed/authorized provider rather than scraping public pages.
+
+References:
+- https://global.toyota/en/newsroom/toyota/22932467.html
+- https://jp-carparts.com/toyota/cartypelist.php?maker=toyota&type=3311D0
+- https://autoparts.beforward.jp/search/TOYOTA/CROWN/2013/Chassis/
+- https://www.japanesecartrade.com/14386931-japan-used-toyota-crown-sedan-car-2013.html
+- https://www.auctiondatasearch.jp/
+- https://otofacts.com/api
