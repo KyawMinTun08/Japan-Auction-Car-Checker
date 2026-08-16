@@ -146,6 +146,7 @@ async def save_member_to_sheet(
     days: int,
     password: str = "",
     package: str = "CH",
+    operation_id: str = "",
 ) -> bool:
     """Clean membership values while preserving promo package codes."""
     clean_package = str(package or "CH").strip().upper().replace("_", "-")
@@ -162,6 +163,7 @@ async def save_member_to_sheet(
         int(days),
         str(password or "").strip(),
         clean_package,
+        str(operation_id or "").strip(),
     )
 
 

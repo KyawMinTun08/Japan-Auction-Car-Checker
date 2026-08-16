@@ -74,7 +74,8 @@ function doPost(e) {
       case "saveMember":
         return _json(saveMember(
           data.userId, data.username, data.days,
-          data.password || "", data.package || "CH"
+          data.password || "", data.package || "CH",
+          data.operationId || ""
         ));
 
       // ── Get Members List ─────────────────────────────────
@@ -231,26 +232,23 @@ function doPost(e) {
         }
         return _json({status:"error", msg:"not_found"});
 
-      // ── Log Payment to Finance Sheet ───────────────
+      // ── Log / update Payment in the Finance Sheet ────────
       case "logPayment":
-        var finSheet = ss.getSheetByName("Finance");
-        if (!finSheet) {
-          finSheet = ss.insertSheet("Finance");
-          finSheet.appendRow([
-            "Date","Time","UserID","Username","Package","Months",
-            "Amount(Ks)","PayType","TransactionNo","TransferTo","Sender","Status"
-          ]);
-          finSheet.getRange(1,1,1,12).setFontWeight("bold")
-            .setBackground("#1A2535").setFontColor("#FFFFFF");
-        }
-        var fp = data.payment || {};
-        finSheet.appendRow([
-          fp.date || "", fp.time || "", fp.userId || "",
-          fp.username || "", fp.package || "", fp.months || "",
-          fp.amount || "", fp.payType || "", fp.transactionNo || "",
-          fp.receiver || "", fp.sender || "", fp.status || "APPROVED"
-        ]);
-        return _json({status:"ok"});
+        return _json(logPayment(data.payment || {}));
+
+      // ── Finance / duplicate diagnostics ─────────────────
+      case "getFinanceBackupCSV":
+        if (!_serverKeyMatches(data)) return _json({status:"error", message:"unauthorized"});
+        return _json(getFinanceBackupCSV());
+      case "getPaymentsBackupCSV":
+        if (!_serverKeyMatches(data)) return _json({status:"error", message:"unauthorized"});
+        return _json(getPaymentsBackupCSV());
+      case "getRecoveryMembersCSV":
+        if (!_serverKeyMatches(data)) return _json({status:"error", message:"unauthorized"});
+        return _json(getRecoveryMembersCSV());
+      case "getDuplicateMembers":
+        if (!_serverKeyMatches(data)) return _json({status:"error", message:"unauthorized"});
+        return _json(getDuplicateMembers());
       case "getBrokers":
         var gbSheet = ss.getSheetByName("Brokers");
         if (!gbSheet) return _json({status:"ok", brokers:[]});
@@ -897,6 +895,12 @@ function _json(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+function _serverKeyMatches(data) {
+  var expected = String(PropertiesService.getScriptProperties().getProperty("JACC_SERVER_KEY") || "").trim();
+  var supplied = String((data || {}).serverKey || "").trim();
+  return !!expected && !!supplied && expected === supplied;
+}
+
 function _parseMemberDate(value) {
   if (value instanceof Date && !isNaN(value.getTime())) {
     var dateValue = new Date(value.getTime());
@@ -929,14 +933,76 @@ function _normalizePackage(value) {
   return pkg.replace(/\s+/g, "-") || "CH";
 }
 
+// ── Membership operation ledger ────────────────────────────
+var MEMBERSHIP_OP_SHEET = "Membership_Operations";
+var MEMBERSHIP_OP_HEADERS = [
+  "OperationID", "UserID", "Username", "Days", "Package", "Result",
+  "ExpireDate", "CreatedAt"
+];
+
+function _findMembershipOperation(operationId) {
+  var opId = String(operationId || "").trim();
+  if (!opId) return null;
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName(MEMBERSHIP_OP_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var rows = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || "").trim() === opId) {
+      return {
+        operationId: String(rows[i][0] || ""),
+        userId: String(rows[i][1] || ""),
+        username: String(rows[i][2] || ""),
+        days: Number(rows[i][3] || 0),
+        package: String(rows[i][4] || ""),
+        result: String(rows[i][5] || ""),
+        expireDate: String(rows[i][6] || "")
+      };
+    }
+  }
+  return null;
+}
+
+function _recordMembershipOperation(operationId, userId, username, days, pkg, result, expireDate) {
+  var opId = String(operationId || "").trim();
+  if (!opId) return;
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName(MEMBERSHIP_OP_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(MEMBERSHIP_OP_SHEET);
+    sheet.getRange(1, 1, 1, MEMBERSHIP_OP_HEADERS.length).setValues([MEMBERSHIP_OP_HEADERS]);
+    sheet.getRange(1, 1, 1, MEMBERSHIP_OP_HEADERS.length)
+      .setFontWeight("bold").setBackground("#1A2535").setFontColor("#FFFFFF");
+  }
+  if (_findMembershipOperation(opId)) return;
+  sheet.appendRow([
+    opId, String(userId || ""), String(username || ""), Number(days || 0),
+    String(pkg || ""), String(result || ""), String(expireDate || ""),
+    Utilities.formatDate(new Date(), "Asia/Bangkok", "dd/MM/yyyy HH:mm:ss")
+  ]);
+}
+
 // ── saveMember ─────────────────────────────────────────────
-function saveMember(userId, username, expireDays, password, pkg) {
+function saveMember(userId, username, expireDays, password, pkg, operationId) {
   var ss     = SpreadsheetApp.openById(SS_ID);
   var sheet  = ss.getSheetByName(MEMBERS);
   var now    = new Date();
   var days   = parseInt(expireDays, 10);
   if (!isFinite(days) || days <= 0) {
     return {status:"error", message:"invalid_expire_days"};
+  }
+  var existingOperation = _findMembershipOperation(operationId);
+  if (existingOperation) {
+    if (String(existingOperation.userId) !== String(userId)) {
+      return {status:"error", message:"operation_id_conflict"};
+    }
+    return {
+      status:"ok",
+      result:"already_applied",
+      expireDate:existingOperation.expireDate,
+      package:existingOperation.package,
+      operationId:String(operationId)
+    };
   }
   var startStr = Utilities.formatDate(now, "Asia/Bangkok", "dd/MM/yyyy");
   var normalizedPackage = _normalizePackage(pkg);
@@ -973,12 +1039,17 @@ function saveMember(userId, username, expireDays, password, pkg) {
       // Force a fresh login only after the admin approves the renewal.
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
       writeAuditLog('Admin', 'RENEW', username, 'pkg:' + normalizedPackage);
+      _recordMembershipOperation(
+        operationId, userId, username, days, normalizedPackage, "renewed", expireStr
+      );
       return {
         status:"ok",
         result:"renewed",
         password:effectivePassword,
         passwordPreserved:normalizedPackage === "WEB" && currentPackage === "WEB" && !!currentPassword,
-        expireDate:expireStr
+        expireDate:expireStr,
+        package:normalizedPackage,
+        operationId:String(operationId || "")
       };
     }
   }
@@ -995,12 +1066,17 @@ function saveMember(userId, username, expireDays, password, pkg) {
     0, newPassword, normalizedPackage, ""
   ]);
   writeAuditLog('Admin', 'APPROVE', username, 'pkg:' + normalizedPackage);
+  _recordMembershipOperation(
+    operationId, userId, username, days, normalizedPackage, "added", expireStr
+  );
   return {
     status:"ok",
     result:"added",
     password:newPassword,
     passwordPreserved:false,
-    expireDate:expireStr
+    expireDate:expireStr,
+    package:normalizedPackage,
+    operationId:String(operationId || "")
   };
 }
 
@@ -1246,6 +1322,174 @@ function _logIdChange(ss, username, oldId, newId, changeDate) {
   } catch(e) {}
 }
 
+// ── Finance and recovery helpers ──────────────────────────
+var FINANCE_HEADERS = [
+  "Date", "Time", "UserID", "Username", "Package", "Months",
+  "Amount(Ks)", "PayType", "Method", "TransactionNo", "TransferTo",
+  "Sender", "AccountNumber", "AccountID", "AccountName",
+  "FromAccountType", "FromAccountNumber", "FromAccountName",
+  "ToAccountType", "ToAccountNumber", "ToAccountName", "Fee", "Purpose",
+  "Status"
+];
+
+function _ensureFinanceSheet(ss) {
+  var sheet = ss.getSheetByName("Finance");
+  if (!sheet) sheet = ss.insertSheet("Finance");
+  var currentLastColumn = Math.max(sheet.getLastColumn(), 1);
+  var existingHeaders = sheet.getRange(1, 1, 1, currentLastColumn).getValues()[0];
+  var missing = FINANCE_HEADERS.length - existingHeaders.length;
+  if (missing > 0 || existingHeaders[0] !== FINANCE_HEADERS[0]) {
+    sheet.getRange(1, 1, 1, FINANCE_HEADERS.length).setValues([FINANCE_HEADERS]);
+    sheet.getRange(1, 1, 1, FINANCE_HEADERS.length)
+      .setFontWeight("bold").setBackground("#1A2535").setFontColor("#FFFFFF");
+  }
+  return sheet;
+}
+
+function _csvQuote(value) {
+  return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"';
+}
+
+function _paymentKey(payment) {
+  var reference = String(payment.transactionNo || payment.reference || "").trim();
+  if (reference && reference !== "UNKNOWN") return "REF:" + reference;
+  return "FALLBACK:" + [
+    String(payment.userId || "").trim(),
+    String(payment.date || "").trim(),
+    String(payment.amount || "").trim(),
+    String(payment.package || "").trim(),
+    String(payment.months || "").trim()
+  ].join("|");
+}
+
+function logPayment(payment) {
+  try {
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var sheet = _ensureFinanceSheet(ss);
+    var headers = FINANCE_HEADERS;
+    var row = headers.map(function(header) {
+      if (header === "Status") return payment.status || "APPROVED";
+      if (header === "TransactionNo") return payment.transactionNo || payment.reference || "";
+      if (header === "Method") return payment.method || "";
+      var map = {
+        "Date":"date", "Time":"time", "UserID":"userId", "Username":"username",
+        "Package":"package", "Months":"months", "Amount(Ks)":"amount",
+        "PayType":"payType", "TransferTo":"receiver", "Sender":"sender",
+        "AccountNumber":"accountNumber", "AccountID":"accountId", "AccountName":"accountName",
+        "FromAccountType":"fromAccountType", "FromAccountNumber":"fromAccountNumber",
+        "FromAccountName":"fromAccountName", "ToAccountType":"toAccountType",
+        "ToAccountNumber":"toAccountNumber", "ToAccountName":"toAccountName",
+        "Fee":"fee", "Purpose":"purpose"
+      };
+      return payment[map[header]] || "";
+    });
+    var key = _paymentKey(payment);
+    var values = sheet.getDataRange().getValues();
+    var refIndex = headers.indexOf("TransactionNo");
+    var existingRow = -1;
+    for (var i = 1; i < values.length; i++) {
+      var existingReference = String(values[i][refIndex] || "").trim();
+      var existingKey = existingReference
+        ? "REF:" + existingReference
+        : "FALLBACK:" + [
+            String(values[i][headers.indexOf("UserID")] || "").trim(),
+            String(values[i][headers.indexOf("Date")] || "").trim(),
+            String(values[i][headers.indexOf("Amount(Ks)")] || "").trim(),
+            String(values[i][headers.indexOf("Package")] || "").trim(),
+            String(values[i][headers.indexOf("Months")] || "").trim()
+          ].join("|");
+      if (existingKey === key) {
+        existingRow = i + 1;
+        break;
+      }
+    }
+    if (existingRow > 0) {
+      sheet.getRange(existingRow, 1, 1, headers.length).setValues([row]);
+      return {status:"ok", result:"updated", paymentKey:key};
+    }
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues([row]);
+    return {status:"ok", result:"added", paymentKey:key};
+  } catch (e) {
+    return {status:"error", message:e.toString()};
+  }
+}
+
+function getFinanceBackupCSV() {
+  try {
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var sheet = ss.getSheetByName("Finance");
+    if (!sheet || sheet.getLastRow() < 1) {
+      return {status:"ok", csv:FINANCE_HEADERS.map(_csvQuote).join(",")};
+    }
+    var rows = sheet.getDataRange().getValues();
+    return {
+      status:"ok",
+      csv:rows.map(function(row) {
+        return FINANCE_HEADERS.map(function(_, index) { return _csvQuote(row[index] || ""); }).join(",");
+      }).join("\n")
+    };
+  } catch (e) {
+    return {status:"error", message:e.toString()};
+  }
+}
+
+function getPaymentsBackupCSV() {
+  try {
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var sheet = ss.getSheetByName("Payments");
+    if (!sheet || sheet.getLastRow() < 1) return {status:"ok", csv:""};
+    var rows = sheet.getDataRange().getValues();
+    return {
+      status:"ok",
+      csv:rows.map(function(row) {
+        return row.map(_csvQuote).join(",");
+      }).join("\n")
+    };
+  } catch (e) {
+    return {status:"error", message:e.toString()};
+  }
+}
+
+function getRecoveryMembersCSV() {
+  try {
+    // Reuse the canonical status/date normalization before exporting.
+    getMembers();
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var sheet = ss.getSheetByName(MEMBERS);
+    var rows = sheet.getDataRange().getValues();
+    var headers = ["UserID","Username","StartDate","ExpireDate","Status","CancelCount","Password","Package"];
+    var csv = [headers.map(_csvQuote).join(",")];
+    for (var i = 1; i < rows.length; i++) {
+      if (!String(rows[i][C_USERID] || "").trim()) continue;
+      csv.push([
+        rows[i][C_USERID], rows[i][C_USERNAME], rows[i][C_START], rows[i][C_EXPIRE],
+        rows[i][C_STATUS], rows[i][C_CANCELCOUNT], rows[i][C_PASSWORD], rows[i][C_PACKAGE] || "CH"
+      ].map(_csvQuote).join(","));
+    }
+    return {status:"ok", csv:csv.join("\n")};
+  } catch (e) {
+    return {status:"error", message:e.toString()};
+  }
+}
+
+function getDuplicateMembers() {
+  try {
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var sheet = ss.getSheetByName(MEMBERS);
+    var rows = sheet.getDataRange().getValues();
+    var seen = {}, duplicates = [];
+    for (var i = 1; i < rows.length; i++) {
+      var uid = String(rows[i][C_USERID] || "").trim();
+      if (!uid) continue;
+      if (seen[uid]) duplicates.push({userId:uid, firstRow:seen[uid] + 1, duplicateRow:i + 1});
+      else seen[uid] = i;
+    }
+    return {status:"ok", duplicates:duplicates};
+  } catch (e) {
+    return {status:"error", message:e.toString()};
+  }
+}
+
 // ── getBackupCSV ───────────────────────────────────────────
 function getBackupCSV() {
   try {
@@ -1300,13 +1544,26 @@ function setupSheet() {
 
 // ── Weekly Auto Backup (Sunday 6AM) ───────────────────────
 function weeklyBackup() {
-  var result = getBackupCSV();
-  if (result.status !== "ok") return;
+  var membersResult = getRecoveryMembersCSV();
+  var financeResult = getFinanceBackupCSV();
+  var paymentsResult = getPaymentsBackupCSV();
+  if (membersResult.status !== "ok" || financeResult.status !== "ok" || paymentsResult.status !== "ok") {
+    Logger.log(
+      "Backup failed: members=" + membersResult.status
+      + " finance=" + financeResult.status
+      + " payments=" + paymentsResult.status
+    );
+    return;
+  }
 
-  var filename = "Members_Backup_" + Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd") + ".csv";
-  var folder   = DriveApp.getRootFolder(); // Root folder — change to specific folder if needed
-  folder.createFile(filename, result.csv, MimeType.CSV);
-  Logger.log("Backup saved: " + filename);
+  var dateTag = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+  var folder = DriveApp.getRootFolder(); // Keep the existing private Drive destination.
+  folder.createFile("JACC_Members_Recovery_" + dateTag + ".csv", membersResult.csv, MimeType.CSV);
+  folder.createFile("JACC_Finance_" + dateTag + ".csv", financeResult.csv, MimeType.CSV);
+  if (paymentsResult.csv) {
+    folder.createFile("JACC_Payments_" + dateTag + ".csv", paymentsResult.csv, MimeType.CSV);
+  }
+  Logger.log("JACC member, Finance, and Payments backups saved: " + dateTag);
 }
 
 // ── Daily Duplicate UserID Check ──────────────────────────
@@ -1331,58 +1588,11 @@ function dailyDuplicateCheck() {
   }
 }
 function monthlyPasswordReset() {
-  var BOT_TOKEN = PropertiesService.getScriptProperties().getProperty("BOT_TOKEN");
-  if (!BOT_TOKEN) {
-    Logger.log("BOT_TOKEN is not configured in Script Properties.");
-    return;
-  }
-
-  var ss    = SpreadsheetApp.openById(SS_ID);
-  var sheet = ss.getSheetByName("Members");
-  var rows  = sheet.getDataRange().getValues();
-
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][C_STATUS]).toUpperCase() !== "ACTIVE") continue;
-    if (_normalizePackage(rows[i][C_PACKAGE]) !== "WEB") continue;
-
-    var userId   = String(rows[i][C_USERID]);
-    var username = rows[i][C_USERNAME] || "Member";
-
-    // Password အသစ် generate
-    var chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    var pw = "KMT-";
-    for (var j = 0; j < 6; j++) pw += chars[Math.floor(Math.random()*chars.length)];
-    pw += "-";
-    for (var k = 0; k < 4; k++) pw += chars[Math.floor(Math.random()*chars.length)];
-
-    // Sheet မှာ သိမ်း
-    sheet.getRange(i+1, C_PASSWORD+1).setValue(pw);
-    sheet.getRange(i+1, C_TOKEN+1).setValue("");
-
-    // Bot က DM ပို့
-    var msg = "🔄 *Password အသစ် (Monthly Reset)*\n\n"
-            + "🔑 Password: `" + pw + "`\n\n"
-            + "🌐 https://kyawmintun08.github.io/Japan-Auction-Car-Checker/\n\n"
-            + "⚠️ Password ကို မည်သူ့ကိုမျှ မပေးပါနဲ့\n"
-            + "   မျှဝေပါက Membership ပိတ်သိမ်းခံရမည်";
-
-    try {
-      var url = "https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage";
-      UrlFetchApp.fetch(url, {
-        method: "post",
-        contentType: "application/json",
-        payload: JSON.stringify({
-          chat_id:    userId,
-          text:       msg,
-          parse_mode: "Markdown"
-        })
-      });
-    } catch(e) {
-      Logger.log("DM failed for " + userId + ": " + e);
-    }
-
-    Utilities.sleep(500);
-  }
+  // Intentionally disabled. Premium passwords are stable credentials and must
+  // change only through an explicit admin reset or an approved account-recovery
+  // action. Keeping this function name preserves any existing trigger safely.
+  Logger.log("monthlyPasswordReset skipped: automatic Premium password rotation is disabled");
+  return {status:"ok", result:"disabled"};
 }
 // ═══════════════════════════════════════════
 // PAYMENT QR HANDLERS (KPay / Wave / CB Bank)

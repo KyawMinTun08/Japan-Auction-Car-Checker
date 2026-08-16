@@ -10,6 +10,8 @@ Members sheet.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+from contextvars import ContextVar
 from typing import Any
 
 import queue_launcher as _queue
@@ -21,6 +23,9 @@ _original_generate_password = _legacy.generate_password
 _original_send_approval_dm = _legacy.send_approval_dm
 _last_membership_save: dict[str, dict[str, Any]] = {}
 _approval_lock = asyncio.Lock()
+_active_operation_id: ContextVar[str] = ContextVar(
+    "jacc_active_membership_operation_id", default=""
+)
 
 
 def _normalise_package(value: Any) -> str:
@@ -32,6 +37,22 @@ def _normalise_package(value: Any) -> str:
         "PREMIUM": "WEB",
     }
     return aliases.get(package, package)
+
+
+def _approval_operation_id(member_id: int, payment_snapshot: dict[str, Any]) -> str:
+    slip = dict(payment_snapshot.get("slip_info") or {})
+    reference = str(
+        slip.get("TRANSACTION_NO")
+        or slip.get("REFERENCE")
+        or ""
+    ).strip()
+    if not reference or reference == "UNKNOWN":
+        reference = "|".join(
+            str(payment_snapshot.get(key, "")).strip()
+            for key in ("amount", "package", "months", "method")
+        )
+    raw = f"JACC-PAYMENT|{member_id}|{reference}"
+    return "PAY-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
 def _safe_response_text(response: Any) -> str:
@@ -82,12 +103,14 @@ async def save_member_to_sheet(
     days: int,
     password: str = "",
     package: str = "CH",
+    operation_id: str = "",
 ) -> bool:
     """Write membership data safely and keep Web renewal passwords stable."""
     clean_user_id = str(user_id or "").strip()
     clean_username = str(username or "").strip()
     clean_password = str(password or "").strip()
     clean_package = _normalise_package(package)
+    operation_id = str(operation_id or _active_operation_id.get() or "").strip()
 
     try:
         clean_days = int(days)
@@ -135,6 +158,8 @@ async def save_member_to_sheet(
         "password": clean_password,
         "package": clean_package,
     }
+    if str(operation_id or "").strip():
+        payload["operationId"] = str(operation_id).strip()
 
     last_detail = "unknown webhook failure"
     for attempt in range(1, 4):
@@ -180,7 +205,9 @@ async def save_member_to_sheet(
                         "ok": True,
                         "detail": "ok",
                         "result": result,
-                        "password": clean_password,
+                        "password": str(result.get("password") or clean_password).strip(),
+                        "expireDate": str(result.get("expireDate") or "").strip(),
+                        "operationId": str(result.get("operationId") or operation_id or "").strip(),
                     }
                     _legacy.logger.info(
                         "Membership saved user=%s package=%s days=%s result=%s",
@@ -297,6 +324,7 @@ async def button_callback(update, context):
     # The legacy handler pops this data before writing to Google Sheets. Keep a
     # copy so a temporary webhook failure does not destroy the approval session.
     payment_snapshot = dict(_legacy.pending_payment.get(member_id, {}) or {})
+    operation_id = _approval_operation_id(member_id, payment_snapshot)
     _last_membership_save.pop(str(member_id), None)
 
     # For a Web renewal, make the legacy callback generate the already-stored
@@ -312,6 +340,7 @@ async def button_callback(update, context):
         if current_password and current_package.startswith("WEB"):
             forced_password = current_password
 
+    operation_token = _active_operation_id.set(operation_id)
     try:
         async with _approval_lock:
             if forced_password:
@@ -358,6 +387,8 @@ async def button_callback(update, context):
         except Exception:
             pass
         return
+    finally:
+        _active_operation_id.reset(operation_token)
 
     save_result = _last_membership_save.get(str(member_id), {})
     if save_result.get("ok"):
