@@ -17,8 +17,10 @@ def test_apps_script_save_member_has_operation_id_guard():
 def test_apps_script_finance_logging_is_idempotent_and_exportable():
     assert "function logPayment(payment)" in CODE_GS
     assert "function getFinanceBackupCSV()" in CODE_GS
+    assert "function getPaymentsBackupCSV()" in CODE_GS
     assert "function getRecoveryMembersCSV()" in CODE_GS
     assert 'case "getFinanceBackupCSV"' in CODE_GS
+    assert 'case "getPaymentsBackupCSV"' in CODE_GS
     assert 'case "getRecoveryMembersCSV"' in CODE_GS
     assert 'case "getDuplicateMembers"' in CODE_GS
     assert 'if (!_serverKeyMatches(data))' in CODE_GS
@@ -39,6 +41,7 @@ def test_bot_backup_covers_members_finance_and_duplicates():
     backup = LEGACY_BOT[start:end]
     assert 'getRecoveryMembersCSV' in backup
     assert 'getFinanceBackupCSV' in backup
+    assert 'getPaymentsBackupCSV' in backup
     assert 'getDuplicateMembers' in backup
     assert 'SHEET_SERVER_KEY' in backup
 

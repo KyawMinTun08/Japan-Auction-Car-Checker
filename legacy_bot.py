@@ -1618,6 +1618,10 @@ async def backup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 SHEET_WEBHOOK,
                 json=sheet_admin_payload("getFinanceBackupCSV"),
             )
+            payments_resp = await client.post(
+                SHEET_WEBHOOK,
+                json=sheet_admin_payload("getPaymentsBackupCSV"),
+            )
             duplicate_resp = await client.post(
                 SHEET_WEBHOOK,
                 json=sheet_admin_payload("getDuplicateMembers"),
@@ -1625,6 +1629,7 @@ async def backup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         member_data = member_resp.json()
         finance_data = finance_resp.json()
+        payments_data = payments_resp.json()
         duplicate_data = duplicate_resp.json()
         sent_count = 0
 
@@ -1658,6 +1663,14 @@ async def backup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"JACC_Finance_{timestamp}.csv",
                 finance_data["csv"],
                 "✅ JACC Finance Payment Backup",
+            )
+            sent_count += 1
+
+        if payments_data.get("status") == "ok" and payments_data.get("csv"):
+            await send_csv(
+                f"JACC_Payments_{timestamp}.csv",
+                payments_data["csv"],
+                "✅ JACC Payments Sheet Backup",
             )
             sent_count += 1
 

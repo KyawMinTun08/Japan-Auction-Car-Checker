@@ -240,6 +240,9 @@ function doPost(e) {
       case "getFinanceBackupCSV":
         if (!_serverKeyMatches(data)) return _json({status:"error", message:"unauthorized"});
         return _json(getFinanceBackupCSV());
+      case "getPaymentsBackupCSV":
+        if (!_serverKeyMatches(data)) return _json({status:"error", message:"unauthorized"});
+        return _json(getPaymentsBackupCSV());
       case "getRecoveryMembersCSV":
         if (!_serverKeyMatches(data)) return _json({status:"error", message:"unauthorized"});
         return _json(getRecoveryMembersCSV());
@@ -1430,6 +1433,23 @@ function getFinanceBackupCSV() {
   }
 }
 
+function getPaymentsBackupCSV() {
+  try {
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var sheet = ss.getSheetByName("Payments");
+    if (!sheet || sheet.getLastRow() < 1) return {status:"ok", csv:""};
+    var rows = sheet.getDataRange().getValues();
+    return {
+      status:"ok",
+      csv:rows.map(function(row) {
+        return row.map(_csvQuote).join(",");
+      }).join("\n")
+    };
+  } catch (e) {
+    return {status:"error", message:e.toString()};
+  }
+}
+
 function getRecoveryMembersCSV() {
   try {
     // Reuse the canonical status/date normalization before exporting.
@@ -1526,8 +1546,13 @@ function setupSheet() {
 function weeklyBackup() {
   var membersResult = getRecoveryMembersCSV();
   var financeResult = getFinanceBackupCSV();
-  if (membersResult.status !== "ok" || financeResult.status !== "ok") {
-    Logger.log("Backup failed: members=" + membersResult.status + " finance=" + financeResult.status);
+  var paymentsResult = getPaymentsBackupCSV();
+  if (membersResult.status !== "ok" || financeResult.status !== "ok" || paymentsResult.status !== "ok") {
+    Logger.log(
+      "Backup failed: members=" + membersResult.status
+      + " finance=" + financeResult.status
+      + " payments=" + paymentsResult.status
+    );
     return;
   }
 
@@ -1535,7 +1560,10 @@ function weeklyBackup() {
   var folder = DriveApp.getRootFolder(); // Keep the existing private Drive destination.
   folder.createFile("JACC_Members_Recovery_" + dateTag + ".csv", membersResult.csv, MimeType.CSV);
   folder.createFile("JACC_Finance_" + dateTag + ".csv", financeResult.csv, MimeType.CSV);
-  Logger.log("JACC member and Finance backups saved: " + dateTag);
+  if (paymentsResult.csv) {
+    folder.createFile("JACC_Payments_" + dateTag + ".csv", paymentsResult.csv, MimeType.CSV);
+  }
+  Logger.log("JACC member, Finance, and Payments backups saved: " + dateTag);
 }
 
 // ── Daily Duplicate UserID Check ──────────────────────────
