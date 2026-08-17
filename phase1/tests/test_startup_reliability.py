@@ -24,7 +24,7 @@ def test_frontend_uses_bounded_data_fetch_and_cache_fallback() -> None:
 
 def test_service_worker_delivers_startup_fix() -> None:
     source = SW.read_text(encoding="utf-8")
-    assert "jacc-2026.08.16-startup-reliability.1" in source
+    assert "jacc-2026.08.16-brand-cards.1" in source
     assert "BASE_PATH + '/phase2/website_device_binding.js'" in source
 
 
