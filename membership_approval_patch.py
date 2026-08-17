@@ -41,6 +41,21 @@ def _safe_response_text(response: Any) -> str:
         return "<response text unavailable>"
 
 
+def _normalise_expire_date(value: Any) -> str:
+    """Return a valid Members-sheet date in canonical dd/MM/yyyy form."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    import re
+    match = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", text)
+    if match:
+        return f"{int(match.group(1)):02d}/{int(match.group(2)):02d}/{match.group(3)}"
+    match = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
+    if match:
+        return f"{int(match.group(3)):02d}/{int(match.group(2)):02d}/{match.group(1)}"
+    return text
+
+
 async def _fetch_sheet_member(user_id: str, attempts: int = 3) -> dict[str, str]:
     """Read the canonical password/package from Apps Script for one member."""
     clean_user_id = str(user_id or "").strip()
@@ -179,6 +194,8 @@ async def save_member_to_sheet(
                     canonical = dict(result)
                     canonical.setdefault("package", clean_package)
                     canonical.setdefault("password", clean_password)
+                    raw_expire = canonical.get("expireDate") or canonical.get("expiredDate") or ""
+                    canonical["expireDate"] = _normalise_expire_date(raw_expire)
                     canonical["status"] = "ok"
                     _last_membership_save[clean_user_id] = {
                         "ok": True,
