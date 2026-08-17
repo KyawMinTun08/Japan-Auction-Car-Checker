@@ -6482,7 +6482,9 @@ async def main():
     if jdm_http is not None:
         web_app.router.add_options("/api/jdm/lookup", jdm_http.options)
         web_app.router.add_get("/api/jdm/lookup", jdm_http.lookup)
-        logger.info("JDM lookup endpoint mounted at /api/jdm/lookup")
+        web_app.router.add_options("/api/jdm/explain", jdm_http.options)
+        web_app.router.add_post("/api/jdm/explain", jdm_http.explain)
+        logger.info("JDM lookup and Burmese explanation endpoints mounted")
 
     runner = web.AppRunner(web_app)
     await runner.setup()

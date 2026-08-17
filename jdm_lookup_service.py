@@ -37,6 +37,9 @@ class JdmGradeService:
         self.cache_days = int(os.environ.get("JDM_CACHE_DAYS", "30"))
         self.hash_salt = os.environ.get("JDM_HASH_SALT", "jacc-jdm-cache-v1")
         self.provider_key = "local_jacc"
+        # AI explanation is optional and server-side only; the key is never sent to the browser.
+        self.gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        self.gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash").strip()
 
     @staticmethod
     def normalize_chassis(raw: str) -> str:
@@ -229,6 +232,43 @@ class JdmGradeService:
             logger.exception("JDM web session verification failed")
             return {"status": "error", "message": "session_unavailable"}
 
+    async def explain_burmese(self, raw_chassis: str, lookup_payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.gemini_api_key:
+            raise JdmLookupError("AI_EXPLANATION_NOT_CONFIGURED")
+        safe_payload = {
+            "chassis": lookup_payload.get("chassis"),
+            "chassis_prefix": lookup_payload.get("chassis_prefix"),
+            "provider": lookup_payload.get("provider"),
+            "checked_at": lookup_payload.get("checked_at"),
+            "status": lookup_payload.get("status"),
+            "matches": lookup_payload.get("matches", [])[:5],
+        }
+        prompt = (
+            "You are the JACC vehicle explanation assistant. Explain the supplied verified lookup data in easy Burmese. "
+            "Use ONLY the JSON facts. Never invent auction grade, accident history, mileage, price, ownership, or safety claims. "
+            "If a fact is missing, say 'မရှိသေးပါ'. Do not say buy or do not buy. Return exactly three short sections: "
+            "Known facts, Uncertain or missing, Before-bid checks. Keep technical model/chassis names in English.\n\n"
+            + json.dumps(safe_payload, ensure_ascii=False)
+        )
+        url = "https://generativelanguage.googleapis.com/v1beta/models/" + self.gemini_model + ":generateContent?key=" + self.gemini_api_key
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
+            if response.is_error:
+                logger.error("Gemini explanation failed: status=%s", response.status_code)
+                raise JdmLookupError("AI_PROVIDER_UNAVAILABLE")
+            data = response.json()
+            parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+            text = "\n".join(str(part.get("text") or "") for part in parts).strip()
+            if not text:
+                raise JdmLookupError("AI_EMPTY_RESPONSE")
+            return {"status": "ok", "chassis": safe_payload["chassis"], "text": text, "provider": "gemini", "source": safe_payload}
+        except JdmLookupError:
+            raise
+        except Exception:
+            logger.exception("Gemini Burmese explanation request failed")
+            raise JdmLookupError("AI_PROVIDER_UNAVAILABLE")
+
     async def lookup(self, raw_chassis: str) -> dict[str, Any]:
         normalized = self.normalize_chassis(raw_chassis)
         prefix = self.chassis_prefix(normalized)
@@ -280,7 +320,7 @@ class JdmLookupHttp:
             headers.update(
                 {
                     "Access-Control-Allow-Origin": origin,
-                    "Access-Control-Allow-Methods": "GET,OPTIONS",
+                    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
                     "Access-Control-Allow-Headers": "Content-Type, Authorization",
                 }
             )
@@ -288,6 +328,31 @@ class JdmLookupHttp:
 
     async def options(self, request: web.Request) -> web.Response:
         return web.Response(status=204, headers=self._headers(request))
+
+    async def explain(self, request: web.Request) -> web.Response:
+        headers = self._headers(request)
+        auth = request.headers.get("Authorization", "")
+        token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        session = await self.service.verify_web_session(token)
+        if session.get("status") != "ok":
+            return web.json_response({"status": "error", "code": session.get("message", "WEB_ACCESS_REQUIRED")}, status=401, headers=headers)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"status": "error", "code": "INVALID_JSON"}, status=400, headers=headers)
+        raw = str(body.get("chassis", "")).strip()
+        if not raw:
+            return web.json_response({"status": "error", "code": "CHASSIS_REQUIRED"}, status=400, headers=headers)
+        try:
+            lookup_payload = await self.service.lookup(raw)
+            return web.json_response(await self.service.explain_burmese(raw, lookup_payload), headers=headers)
+        except JdmLookupError as exc:
+            code = str(exc)
+            status = 503 if code in {"JDM_DATABASE_UNAVAILABLE", "AI_PROVIDER_UNAVAILABLE", "AI_EXPLANATION_NOT_CONFIGURED"} else 400
+            return web.json_response({"status": "error", "code": code}, status=status, headers=headers)
+        except Exception:
+            logger.exception("Burmese explanation failed")
+            return web.json_response({"status": "error", "code": "EXPLANATION_FAILED"}, status=500, headers=headers)
 
     async def lookup(self, request: web.Request) -> web.Response:
         headers = self._headers(request)
