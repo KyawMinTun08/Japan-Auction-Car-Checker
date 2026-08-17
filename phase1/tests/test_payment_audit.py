@@ -88,6 +88,23 @@ def test_canonical_web_member_record_requires_verified_dates_and_password():
     assert result["expireDate"] == "13/09/2026"
 
 
+def test_canonical_member_record_accepts_apps_script_date_strings():
+    result = validate_member_record(
+        {
+            "status": "ok",
+            "canonicalMemberChecked": True,
+            "startDate": "Thu Jul 16 2026 00:00:00 GMT+0700 (Indochina Time)",
+            "expireDate": "Wed Sep 16 2026 00:00:00 GMT+0700 (Indochina Time)",
+            "package": "CH",
+            "entryType": "RENEW",
+        },
+        "CH",
+    )
+    assert result["ok"] is True
+    assert result["startDate"] == "16/07/2026"
+    assert result["expireDate"] == "16/09/2026"
+
+
 def test_canonical_member_date_and_package_mismatches_fail_closed():
     bad_date = validate_member_record(
         {
