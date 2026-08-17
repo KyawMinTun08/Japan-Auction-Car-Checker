@@ -386,12 +386,25 @@ async def button_callback(update, context):
     if save_result.get("ok"):
         return
 
+    # The legacy callback may complete the approval successfully through a
+    # different save wrapper, leaving no patch-local result. Do not turn that
+    # missing bookkeeping entry into a false `unknown error` after the member
+    # already received the success message. An explicit failed result is the
+    # only safe condition for restoring/retrying the payment session.
+    if not save_result:
+        _legacy.logger.warning(
+            "Approval returned without patch save bookkeeping user=%s; "
+            "do not emit a false Sheet error or replay payment",
+            member_id,
+        )
+        return
+
     # A failed save must remain retryable. This specifically prevents the next
     # button tap from returning “Data ကုန်သွားပြီ”.
     if payment_snapshot:
         _legacy.pending_payment[member_id] = payment_snapshot
 
-    detail = str(save_result.get("detail") or "unknown error")[:500]
+    detail = str(save_result.get("detail") or save_result.get("message") or "unknown error")[:500]
     _legacy.logger.error(
         "Membership approval retained for retry user=%s detail=%s",
         member_id,
