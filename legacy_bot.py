@@ -2456,6 +2456,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown")
             return
 
+    # ── Admin-only Car/List OCR Mode ──
+    # Payment/deposit slip branches above must remain available to members.
+    # Any other photo would otherwise fall through to Gemini/Tesseract chassis OCR.
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text(
+            "🔒 AI Car OCR / Chassis ပုံဖတ်ရှာခြင်းကို Admin account သီးသန့်သာ သုံးနိုင်ပါတယ်။\n\n"
+            "Payment slip ဖြစ်ပါက /renew သို့မဟုတ် /upgrade မှာ package နဲ့ payment method ရွေးပြီး "
+            "အဲဒီ flow အတွင်း slip ပုံကို ပို့ပါ။",
+            parse_mode="Markdown",
+        )
+        return
+
     # ── Auction List Mode ──
     if "list" in caption:
         cap_lower = caption.lower()

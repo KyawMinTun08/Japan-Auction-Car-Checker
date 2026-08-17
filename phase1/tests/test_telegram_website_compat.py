@@ -95,3 +95,19 @@ def test_payment_approval_uses_server_side_transaction_action() -> None:
     assert '"action": "approvePaymentTransaction"' in bot
     assert "Server-side Member + Finance transaction" in bot
     assert "pending_payment.pop(member_id, None)" in bot
+
+
+def test_photo_car_ocr_is_admin_only_but_payment_slip_flow_remains_available() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    payment_mode = bot.index("# ── Payment Slip Mode ──")
+    slip_ocr = bot.index("slip_info  = await gemini_read_slip(file_bytes)", payment_mode)
+    gate = bot.index("# ── Admin-only Car/List OCR Mode ──")
+    list_mode = bot.index("# ── Auction List Mode ──")
+    car_ocr = bot.index("result     = await gemini_ocr_chassis(file_bytes)")
+    gate_block = bot[gate:list_mode]
+
+    assert payment_mode < slip_ocr < gate
+    assert "if user_id not in ADMIN_IDS:" in gate_block
+    assert "AI Car OCR / Chassis" in gate_block
+    assert "Payment slip ဖြစ်ပါက" in gate_block
+    assert gate < list_mode < car_ocr
