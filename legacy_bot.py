@@ -8,6 +8,7 @@ import logging
 import httpx
 from phase1.phase1_client import JaccPhase1Client, JaccPhase1Error
 from jdm_lookup_service import build_jdm_http_service
+from website_payment_upload import build_website_payment_http_service
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat
@@ -6351,7 +6352,7 @@ async def main():
         return web.Response(text="Bot is running!")
 
     port = int(os.environ.get("PORT", 8080))
-    web_app = web.Application()
+    web_app = web.Application(client_max_size=8 * 1024 * 1024 + 64 * 1024)
     web_app.router.add_get("/", health_check)
 
     # JDM lookup is an optional read-only Website/App endpoint. It is disabled
@@ -6361,6 +6362,24 @@ async def main():
         web_app.router.add_options("/api/jdm/lookup", jdm_http.options)
         web_app.router.add_get("/api/jdm/lookup", jdm_http.lookup)
         logger.info("JDM lookup endpoint mounted at /api/jdm/lookup")
+
+    payment_http = build_website_payment_http_service(
+        bot=app.bot,
+        sheet_webhook=SHEET_WEBHOOK,
+        admin_ids=ADMIN_IDS,
+        pending_payment=pending_payment,
+        plan_prices=PLAN_PRICES,
+        plan_names=PLAN_NAMES,
+        payment_method_info=PAYMENT_METHOD_INFO,
+        gemini_reader=gemini_read_slip,
+        parse_amount=parse_slip_amount,
+        transaction_key=slip_transaction_key,
+        payment_summary=payment_slip_summary,
+    )
+    if payment_http is not None:
+        web_app.router.add_options("/api/payment/slip", payment_http.options)
+        web_app.router.add_post("/api/payment/slip", payment_http.upload)
+        logger.info("Website payment slip endpoint mounted at /api/payment/slip")
 
     runner = web.AppRunner(web_app)
     await runner.setup()
