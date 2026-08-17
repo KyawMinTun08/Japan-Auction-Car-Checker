@@ -121,3 +121,35 @@ def test_canonical_member_date_and_package_mismatches_fail_closed():
 def test_unverified_member_record_is_not_accepted():
     result = validate_member_record({"status": "ok"}, "CH")
     assert result["reason"] == "member_not_verified"
+
+
+def test_payment_batch_requires_exact_combined_total_and_rejects_duplicate_receipts():
+    from payment_audit import validate_payment_batch
+
+    payment = _payment(amount=55000, method="kpay")
+    slips = [
+        {"slip_info": _slip(AMOUNT="30000", TRANSACTION_NO="TXN-30000")},
+        {"slip_info": _slip(AMOUNT="25000", TRANSACTION_NO="TXN-25000")},
+    ]
+    valid = validate_payment_batch(payment, slips, expected_receiver="Kyaw Min Tun")
+    assert valid["ok"] is True
+    assert valid["amount"] == 55000
+    assert valid["transaction_no"] == "TXN-30000|TXN-25000"
+
+    duplicate = validate_payment_batch(
+        payment,
+        [slips[0], {"slip_info": _slip(AMOUNT="25000", TRANSACTION_NO="TXN-30000")}],
+        expected_receiver="Kyaw Min Tun",
+    )
+    assert duplicate["reason"] == "duplicate_transaction"
+
+
+def test_payment_batch_rejects_overpayment_instead_of_auto_approving():
+    from payment_audit import validate_payment_batch
+
+    result = validate_payment_batch(
+        _payment(amount=30000, method="wave"),
+        [{"slip_info": _slip(TYPE="Wave", AMOUNT="31000", TRANSFER_TO="UNKNOWN")}],
+        expected_receiver="Kyaw Min Tun",
+    )
+    assert result["reason"] == "amount_mismatch"

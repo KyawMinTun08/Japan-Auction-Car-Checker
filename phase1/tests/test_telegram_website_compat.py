@@ -64,7 +64,7 @@ def test_standard_paths_do_not_advertise_a_web_password() -> None:
 
 def test_payment_slip_approval_is_strict_and_fail_closed() -> None:
     bot = LEGACY.read_text(encoding="utf-8")
-    assert "validate_payment_slip(" in bot
+    assert "validate_payment_batch(" in bot
     assert "expected_receiver=ADMIN_REAL_NAME" in bot
     assert "strict=True" in bot
     assert "Duplicate renewal မဖြစ်စေရန် Approve ကို ထပ်မနှိပ်ပါနဲ့" in bot
