@@ -17,7 +17,11 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 from aiohttp import web
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+try:
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+except ImportError:  # Unit tests can exercise the HTTP adapter without Telegram installed.
+    InlineKeyboardButton = None
+    InlineKeyboardMarkup = None
 
 logger = logging.getLogger(__name__)
 
@@ -189,15 +193,17 @@ class WebsitePaymentHttp:
             f"Total received: {total_paid:,} ks — {status}\n\n"
             "Slip အားလုံးကို Payment app ထဲတွင် Transaction No. တစ်ခုချင်းစီစစ်ပြီးမှ Confirm လုပ်ပါ။"
         )
-        markup = InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("Message member", url=f"tg://user?id={user_id}")],
+        markup = None
+        if InlineKeyboardButton is not None and InlineKeyboardMarkup is not None:
+            markup = InlineKeyboardMarkup(
                 [
-                    InlineKeyboardButton("Confirm", callback_data=f"slip_confirm_{user_id}"),
-                    InlineKeyboardButton("Reject", callback_data=f"slip_no_{user_id}"),
-                ],
-            ]
-        )
+                    [InlineKeyboardButton("Message member", url=f"tg://user?id={user_id}")],
+                    [
+                        InlineKeyboardButton("Confirm", callback_data=f"slip_confirm_{user_id}"),
+                        InlineKeyboardButton("Reject", callback_data=f"slip_no_{user_id}"),
+                    ],
+                ]
+            )
         delivered = 0
         for admin_id in self.admin_ids:
             try:
