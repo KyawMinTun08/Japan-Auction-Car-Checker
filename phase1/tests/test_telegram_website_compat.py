@@ -60,3 +60,30 @@ def test_standard_paths_do_not_advertise_a_web_password() -> None:
     quick = bot[bot.index('elif data.startswith("qa_")'):bot.index('elif data.startswith("req_budget_")')]
     assert '"CH")' in quick
     assert 'Password: `{password}`' not in quick
+
+
+def test_payment_slip_approval_is_strict_and_fail_closed() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    assert "validate_payment_batch(" in bot
+    assert "expected_receiver=ADMIN_REAL_NAME" in bot
+    assert "strict=True" in bot
+    assert "Duplicate renewal မဖြစ်စေရန် Approve ကို ထပ်မနှိပ်ပါနဲ့" in bot
+    assert '"source": "PAYMENT_SLIP"' in bot
+    assert "for attempt in range(1, 4)" in bot
+
+
+def test_finance_slip_logging_requires_amount_and_transaction() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    helper = bot[bot.index("async def log_finance_entry"):bot.index("async def get_finance_report")]
+    assert 'source == "PAYMENT_SLIP"' in helper
+    assert "transaction number" in helper
+    assert "numeric amount" in helper
+    assert 'result.get("duplicate") is True' in helper
+
+
+def test_member_integrity_verification_includes_start_and_expire_dates() -> None:
+    audit = (ROOT / "payment_audit.py").read_text(encoding="utf-8")
+    assert 'saved.get("startDate")' in audit
+    assert 'saved.get("expireDate")' in audit
+    assert 'reason": "expire_before_start"' in audit
+    assert 'reason": "web_password_missing"' in audit

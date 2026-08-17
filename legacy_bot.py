@@ -9,6 +9,12 @@ import httpx
 from phase1.phase1_client import JaccPhase1Client, JaccPhase1Error
 from jdm_lookup_service import build_jdm_http_service
 from datetime import datetime, timedelta, timezone
+from payment_audit import (
+    normalize_amount,
+    validate_member_record,
+    validate_payment_batch,
+    validate_payment_slip,
+)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ChatMemberHandler, filters, ContextTypes
@@ -33,6 +39,7 @@ SHEET_SERVER_KEY      = os.environ.get('SHEET_SERVER_KEY', '').strip()
 CHANNEL_ID            = os.environ.get('CHANNEL_ID', '-1003749046571')
 ADMIN_IDS             = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip().isdigit()]
 ADMIN_USERNAME        = os.environ.get('ADMIN_USERNAME', '')
+ADMIN_REAL_NAME       = os.environ.get('ADMIN_REAL_NAME', 'Kyaw Min Tun')
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
 CLOUDINARY_API_KEY    = os.environ.get('CLOUDINARY_API_KEY', '')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
@@ -899,14 +906,25 @@ async def save_member_to_sheet(user_id: str, username: str, days: int,
         return {"status": "error", "message": "sheet_request_failed"}
 
 
-async def enrich_member_save_result(user_id: str, saved: dict, package: str) -> dict:
-    """Fill missing canonical expiry/password fields without changing Members columns."""
+async def enrich_member_save_result(
+    user_id: str,
+    saved: dict,
+    package: str,
+    strict: bool = False,
+) -> dict:
+    """Fill and optionally verify canonical member fields without changing Members columns."""
     result = dict(saved or {})
     result.setdefault("status", "error")
-    if result.get("status") != "ok" or not SHEET_WEBHOOK:
+    if result.get("status") != "ok":
+        return result
+    if not SHEET_WEBHOOK:
+        if strict:
+            return {"status": "error", "message": "canonical_member_lookup_unavailable"}
         return result
 
-    needs_member = not result.get("expireDate") or not result.get("package")
+    # Strict approval paths always re-read the saved member so the Bot uses the
+    # actual Members row, including StartDate, ExpireDate, package, and password.
+    needs_member = strict or not result.get("expireDate") or not result.get("package")
     if needs_member:
         try:
             async with httpx.AsyncClient() as client:
@@ -916,16 +934,31 @@ async def enrich_member_save_result(user_id: str, saved: dict, package: str) -> 
                     timeout=10,
                     follow_redirects=True,
                 )
-            members = resp.json().get("members", [])
+            payload = resp.json()
+            members = payload.get("members", []) if isinstance(payload, dict) else []
             target = next(
                 (m for m in members if str(m.get("userId", "")).strip() == str(user_id).strip()),
                 None,
             )
             if target:
-                result.setdefault("expireDate", target.get("expireDate", ""))
-                result.setdefault("package", target.get("package", package))
+                result.setdefault("startDate", target.get("startDate", ""))
+                result["expireDate"] = str(target.get("expireDate") or result.get("expireDate") or "")
+                result["package"] = target.get("package", result.get("package", package))
+                result["canonicalMemberChecked"] = True
+            elif strict:
+                return {
+                    "status": "error",
+                    "message": "member_not_found_after_save",
+                    "canonicalMemberChecked": False,
+                }
         except Exception as e:
             logger.warning("canonical member lookup after save failed: %s", e)
+            if strict:
+                return {
+                    "status": "error",
+                    "message": "canonical_member_lookup_failed",
+                    "canonicalMemberChecked": False,
+                }
 
     normalized_package = str(result.get("package") or package or "").upper().replace("-", "")
     if normalized_package in ("WEB", "WEBPROMO") and not result.get("password"):
@@ -942,29 +975,54 @@ async def enrich_member_save_result(user_id: str, saved: dict, package: str) -> 
                 result["password"] = str(password_result.get("password") or "")
         except Exception as e:
             logger.warning("canonical password lookup after save failed: %s", e)
+    if strict:
+        integrity = validate_member_record(result, package)
+        if not integrity.get("ok"):
+            result["status"] = "error"
+            result["message"] = integrity.get("reason", "member_integrity_check_failed")
     return result
 
 
 async def log_finance_entry(payment: dict) -> bool:
-    """Append one auditable Finance row; never change Members columns here."""
+    """Append one auditable Finance row with bounded retries; never change Members columns here."""
     if not SHEET_WEBHOOK:
         return False
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.post(
-                SHEET_WEBHOOK,
-                json={
-                    "action": "logPayment",
-                    "payment": dict(payment or {}),
-                    "serverKey": SHEET_SERVER_KEY,
-                },
-                timeout=15,
+    payload = dict(payment or {})
+    source = str(payload.get("source") or "").strip().upper()
+    if source == "PAYMENT_SLIP":
+        if not (str(payload.get("paymentId") or "").strip() or str(payload.get("transactionNo") or "").strip()):
+            logger.error("Refusing payment-slip Finance log without transaction number")
+            return False
+        if normalize_amount(payload.get("amount")) is None:
+            logger.error("Refusing payment-slip Finance log without a numeric amount")
+            return False
+
+    for attempt in range(1, 4):
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                response = await client.post(
+                    SHEET_WEBHOOK,
+                    json={
+                        "action": "logPayment",
+                        "payment": payload,
+                        "serverKey": SHEET_SERVER_KEY,
+                    },
+                    timeout=15,
+                )
+            result = response.json()
+            if response.status_code < 400 and (
+                result.get("status") == "ok" or result.get("duplicate") is True
+            ):
+                return True
+            logger.warning(
+                "log_finance_entry logical failure attempt=%s/3 status=%s response=%s",
+                attempt, response.status_code, str(result)[:300],
             )
-        result = response.json()
-        return response.status_code < 400 and result.get("status") == "ok"
-    except Exception as exc:
-        logger.error("log_finance_entry failed: %s", exc)
-        return False
+        except Exception as exc:
+            logger.warning("log_finance_entry failed attempt=%s/3: %s", attempt, exc)
+        if attempt < 3:
+            await asyncio.sleep(0.8 * attempt)
+    return False
 
 
 async def get_finance_report(month: str) -> dict:
@@ -2273,7 +2331,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             to_account_name = slip_info.get("TO_ACCOUNT_NAME", "UNKNOWN")
             fee = slip_info.get("FEE", "UNKNOWN")
             purpose = slip_info.get("PURPOSE", "UNKNOWN")
-            ADMIN_REAL_NAME = os.environ.get("ADMIN_REAL_NAME", "Kyaw Min Tun")
             receiver_ok = ""
             if pay_type == "KPay" and transfer_to != "UNKNOWN":
                 if ADMIN_REAL_NAME.lower() in transfer_to.lower():
@@ -3597,14 +3654,43 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("❌ Data ကုန်သွားပြီ")
             return
         expected_amount = int(pay_data.get("amount", 0) or 0)
-        total_paid, _ = payment_slip_summary(pay_data.get("slips", []))
-        if total_paid < expected_amount:
+        slips = pay_data.get("slips", []) or []
+        slip_info = pay_data.get("slip_info", {}) or {}
+        if not slips and slip_info:
+            slips = [{"slip_info": slip_info}]
+        total_paid, _ = payment_slip_summary(slips)
+        if total_paid != expected_amount:
+            if total_paid < expected_amount:
+                detail = f"payment {expected_amount - total_paid:,} ks လိုသေးသည်"
+            else:
+                detail = f"payment {total_paid - expected_amount:,} ks ပိုနေသည်"
             await query.message.reply_text(
-                f"❌ Approve မလုပ်နိုင်ပါ — payment {expected_amount - total_paid:,} ks လိုသေးသည်။"
+                f"❌ Approve မလုပ်နိုင်ပါ — {detail}။ Slip ပြန်စစ်ပြီးမှ Approve လုပ်ပါ။"
             )
             return
-        pending_payment.pop(member_id, None)
 
+        payment_check = validate_payment_batch(
+            pay_data,
+            slips,
+            expected_receiver=ADMIN_REAL_NAME,
+        )
+        if not payment_check.get("ok"):
+            reason = str(payment_check.get("reason") or "payment_validation_failed")
+            await query.message.reply_text(
+                "❌ Payment ကို အတည်မပြုနိုင်သေးပါ။\\n\\n"
+                f"စစ်ဆေးချက်: `{reason}`\\n"
+                "Amount / Payment method / Transaction No / Date ကို ပြန်စစ်ပြီးမှ Approve လုပ်ပါ။\\n"
+                "Customer ကို မပျောက်စေရန် payment session ကို မဖျက်ထားပါ။",
+                parse_mode="Markdown",
+            )
+            await notify_admins(
+                context,
+                f"⛔ Payment validation blocked for {member_id}: {reason}. Approve မလုပ်ရသေးပါ။",
+            )
+            return
+
+        # Remove the session only after the receipt passes all deterministic checks.
+        pay_data = pending_payment.pop(member_id, {})
         package = str(pay_data.get("package", "CH")).upper().strip()
         months = int(pay_data.get("months", 1))
         name = pay_data.get("name", "Unknown")
@@ -3618,87 +3704,78 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             password,
             package,
         )
-        saved = await enrich_member_save_result(str(member_id), saved, package)
-        if saved.get("status") != "ok":
+        saved = await enrich_member_save_result(
+            str(member_id), saved, package, strict=True)
+        member_check = validate_member_record(saved, package)
+        if saved.get("status") != "ok" or not member_check.get("ok"):
+            detail = str(saved.get("message") or member_check.get("reason") or "member_integrity_check_failed")
             await query.message.reply_text(
-                "❌ Membership ကို Sheet ထဲ မသိမ်းနိုင်ပါ။ Customer ကို approve မလုပ်ရသေးပါ။"
+                "⚠️ Member Sheet save ပြီးသော်လည်း canonical date/package စစ်ဆေးမှု မအောင်မြင်သေးပါ။\\n"
+                f"Admin စစ်ဆေးရန်: `{detail}`\\n"
+                "Duplicate renewal မဖြစ်စေရန် Approve ကို ထပ်မနှိပ်ပါနဲ့။",
+                parse_mode="Markdown",
             )
-            if ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=ADMIN_IDS[0],
-                        text=f"⚠️ Sheet write FAILED for {member_id} — manual fix needed!",
-                    )
-                except Exception as e:
-                    logger.error(f"sheet failure admin notify: {e}")
+            await notify_admins(
+                context,
+                f"⚠️ Member integrity check failed after save for {member_id}: {detail}. Finance/DM မဆက်လုပ်ပါ။",
+            )
             return
-
         slip_info = pay_data.get("slip_info", {})
         chosen_method = pay_data.get("method", "")
         canonical_password = str(saved.get("password") or password or "")
         canonical_expire = str(saved.get("expireDate") or "")
         canonical_package = str(saved.get("package") or package).upper()
         entry_type = str(saved.get("entryType") or ("NEW" if saved.get("result") == "added" else "RENEW")).upper()
-        transaction_no = ", ".join(
-            str(s.get("slip_info", {}).get("TRANSACTION_NO", s.get("slip_info", {}).get("REFERENCE", "")))
-            for s in pay_data.get("slips", [])
-            if str(s.get("slip_info", {}).get("TRANSACTION_NO", s.get("slip_info", {}).get("REFERENCE", ""))).strip()
-        ) or str(
-            slip_info.get("TRANSACTION_NO")
-            or slip_info.get("REFERENCE")
-            or ""
-        ).strip()
+        transaction_no = str(payment_check.get("transaction_no") or "").strip()
         if transaction_no.upper() == "UNKNOWN":
             transaction_no = ""
         approved_by = str(
             getattr(query.from_user, "username", "")
             or getattr(query.from_user, "id", "")
         ).strip()
-        try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                await client.post(
-                    SHEET_WEBHOOK,
-                    json={
-                        "action": "logPayment",
-                        "payment": {
-                            "date": slip_info.get("DATE", datetime.now().strftime("%d/%m/%Y")),
-                            "time": slip_info.get("TIME", datetime.now().strftime("%H:%M")),
-                            "userId": str(member_id),
-                            "username": username,
-                            "package": PLAN_NAMES.get(canonical_package, canonical_package),
-                            "months": months,
-                            "amount": total_paid,
-                            "payType": slip_info.get("TYPE", "") or chosen_method.upper(),
-                            "method": chosen_method.upper() if chosen_method else "",
-                            "transactionNo": transaction_no,
-                            "receiver": slip_info.get(
-                                "TRANSFER_TO",
-                                slip_info.get("RECEIVER", ""),
-                            ),
-                            "sender": slip_info.get("SENDER", ""),
-                            "accountNumber": slip_info.get("ACCOUNT_NUMBER", ""),
-                            "accountId": slip_info.get("ACCOUNT_ID", ""),
-                            "accountName": slip_info.get("ACCOUNT_NAME", ""),
-                            "fromAccountType": slip_info.get("FROM_ACCOUNT_TYPE", ""),
-                            "fromAccountNumber": slip_info.get("FROM_ACCOUNT_NUMBER", ""),
-                            "fromAccountName": slip_info.get("FROM_ACCOUNT_NAME", ""),
-                            "toAccountType": slip_info.get("TO_ACCOUNT_TYPE", ""),
-                            "toAccountNumber": slip_info.get("TO_ACCOUNT_NUMBER", ""),
-                            "toAccountName": slip_info.get("TO_ACCOUNT_NAME", ""),
-                            "fee": slip_info.get("FEE", ""),
-                            "purpose": slip_info.get("PURPOSE", ""),
-                            "status": "APPROVED",
-                            "entryType": entry_type,
-                            "source": "PAYMENT_SLIP",
-                            "paymentId": transaction_no,
-                            "approvedBy": approved_by,
-                            "expireDate": canonical_expire,
-                        },
-                    },
-                    timeout=10,
-                )
-        except Exception as e:
-            logger.error(f"logPayment: {e}")
+        finance_logged = await log_finance_entry({
+            "date": slip_info.get("DATE", datetime.now().strftime("%d/%m/%Y")),
+            "time": slip_info.get("TIME", datetime.now().strftime("%H:%M")),
+            "userId": str(member_id),
+            "username": username,
+            "package": PLAN_NAMES.get(canonical_package, canonical_package),
+            "months": months,
+            "amount": payment_check.get("amount") or total_paid,
+            "payType": slip_info.get("TYPE", "") or chosen_method.upper(),
+            "method": chosen_method.upper() if chosen_method else "",
+            "transactionNo": transaction_no,
+            "receiver": slip_info.get("TRANSFER_TO", slip_info.get("RECEIVER", "")),
+            "sender": slip_info.get("SENDER", ""),
+            "accountNumber": slip_info.get("ACCOUNT_NUMBER", ""),
+            "accountId": slip_info.get("ACCOUNT_ID", ""),
+            "accountName": slip_info.get("ACCOUNT_NAME", ""),
+            "fromAccountType": slip_info.get("FROM_ACCOUNT_TYPE", ""),
+            "fromAccountNumber": slip_info.get("FROM_ACCOUNT_NUMBER", ""),
+            "fromAccountName": slip_info.get("FROM_ACCOUNT_NAME", ""),
+            "toAccountType": slip_info.get("TO_ACCOUNT_TYPE", ""),
+            "toAccountNumber": slip_info.get("TO_ACCOUNT_NUMBER", ""),
+            "toAccountName": slip_info.get("TO_ACCOUNT_NAME", ""),
+            "fee": slip_info.get("FEE", ""),
+            "purpose": slip_info.get("PURPOSE", ""),
+            "status": "APPROVED",
+            "entryType": entry_type,
+            "source": "PAYMENT_SLIP",
+            "paymentId": transaction_no,
+            "approvedBy": approved_by,
+            "expireDate": canonical_expire,
+            "note": f"Approved after strict Bot checks; slip_count={len(slips)}",
+        })
+        if not finance_logged:
+            await query.message.reply_text(
+                "⚠️ Member Sheet ထဲ save ပြီးပါပြီ၊ ဒါပေမယ့် Finance record ကို ၃ ကြိမ် retry ပြီးတာတောင် မအောင်မြင်သေးပါ။\\n"
+                "Duplicate renewal မဖြစ်စေရန် Approve ကို ထပ်မနှိပ်ပါနဲ့။ Admin က Finance row ကို စစ်ပြီးမှ Customer ကို DM ပို့ပါမယ်။",
+                parse_mode="Markdown",
+            )
+            await notify_admins(
+                context,
+                f"⚠️ Finance log failed after member save for {member_id}; transaction={transaction_no}. Manual reconciliation required; do not re-approve.",
+            )
+            return
         invite_url = await create_invite_link(context, months * 30)
         await send_approval_dm(
             context,
@@ -4519,7 +4596,7 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         str(member_id) if member_id else username_or_id,
         member_username, days, password, package)
     saved = await enrich_member_save_result(
-        str(member_id) if member_id else username_or_id, saved, package)
+        str(member_id) if member_id else username_or_id, saved, package, strict=True)
     if saved.get("status") != "ok":
         await update.message.reply_text(
             "❌ Sheet ထဲ မသိမ်းနိုင်သေးပါ။ Membership Approved မဖြစ်သေးပါ။",
@@ -5573,7 +5650,8 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     password = generate_password() if pkg == "WEB" else ""
     saved = await save_member_to_sheet(str(user_id), username, days, password, member_pkg)
-    saved = await enrich_member_save_result(str(user_id), saved, member_pkg)
+    saved = await enrich_member_save_result(
+        str(user_id), saved, member_pkg, strict=True)
     if saved.get("status") != "ok":
         await update.message.reply_text(
             "❌ Promo ရပါပြီ၊ ဒါပေမယ့် Member Sheet ထဲ မသိမ်းနိုင်သေးပါ။ Admin ကို ဆက်သွယ်ပါ။"
