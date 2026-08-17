@@ -42,8 +42,8 @@
 html{scroll-behavior:smooth}
 body{font-family:var(--font-sans);background:var(--bg);color:var(--ink-2);display:flex;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 :focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
-.login-bg{position:fixed;inset:0;z-index:9999;background:radial-gradient(ellipse at 20% 0%,rgba(200,16,46,0.08),transparent 50%),radial-gradient(ellipse at 80% 100%,rgba(10,14,26,0.05),transparent 50%),var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
-.login-bg::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(28,25,23,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(28,25,23,.025) 1px,transparent 1px);background-size:24px 24px;pointer-events:none}
+.login-bg{position:fixed;inset:0;z-index:9999;background:radial-gradient(ellipse at 20% 0%,rgba(200,16,46,0.12),transparent 50%),radial-gradient(ellipse at 80% 100%,rgba(10,14,26,0.10),transparent 50%),var(--bg);display:grid;grid-template-columns:minmax(0,1fr) minmax(340px,400px);align-items:center;gap:72px;padding:28px max(28px,5vw)}
+.login-bg::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(28,25,23,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(28,25,23,.025) 1px,transparent 1px);background-size:24px 24px;pointer-events:none}.login-visual{position:relative;z-index:1;max-width:600px;color:var(--ink-1);padding:20px 0}.login-visual::before{content:'';position:absolute;left:-42px;top:-34px;width:170px;height:170px;border:1px solid rgba(200,16,46,.18);border-radius:50%;box-shadow:0 0 0 18px rgba(200,16,46,.035),0 0 0 38px rgba(200,16,46,.018);pointer-events:none}.login-visual-kicker{display:inline-flex;align-items:center;gap:8px;color:var(--brand);font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase}.login-visual-kicker::before{content:'';width:24px;height:2px;background:var(--brand);border-radius:2px}.login-visual-title{font-size:clamp(38px,5vw,68px);line-height:.98;font-weight:800;letter-spacing:-2.8px;margin-top:20px;max-width:560px}.login-visual-title em{font-style:normal;color:var(--brand)}.login-visual-copy{font-size:14px;line-height:1.8;color:var(--ink-4);max-width:470px;margin-top:20px}.login-visual-points{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}.login-visual-point{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.64);color:var(--ink-3);font-size:11px;font-weight:700;box-shadow:var(--sh-sm)}.login-visual-point b{color:var(--brand);font-size:14px}.login-visual-foot{margin-top:40px;color:var(--ink-5);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700}.login-card{align-self:center}
 .login-card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-xl);padding:36px 32px 28px;width:100%;max-width:400px;box-shadow:var(--sh-lg)}
 .login-stamp{position:absolute;top:-18px;left:50%;transform:translateX(-50%);background:var(--brand);color:#fff;padding:6px 14px;border-radius:var(--r-sm);font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;box-shadow:var(--sh-brand)}
 .login-logo{text-align:center;margin-bottom:24px}
@@ -266,10 +266,23 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
 	@media(max-width:600px){.dashboard-hero{padding:20px 16px}.dashboard-hero-title{font-size:20px}.dashboard-hero-form{flex-direction:column;align-items:stretch}.dashboard-hero-btn{width:100%}.dashboard-recent-grid{grid-template-columns:1fr 1fr;gap:8px}.dashboard-recent-img{height:92px}.dashboard-recent-body{padding:9px}.car-grid{grid-template-columns:1fr !important}.kpi-grid{grid-template-columns:1fr 1fr;gap:10px}.mgrid{grid-template-columns:1fr}.desktop-only{display:none !important}.content{padding:12px}.tab-bar{padding:0 6px}.tab{padding:12px 10px;font-size:11.5px}.kpi-value{font-size:22px}.kpi-card{padding:14px}.card-body{padding:14px}.card-header{padding:12px 14px}select,.input{font-size:12px;padding:7px 10px}.lookup-row{flex-direction:column}.lookup-input{letter-spacing:1px}.live-pill{display:none}.header{padding:0 12px}.toast-stack{right:12px;bottom:12px}.update-banner{bottom:12px}.car-footer{align-items:flex-end}.car-detail-actions{gap:5px}.car-source-action{padding:0 8px;font-size:9.5px}}
 @media(max-width:400px){.tab{padding:10px 8px;font-size:11px}.kpi-card{padding:12px}.kpi-value{font-size:20px}}
 @media(max-width:600px){.tab-bar{display:none}.content{padding-bottom:calc(88px + env(safe-area-inset-bottom))}#dashMainArea{display:flex !important;flex-direction:column;gap:14px}#dashMainArea[style*="display: none"]{display:none !important}#dashMainArea>.dashboard-feature-grid{order:1}#dashMainArea>.card:nth-child(2){order:2}#dashMainArea>.card:nth-child(3){order:3}#dashMainArea>.grid-2:not(.dashboard-feature-grid){order:4}#dashMainArea>.card:last-child{order:5}#tab-dashboard .table-wrap{display:none}.recent-mobile-list{display:grid;gap:8px}.mobile-bottom-nav{display:grid;grid-template-columns:repeat(4,1fr);position:fixed;left:0;right:0;bottom:0;z-index:150;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:color-mix(in srgb,var(--surface) 94%,transparent);border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(10,14,26,.10);backdrop-filter:blur(14px)}.mobile-nav-item{appearance:none;border:0;background:transparent;color:var(--ink-4);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:48px;padding:5px 2px;border-radius:12px;font-family:inherit;font-size:10px;font-weight:700;cursor:pointer}.mobile-nav-item .mobile-nav-icon{font-size:18px;line-height:1}.mobile-nav-item.active{background:var(--brand-soft);color:var(--brand)}.mobile-nav-item:focus-visible{outline:3px solid color-mix(in srgb,var(--brand) 28%,transparent);outline-offset:2px}}
-</style>
+
+.dashboard-hero.premium-hero{background:linear-gradient(118deg,#0A0E1A 0%,#14213B 62%,#4B1022 100%);border:0;box-shadow:0 16px 36px rgba(10,14,26,.18);padding:28px 30px}.dashboard-hero.premium-hero::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.045) 48%,transparent 100%);transform:translateX(-60%);pointer-events:none}.dashboard-hero.premium-hero::after{width:340px;height:340px;right:-110px;top:-170px;background:radial-gradient(circle,rgba(200,16,46,.45),transparent 68%)}.premium-hero .dashboard-hero-kicker{display:flex;align-items:center;gap:8px;color:#FFB3BE}.hero-kicker-dot{width:7px;height:7px;border-radius:50%;background:#FF6F86;box-shadow:0 0 0 5px rgba(255,111,134,.16)}.premium-hero .dashboard-hero-title{color:#fff;font-size:clamp(25px,3vw,36px);letter-spacing:-1.1px}.premium-hero .dashboard-hero-title em{font-style:normal;color:#FF9AAB}.premium-hero .dashboard-hero-sub{color:rgba(255,255,255,.68);max-width:470px}.dashboard-hero-trust{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.dashboard-hero-trust span{font-size:10px;color:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:6px 9px;background:rgba(255,255,255,.06)}.dashboard-hero-form{display:block}.dashboard-hero-label{display:block;color:rgba(255,255,255,.68);font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}.dashboard-hero-input-row{display:flex;align-items:center;gap:10px}.dashboard-hero-input-wrap{position:relative;flex:1;min-width:0}.hero-input-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--brand);font-size:19px;z-index:1}.premium-hero .dashboard-hero-input{padding-left:40px;background:#fff;border-color:rgba(255,255,255,.3)}.premium-hero .dashboard-hero-btn{display:inline-flex;align-items:center;justify-content:center;gap:12px;background:var(--brand);min-width:148px}.hero-btn-arrow{font-size:17px;line-height:1;transition:transform .18s}.premium-hero .dashboard-hero-btn:hover .hero-btn-arrow{transform:translateX(3px)}.dashboard-hero-note{color:rgba(255,255,255,.48);font-size:10px;margin-top:8px}.dashboard-hero-note b{color:rgba(255,255,255,.82);font-family:var(--font-mono);font-weight:600}@media(max-width:800px){.login-bg{display:flex;padding:16px}.login-visual{display:none}.login-card{max-width:420px;padding:30px 24px 24px}.dashboard-hero.premium-hero{padding:22px 18px}.dashboard-hero-input-row{flex-direction:column;align-items:stretch}.premium-hero .dashboard-hero-btn{width:100%;min-height:46px}.dashboard-hero-input-wrap{width:100%}}
+	</style>
 </head>
 <body>
 <div class="login-bg" id="loginOverlay">
+  <section class="login-visual" aria-label="JACC platform introduction">
+    <div class="login-visual-kicker">Japan Auction Intelligence</div>
+    <h1 class="login-visual-title">Know the car<br>before you <em>bid.</em></h1>
+    <p class="login-visual-copy">JACC brings chassis identity, auction pricing and JDM reference data into one focused workspace for serious car buyers.</p>
+    <div class="login-visual-points" aria-label="JACC features">
+      <span class="login-visual-point"><b>01</b> Chassis lookup</span>
+      <span class="login-visual-point"><b>02</b> Grade reference</span>
+      <span class="login-visual-point"><b>03</b> Auction insights</span>
+    </div>
+    <div class="login-visual-foot">Trusted workspace · MaeSot · Klang9 · Border-44</div>
+  </section>
   <div class="login-card">
     <div class="login-stamp">Members Only</div>
     <div class="login-logo">
@@ -363,15 +376,20 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
         <div class="kpi-card" style="--ac:var(--gold)"><div class="kpi-icon">🏆</div><div class="kpi-label">Top Model</div><div class="kpi-value" id="k-topmodel" style="font-size:18px">—</div><div class="kpi-sub" id="k-topcount">—</div></div>
         <div class="kpi-card" style="--ac:var(--info)"><div class="kpi-icon">📍</div><div class="kpi-label">Locations</div><div class="kpi-value" id="k-locs">—</div><div class="kpi-sub">Auction sites</div></div>
       </div>
-      <div class="dashboard-hero">
+      <div class="dashboard-hero premium-hero">
         <div class="dashboard-hero-copy">
-          <div class="dashboard-hero-kicker">Japan Auction Intelligence</div>
-          <div class="dashboard-hero-title">Find the right car faster.</div>
+          <div class="dashboard-hero-kicker"><span class="hero-kicker-dot"></span>JACC Intelligence Console</div>
+          <div class="dashboard-hero-title">Japanese auction data, <em>made clear.</em></div>
           <div class="dashboard-hero-sub">Chassis number ထည့်ပြီး model၊ price နဲ့ JDM information ကို တစ်နေရာတည်းမှာ စစ်ပါ။</div>
+          <div class="dashboard-hero-trust"><span>✓ JDM grade lookup</span><span>✓ Member data</span></div>
         </div>
         <div class="dashboard-hero-form">
-          <input id="dashboardChassisInput" class="dashboard-hero-input" type="text" placeholder="GRS210-6007724" autocomplete="off" autocapitalize="characters" spellcheck="false" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')dashboardChassisSearch()">
-          <button class="dashboard-hero-btn" type="button" onclick="dashboardChassisSearch()">⌕ &nbsp; Search Chassis</button>
+          <label class="dashboard-hero-label" for="dashboardChassisInput">Find a vehicle by chassis</label>
+          <div class="dashboard-hero-input-row">
+            <div class="dashboard-hero-input-wrap"><span class="hero-input-icon">⌕</span><input id="dashboardChassisInput" class="dashboard-hero-input" type="text" placeholder="GRS210-6007724" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Chassis number" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')dashboardChassisSearch()"></div>
+            <button class="dashboard-hero-btn" type="button" onclick="dashboardChassisSearch()"><span>Search chassis</span><span class="hero-btn-arrow">→</span></button>
+          </div>
+          <div class="dashboard-hero-note">Try a chassis like <b>GRS210</b> or <b>AGH30</b></div>
         </div>
       </div>
       <div id="dashMainArea">
@@ -571,7 +589,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.16-brand-cards.1';
+const APP_VERSION     = '2026.08.17-premium-v2-step1.1';
 const REQUEST_TIMEOUT_MS = 12000;
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
 const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
