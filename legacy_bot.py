@@ -60,6 +60,8 @@ PROMO_CODES_RAW = os.environ.get('PROMO_CODES', '')
 LOC_MAESOT   = "MaeSot Freezone"
 LOC_KLANG9   = "Klang9 Freezone"
 LOC_BORDER44 = "Best Border-44 Gate"
+ANDROID_APP_VERSION = "1.02"
+ANDROID_APP_URL = "https://u.pcloud.link/publink/show?code=XZCy8VJZgc3Sx86GI0bu5ikFH0kHkVnMvJAX"
 
 PLAN_PRICES = {
     "CH":  {1: PLAN_CH_1M,  2: PLAN_CH_2M,  3: PLAN_CH_3M,  5: PLAN_CH_5M},
@@ -1056,6 +1058,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb.append([InlineKeyboardButton("💬 Admin ကို ဆက်သွယ်", url=f"https://t.me/{ADMIN_USERNAME}")])
     kb.append([InlineKeyboardButton("🌐 Web App ကြည့်",
                url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/")])
+    kb.append([InlineKeyboardButton(f"📱 Android App v{ANDROID_APP_VERSION} Download",
+               url=ANDROID_APP_URL)])
 
     if is_admin:
         cmd_text = (
@@ -1065,6 +1069,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📋 `/history NT32-504837` → ဈေးမှတ်တမ်း\n"
             "📊 `/list` → ကားအားလုံး\n"
             "🌐 `/web` → Web Link\n"
+            "📱 `/app` → Android App Download\n"
             "🔄 `/renew` → Membership သက်တမ်းတိုး\n"
             "🔑 `/mypassword` → Password ပြန်ယူ\n\n"
             "*Admin Commands:*\n"
@@ -1089,6 +1094,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📋 `/history NT32-504837` → ဈေးမှတ်တမ်း\n"
             "📊 `/list` → ကားအားလုံး\n"
             "🌐 `/web` → Web Link\n"
+            "📱 `/app` → Android App Download\n"
             "🔄 `/renew` → Membership သက်တမ်းတိုး\n"
             "🔑 `/mypassword` → Password ပြန်ယူ\n"
         )
@@ -1325,6 +1331,17 @@ async def list_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt += f"\n... နှင့် {len(CARS)-20} စီး ထပ်ရှိ"
     txt += f"\n\n🌐 [Web မှာကြည့်](https://kyawmintun08.github.io/Japan-Auction-Car-Checker/)"
     await update.message.reply_text(txt, parse_mode='Markdown')
+
+async def app_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"📱 *Japan Auction Car Checker Android App v{ANDROID_APP_VERSION}*\n\n"
+        "Professional JACC logo ပါသော Android app version အသစ်ကို ဒီနေရာမှာ download လုပ်နိုင်ပါတယ်။\n\n"
+        f"{ANDROID_APP_URL}\n\n"
+        "Download ပြီး install/update လုပ်ပါ။ ဖုန်းထဲမှာ version 1.02 ဖြစ်ကြောင်း စစ်ဆေးပါ။",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"📥 Download Android App v{ANDROID_APP_VERSION}", url=ANDROID_APP_URL)]
+        ]))
 
 async def web_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -6092,6 +6109,7 @@ async def main():
     app.add_handler(CommandHandler("history",     price_history_cmd))
     app.add_handler(CommandHandler("list",        list_cars))
     app.add_handler(CommandHandler("web",         web_link))
+    app.add_handler(CommandHandler("app",         app_link))
     app.add_handler(CommandHandler("approve",     approve_member))
     app.add_handler(CommandHandler("members",     members_list))
     app.add_handler(CommandHandler("kick",        kick_member_cmd))
@@ -6141,6 +6159,7 @@ async def main():
         BotCommand("history",       "📈 ဈေးနှုန်း မှတ်တမ်းကြည့်ရန်"),
         BotCommand("list",          "📊 ကားစာရင်း အားလုံးကြည့်ရန်"),
         BotCommand("web",           "🌐 Web App link ကြည့်ရန်"),
+        BotCommand("app",           "📱 Android App download link"),
         BotCommand("renew",         "🔄 Membership သက်တမ်းတိုး"),
         BotCommand("channel",       "📢 Channel link အသစ်ယူရန်"),
         BotCommand("mypassword",    "🔑 Password ပြန်ယူရန်"),
