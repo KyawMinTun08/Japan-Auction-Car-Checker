@@ -260,6 +260,12 @@ function doPost(e) {
         ]);
         return _json({status:"ok"});
 
+      // ── Locked Member + Finance approval transaction ──
+      case "approvePaymentTransaction":
+        var approvalAuth = _authorizeFinanceReport_(data.serverKey);
+        if (approvalAuth) return _json(approvalAuth);
+        return _json(approvePaymentTransaction_(data.payment || data));
+
       // ── Admin Finance Summary ───────────────────────
       case "getFinanceReport":
         var financeAuth = _authorizeFinanceReport_(data.serverKey);
@@ -1175,6 +1181,219 @@ function getFinanceReport_(month) {
     }
   }
   return {status:"ok", summary:summary};
+}
+
+// ── Server-side payment transaction helpers ─────────────────
+function _transactionIdTokens_(value) {
+  return String(value || "").split(/[|,]/).map(function(token) {
+    return String(token || "").trim();
+  }).filter(function(token) {
+    return token && token.toUpperCase() !== "UNKNOWN";
+  });
+}
+
+function _transactionStateKey_(paymentId) {
+  var safe = String(paymentId || "").replace(/[^A-Za-z0-9_.-]/g, "_");
+  return "JACC_TXN_STATE_" + safe.slice(0, 180);
+}
+
+function _memberDateText_(value) {
+  var parsed = _parseMemberDate(value);
+  return parsed
+    ? Utilities.formatDate(parsed, "Asia/Bangkok", "dd/MM/yyyy")
+    : String(value || "").trim();
+}
+
+function _memberRecordFromRow_(values, rowNumber) {
+  return {
+    row: rowNumber,
+    userId: String(values[C_USERID] || ""),
+    username: String(values[C_USERNAME] || ""),
+    startDate: _memberDateText_(values[C_START]),
+    expireDate: _memberDateText_(values[C_EXPIRE]),
+    status: String(values[C_STATUS] || "").trim().toUpperCase(),
+    package: _normalizePackage(values[C_PACKAGE]),
+    password: String(values[C_PASSWORD] || "").trim()
+  };
+}
+
+function _findMemberRecord_(sheet, userId) {
+  var rows = sheet.getDataRange().getValues();
+  var matches = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][C_USERID] || "").trim() === String(userId || "").trim()) {
+      matches.push(_memberRecordFromRow_(rows[i], i + 1));
+    }
+  }
+  return {
+    count: matches.length,
+    record: matches.length === 1 ? matches[0] : null
+  };
+}
+
+function _financeDuplicatePayment_(sheet, tokens) {
+  if (!tokens || !tokens.length || sheet.getLastRow() < 2) return null;
+  var rows = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    var existing = _transactionIdTokens_(String(rows[i][8] || "") + "|" + String(rows[i][14] || ""));
+    for (var ti = 0; ti < tokens.length; ti++) {
+      if (existing.indexOf(tokens[ti]) !== -1) {
+        return {
+          row: i + 1,
+          userId: String(rows[i][2] || ""),
+          transactionNo: String(rows[i][8] || ""),
+          paymentId: String(rows[i][14] || ""),
+          status: String(rows[i][11] || "")
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function _setFinanceTransactionState_(sheet, rowNumber, status, entryType, source,
+                                      paymentId, approvedBy, expireDate, note) {
+  sheet.getRange(rowNumber, 12, 1, 7).setValues([[
+    status || "", entryType || "", source || "", paymentId || "",
+    approvedBy || "", expireDate || "", note || ""
+  ]]);
+}
+
+function approvePaymentTransaction_(payment) {
+  payment = payment || {};
+  var userId = String(payment.userId || "").trim();
+  var username = String(payment.username || "").trim();
+  var targetPackage = _normalizePackage(payment.package || "CH");
+  var source = String(payment.source || "PAYMENT_SLIP").trim().toUpperCase();
+  var approvedBy = String(payment.approvedBy || "").trim();
+  var expectedAmount = _financeAmount_(payment.expectedAmount);
+  var receivedAmount = _financeAmount_(payment.receivedAmount);
+  var days = parseInt(payment.days || (parseInt(payment.months, 10) * 30), 10);
+  var method = _financeMethod_(payment.payType || payment.method || "");
+  var transactionNo = String(payment.transactionNo || payment.paymentId || "").trim();
+  var paymentId = String(payment.paymentId || transactionNo).trim();
+  var tokens = _transactionIdTokens_(paymentId || transactionNo);
+  var dateText = String(payment.date || "").trim();
+
+  if (!userId) return {status:"error", message:"user_id_required"};
+  if (targetPackage !== "CH" && targetPackage !== "WEB") {
+    return {status:"error", message:"invalid_package"};
+  }
+  if (source !== "PAYMENT_SLIP") {
+    return {status:"error", message:"payment_source_not_supported"};
+  }
+  if (!approvedBy) return {status:"error", message:"approved_by_required"};
+  if (!isFinite(days) || days <= 0) return {status:"error", message:"invalid_expire_days"};
+  if (method !== "KPay" && method !== "Wave" && method !== "Bank") {
+    return {status:"error", message:"invalid_payment_method"};
+  }
+  if (expectedAmount === null || expectedAmount <= 0 || receivedAmount === null || receivedAmount <= 0) {
+    return {status:"error", message:"payment_amount_required"};
+  }
+  if (expectedAmount !== receivedAmount) {
+    return {status:"error", message:"payment_amount_mismatch", expectedAmount:expectedAmount, receivedAmount:receivedAmount};
+  }
+  if (!tokens.length || tokens.some(function(token) { return token.length < 5; })) {
+    return {status:"error", message:"transaction_no_required"};
+  }
+  if (!_financeDateKey_(dateText)) return {status:"error", message:"payment_date_invalid"};
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var membersSheet = ss.getSheetByName(MEMBERS);
+  if (!membersSheet) return {status:"error", message:"members_sheet_missing"};
+  var financeSheet = ss.getSheetByName(FINANCE_SHEET);
+  if (!financeSheet) financeSheet = ss.insertSheet(FINANCE_SHEET);
+  _ensureFinanceHeaders_(financeSheet);
+
+  var duplicate = _financeDuplicatePayment_(financeSheet, tokens);
+  if (duplicate) {
+    if (String(duplicate.userId || "").trim() !== userId) {
+      return {status:"error", message:"transaction_already_used", financeRow:duplicate.row};
+    }
+    if (String(duplicate.status || "").trim().toUpperCase() === "PENDING") {
+      return {status:"error", message:"transaction_in_progress", financeRow:duplicate.row};
+    }
+    var duplicateMember = _findMemberRecord_(membersSheet, userId);
+    return {
+      status:"ok", result:"duplicate", duplicate:true,
+      financeRow:duplicate.row, member:duplicateMember.record || null
+    };
+  }
+
+  var memberLookup = _findMemberRecord_(membersSheet, userId);
+  if (memberLookup.count > 1) {
+    return {status:"error", message:"duplicate_member_rows", userId:userId};
+  }
+  var previous = memberLookup.record;
+  if (previous && previous.package === "WEB" && targetPackage === "CH") {
+    return {status:"error", message:"web_to_channel_downgrade_not_allowed"};
+  }
+  var entryType = !previous
+    ? "NEW"
+    : (previous.package === "CH" && targetPackage === "WEB" ? "UPGRADE" : "RENEW");
+  var stateStore = PropertiesService.getScriptProperties();
+  var stateKey = _transactionStateKey_(paymentId || transactionNo);
+  var existingState = String(stateStore.getProperty(stateKey) || "").trim();
+  if (existingState) {
+    return {status:"error", message:"transaction_in_progress", state:existingState};
+  }
+
+  var now = new Date();
+  var financeDate = dateText || Utilities.formatDate(now, "Asia/Bangkok", "dd/MM/yyyy");
+  var financeTime = String(payment.time || Utilities.formatDate(now, "Asia/Bangkok", "HH:mm")).trim();
+  var pendingNote = "PENDING member+finance transaction; source=" + source;
+  financeSheet.appendRow([
+    financeDate, financeTime, userId, username,
+    targetPackage, Math.max(1, Math.round(days / 30)), receivedAmount,
+    payment.payType || method, transactionNo,
+    payment.receiver || payment.transferTo || "", payment.sender || "", "PENDING",
+    entryType, source, paymentId, approvedBy, "", pendingNote
+  ]);
+  var financeRow = financeSheet.getLastRow();
+  stateStore.setProperty(stateKey, "PENDING|" + financeRow);
+
+  var saved;
+  try {
+    saved = saveMember(userId, username, days, String(payment.password || ""), targetPackage);
+  } catch (saveError) {
+    _setFinanceTransactionState_(financeSheet, financeRow, "ERROR", entryType, source,
+      paymentId, approvedBy, "", "Member save exception; manual review required");
+    stateStore.deleteProperty(stateKey);
+    return {status:"error", message:"member_save_failed", detail:String(saveError)};
+  }
+  if (!saved || saved.status !== "ok") {
+    _setFinanceTransactionState_(financeSheet, financeRow, "ERROR", entryType, source,
+      paymentId, approvedBy, "", "Member save failed: " + String(saved && saved.message || "unknown"));
+    stateStore.deleteProperty(stateKey);
+    return {status:"error", message:"member_save_failed", detail:String(saved && saved.message || "unknown")};
+  }
+
+  var afterLookup = _findMemberRecord_(membersSheet, userId);
+  var after = afterLookup.record;
+  var integrityOk = afterLookup.count === 1 && after && after.package === targetPackage
+    && after.status === "ACTIVE" && after.startDate && after.expireDate;
+  if (previous && after && previous.startDate !== after.startDate) integrityOk = false;
+  if (previous && previous.package === "WEB" && previous.password
+      && after && previous.password !== after.password) integrityOk = false;
+  if (!integrityOk) {
+    stateStore.setProperty(stateKey, "MEMBER_SAVED|" + financeRow);
+    _setFinanceTransactionState_(financeSheet, financeRow, "REVIEW", entryType, source,
+      paymentId, approvedBy, after ? after.expireDate : "",
+      "Member saved but canonical re-read failed; do not retry approval");
+    return {status:"error", message:"member_finance_review_required", member:after || null, financeRow:financeRow};
+  }
+
+  var approvedNote = "Approved by " + approvedBy + "; canonical member verified; transaction committed";
+  _setFinanceTransactionState_(financeSheet, financeRow, "APPROVED", entryType, source,
+    paymentId, approvedBy, after.expireDate, approvedNote);
+  writeAuditLog(approvedBy, "PAYMENT_TRANSACTION", userId,
+    "APPROVED:" + entryType + ":" + paymentId);
+  stateStore.deleteProperty(stateKey);
+  return {
+    status:"ok", result:"approved", entryType:entryType,
+    previousPackage:previous ? previous.package : "", package:after.package,
+    member:after, financeRow:financeRow, password:after.password
+  };
 }
 
 // ── saveMember ─────────────────────────────────────────────

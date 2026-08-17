@@ -73,9 +73,12 @@ def test_bot_finance_command_is_admin_only_and_uses_server_key() -> None:
 
 def test_bot_records_activity_type_for_payment_manual_and_promo_paths() -> None:
     bot = BOT.read_text(encoding="utf-8")
-    assert '"entryType": entry_type' in bot
+    code = (ROOT / "Code.gs").read_text(encoding="utf-8")
+    assert '"action": "approvePaymentTransaction"' in bot
     assert '"source": "PAYMENT_SLIP"' in bot
     assert '"status": "NO_PAYMENT"' in bot
     assert '"source": "MANUAL"' in bot
     assert '"status": "PROMO"' in bot
     assert '"source": "PROMO"' in bot
+    assert 'var entryType = !previous' in code
+    assert 'entryType:entryType' in code

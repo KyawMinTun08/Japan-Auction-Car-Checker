@@ -87,3 +87,11 @@ def test_member_integrity_verification_includes_start_and_expire_dates() -> None
     assert 'saved.get("expireDate")' in audit
     assert 'reason": "expire_before_start"' in audit
     assert 'reason": "web_password_missing"' in audit
+
+
+def test_payment_approval_uses_server_side_transaction_action() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    assert "async def approve_payment_transaction" in bot
+    assert '"action": "approvePaymentTransaction"' in bot
+    assert "Server-side Member + Finance transaction" in bot
+    assert "pending_payment.pop(member_id, None)" in bot
