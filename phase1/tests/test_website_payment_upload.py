@@ -12,9 +12,21 @@ from website_payment_upload import WebsitePaymentHttp
 
 
 @dataclass
+class FakeTelegramFile:
+    file_path: str = "photos/jacc-payment-qr.png"
+    payload: bytes = b"QR-PNG-BYTES"
+
+    async def download_to_memory(self, out):
+        out.write(self.payload)
+
+
+@dataclass
 class FakeBot:
     messages: list[dict] = field(default_factory=list)
     photos: list[dict] = field(default_factory=list)
+
+    async def get_file(self, _file_id):
+        return FakeTelegramFile()
 
     async def send_message(self, **kwargs):
         self.messages.append(kwargs)
@@ -67,7 +79,12 @@ async def _exercise_upload_flow():
         pending_payment=pending,
         plan_prices={"WEB": {1: 30000, 2: 55000, 3: 80000}},
         plan_names={"WEB": "Web Premium"},
-        payment_method_info={"kpay": {"label": "KPay"}},
+        payment_method_info={
+            "kpay": {"label": "KPay", "name": "KPay", "number": "09973625985", "owner": "Kyaw Min Tun"},
+            "wave": {"label": "Wave", "name": "Wave", "number": "09799959537", "owner": "Kyaw Min Tun"},
+            "cb": {"label": "CB Bank", "name": "CB Bank MMQR", "number": "(QR Scan)", "owner": "Kyaw Min Tun (Merchant)"},
+        },
+        payment_qr_getter=lambda method: asyncio.sleep(0, result="qr-file-" + method),
         gemini_reader=read_slip,
         parse_amount=lambda value: int(str(value).replace(",", "")) if value else None,
         transaction_key=lambda info: str(info.get("TRANSACTION_NO", "")).replace("-", "").upper(),
@@ -79,6 +96,10 @@ async def _exercise_upload_flow():
     payment_app = web.Application(client_max_size=8 * 1024 * 1024 + 64 * 1024)
     payment_app.router.add_options("/api/payment/slip", service.options)
     payment_app.router.add_post("/api/payment/slip", service.upload)
+    payment_app.router.add_options("/api/payment/methods", service.options)
+    payment_app.router.add_get("/api/payment/methods", service.payment_methods)
+    payment_app.router.add_options("/api/payment/qr/{method}", service.options)
+    payment_app.router.add_get("/api/payment/qr/{method}", service.payment_qr)
     payment_runner, payment_url = await _start_server(payment_app)
 
     png = base64.b64decode(
@@ -113,12 +134,59 @@ async def _exercise_upload_flow():
             data=data,
             files={"slip": ("payment.png", io.BytesIO(png), "image/png")},
         )
+        read_headers = {
+            "Origin": origin,
+            "Authorization": "Bearer valid-token",
+            "X-JACC-User-ID": "123",
+            "X-JACC-Device-ID": "JACC-qa",
+            "X-JACC-App": "web",
+        }
+        options_methods = await client.options(
+            payment_url + "/api/payment/methods",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization,x-jacc-user-id",
+            },
+        )
+        methods = await client.get(
+            payment_url + "/api/payment/methods",
+            headers=read_headers,
+        )
+        qr = await client.get(
+            payment_url + "/api/payment/qr/kpay",
+            headers=read_headers,
+        )
+        invalid_qr = await client.get(
+            payment_url + "/api/payment/qr/not-a-method",
+            headers=read_headers,
+        )
+        bad_qr_origin = await client.get(
+            payment_url + "/api/payment/qr/kpay",
+            headers={**read_headers, "Origin": "https://evil.example"},
+        )
+        no_auth_methods = await client.get(
+            payment_url + "/api/payment/methods",
+            headers={"Origin": origin},
+        )
 
     try:
         assert first.status_code == 202 and first.json()["status"] == "awaiting_admin"
         assert duplicate.status_code == 409 and duplicate.json()["code"] == "DUPLICATE_TRANSACTION"
         assert bad_auth.status_code == 401 and bad_auth.json()["code"] == "invalid_session"
         assert bad_origin.status_code == 403 and bad_origin.json()["code"] == "ORIGIN_NOT_ALLOWED"
+        assert options_methods.status_code == 204
+        assert "GET" in options_methods.headers.get("Access-Control-Allow-Methods", "")
+        assert methods.status_code == 200
+        methods_payload = methods.json()
+        assert methods_payload["status"] == "ok" and len(methods_payload["methods"]) == 3
+        assert methods_payload["methods"][0]["number"] == "09973625985"
+        assert "fileId" not in methods.text
+        assert qr.status_code == 200 and qr.headers["Content-Type"].startswith("image/png")
+        assert qr.content == b"QR-PNG-BYTES"
+        assert invalid_qr.status_code == 400 and invalid_qr.json()["code"] == "PAYMENT_METHOD_INVALID"
+        assert bad_qr_origin.status_code == 403 and bad_qr_origin.json()["code"] == "ORIGIN_NOT_ALLOWED"
+        assert no_auth_methods.status_code == 401 and no_auth_methods.json()["code"] == "member_id_required"
         assert len(bot.messages) == 1 and bot.messages[0]["chat_id"] == 999
         assert len(bot.photos) == 1 and bot.photos[0]["bytes"] == png
         assert pending[123]["source"] == "website"
