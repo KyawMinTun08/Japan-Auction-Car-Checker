@@ -616,7 +616,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.17-premium-v2-step3.2';
+const APP_VERSION     = '2026.08.17-premium-v2-step3.3';
 const REQUEST_TIMEOUT_MS = 12000;
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
 const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1165,14 +1165,14 @@ function renderJapanSourceLinks(chassis, car){
   const safeChassis=normalizeJapanSourceChassis(chassis);if(!safeChassis)return '';
   const encoded=encodeURIComponent(safeChassis);
   const model=String(car&&car.model||'').toUpperCase();
-  const gooUrl=model.includes('ALPHARD')?'https://www.goo-net.com/catalog/TOYOTA/ALPHARD/':'https://www.goo-net-exchange.com/catalog/';
+  const catalogUrl='https://www.carsensor.net/catalog/';
   const sourceGroups=[
     {title:'Direct chassis / year check',sub:'Chassis number ကို တိုက်ရိုက်ထည့်စစ်နိုင်သော public tools',sources:[
-      {label:'SBT Japan Chassis Check',note:'Maker + chassis / year reference',url:'https://www.sbtjapan.com/support/vehicle_inspection/chassis-check'},
+      {label:'Oliac Autos Year Lookup',note:'Direct frame/chassis → year reference',url:'https://oliac.com/autos/'},
       {label:'TS Export Chassis Decoder',note:'Build-date/spec reference · estimate',url:'https://www.ts-export.com/page.php?page=about_vin_decoders'}
     ]},
     {title:'Model / grade / specs catalog',sub:'Model၊ year၊ grade နှင့် specification ကို manual browsing လုပ်ရန်',sources:[
-      {label:model.includes('ALPHARD')?'Goo-net Alphard Catalog':'Goo-net Japan Catalog',note:'Japanese model/spec catalog',url:gooUrl},
+      {label:'Carsensor Japan Catalog',note:'Maker/model/year catalog · Japanese UI',url:catalogUrl},
       {label:'Carsensor Japan Search',note:'Japanese listings + catalog search',url:'https://www.carsensor.net/'},
       {label:'Real Motor Catalog',note:'Chassis/model reference catalog',url:'https://www.realmotor.jp/catalog'}
     ]},
