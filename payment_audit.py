@@ -126,6 +126,33 @@ def normalize_package(value: Any) -> str:
     return text
 
 
+def _parse_member_date(value: Any) -> datetime | None:
+    """Parse Sheets display dates and Apps Script JavaScript Date strings."""
+    text = _text(value)
+    if text.upper() in _UNKNOWN:
+        return None
+    for pattern in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, pattern)
+        except ValueError:
+            pass
+    # Apps Script can serialize a Date cell through String(Date), for example:
+    # Thu Jul 16 2026 00:00:00 GMT+0700 (Indochina Time).
+    match = re.search(
+        r"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})",
+        text,
+    )
+    if match:
+        try:
+            return datetime.strptime(
+                f"{match.group(1)} {int(match.group(2)):02d} {match.group(3)}",
+                "%b %d %Y",
+            )
+        except ValueError:
+            return None
+    return None
+
+
 def validate_member_record(
     saved: dict[str, Any], requested_package: Any
 ) -> dict[str, Any]:
@@ -149,10 +176,9 @@ def validate_member_record(
     expire_text = _text(saved.get("expireDate"))
     if start_text.upper() in _UNKNOWN or expire_text.upper() in _UNKNOWN:
         return {"ok": False, "reason": "member_date_missing"}
-    try:
-        start_date = datetime.strptime(start_text, "%d/%m/%Y")
-        expire_date = datetime.strptime(expire_text, "%d/%m/%Y")
-    except ValueError:
+    start_date = _parse_member_date(start_text)
+    expire_date = _parse_member_date(expire_text)
+    if not start_date or not expire_date:
         return {"ok": False, "reason": "member_date_invalid"}
     if expire_date < start_date:
         return {"ok": False, "reason": "expire_before_start"}
@@ -165,8 +191,8 @@ def validate_member_record(
 
     return {
         "ok": True,
-        "startDate": start_text,
-        "expireDate": expire_text,
+        "startDate": start_date.strftime("%d/%m/%Y"),
+        "expireDate": expire_date.strftime("%d/%m/%Y"),
         "package": actual_package,
         "entryType": entry_type,
     }
