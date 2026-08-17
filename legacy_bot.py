@@ -1726,6 +1726,7 @@ async def finance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👥 Membership activity: {summary.get('activityCount', 0)}",
         f"✅ Amount သိရ: {summary.get('knownAmountCount', 0)}",
         f"⚠️ Amount မသိရ: {summary.get('unknownAmountCount', 0)}",
+        f"🗂️ Legacy row (စုစုပေါင်းထဲ မထည့်): {summary.get('legacyUnclassifiedCount', 0)} — {int(summary.get('legacyAmount', 0) or 0):,} Ks",
         "",
         "📥 Payment Method",
     ]
@@ -1759,6 +1760,7 @@ async def finance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "missing_amount": "Amount မပါ",
             "missing_transaction": "Transaction No မပါ",
             "missing_entry_type": "NEW/RENEW မခွဲရ",
+            "legacy_unclassified": "အဟောင်း row — EntryType/Source မပါ",
             "duplicate_transaction": "Duplicate transaction",
         }
         lines.extend(["", "🧾 စစ်ရန်လိုသော row များ"])

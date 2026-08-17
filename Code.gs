@@ -1067,7 +1067,10 @@ function getFinanceReport_(month) {
     },
     byEntryType: {NEW:0, RENEW:0, UPGRADE:0, MANUAL:0, PROMO:0, UNKNOWN:0},
     bySource: {PAYMENT_SLIP:0, MANUAL:0, PROMO:0, OTHER:0},
-    reviewItems: []
+    reviewItems: [],
+    legacyUnclassifiedCount: 0,
+    legacyKnownAmountCount: 0,
+    legacyAmount: 0
   };
   if (!finSheet || finSheet.getLastRow() < 1) return {status:"ok", summary:summary};
 
@@ -1092,13 +1095,40 @@ function getFinanceReport_(month) {
     var dateKey = _financeDateKey_(row[dateCol]);
     if (!dateKey || dateKey.slice(0, 7) !== monthText) continue;
     var status = String(row[statusCol] || "").trim().toUpperCase();
-    var source = String(row[sourceCol] || "").trim().toUpperCase();
-    if (!source && status === "APPROVED") source = "PAYMENT_SLIP";
+    var rawSource = String(row[sourceCol] || "").trim().toUpperCase();
+    var rawEntryType = String(row[entryCol] || "").trim();
     var tx = String(row[txCol] || "").trim();
     var amount = _financeAmount_(row[amountCol]);
     var method = _financeMethod_(row[payTypeCol]);
-    var entryType = _financeEntryType_(row[entryCol], source);
     var reviewReason = "";
+
+    // Legacy rows created before the audit metadata existed must not be
+    // presented as verified current revenue. Keep them visible for review.
+    if (!rawSource && !rawEntryType) {
+      summary.legacyUnclassifiedCount++;
+      if (amount === null) {
+        summary.unknownAmountCount++;
+      } else {
+        summary.legacyKnownAmountCount++;
+        summary.legacyAmount += amount;
+      }
+      if (summary.reviewItems.length < 25) {
+        summary.reviewItems.push({
+          row:ri + 1, date:dateKey,
+          userId:String(row[userCol] || ""),
+          username:String(row[usernameCol] || ""),
+          package:String(row[packageCol] || ""),
+          amount:amount === null ? "" : amount,
+          method:method, entryType:"UNKNOWN",
+          reason:"legacy_unclassified"
+        });
+      }
+      continue;
+    }
+
+    var source = rawSource;
+    if (!source && status === "APPROVED") source = "PAYMENT_SLIP";
+    var entryType = _financeEntryType_(rawEntryType, source);
     var isActivity = status === "APPROVED" || status === "NO_PAYMENT" || status === "PROMO" || source === "MANUAL" || source === "PROMO";
     if (!isActivity) {
       summary.reviewItems.push({row:ri + 1, date:dateKey, userId:String(row[userCol] || ""), reason:"status:" + (status || "missing")});
