@@ -281,7 +281,46 @@ CARS = [
 
 PRICE_HISTORY  = []
 pending_photo  = {}
-pending_payment = {}   # user_id -> {package, months, amount, username, name}
+pending_payment = {}   # user_id -> {package, months, amount, username, name, slips}
+
+
+def parse_slip_amount(value):
+    """Return a positive integer amount, or None when unreadable."""
+    if value in (None, "", "UNKNOWN", "N/A", "-", "—"):
+        return None
+    try:
+        digits = re.sub(r"[^0-9]", "", str(value))
+        amount = int(digits) if digits else 0
+        return amount if amount > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def slip_transaction_key(slip_info):
+    """Normalize a transaction number for duplicate-slip detection."""
+    value = str(
+        slip_info.get("TRANSACTION_NO", slip_info.get("REFERENCE", "")) or ""
+    ).strip().upper()
+    if value in ("", "UNKNOWN", "N/A", "-"):
+        return ""
+    return re.sub(r"[^A-Z0-9]", "", value)
+
+
+def payment_slip_summary(slips):
+    """Return total amount and a readable summary of all submitted slips."""
+    total = sum(int(s.get("amount_num", 0) or 0) for s in slips)
+    lines = []
+    for index, slip in enumerate(slips, 1):
+        info = slip.get("slip_info", {})
+        txn = info.get("TRANSACTION_NO", info.get("REFERENCE", "UNKNOWN"))
+        pay_type = info.get("TYPE", "UNKNOWN")
+        date = info.get("DATE", "UNKNOWN")
+        time = info.get("TIME", "UNKNOWN")
+        lines.append(
+            f"{index}. {pay_type} — {int(slip.get('amount_num', 0) or 0):,} ks — "
+            f"Txn: `{txn}` — {date} {time}"
+        )
+    return total, lines
 pending_updateid = {}  # user_id -> {target_username, old_id, new_id}
 pending_edit     = {}  # user_id -> {chassis, field}
 pending_broadcast= {}  # user_id -> {pkg_filter, waiting_photo}
@@ -659,6 +698,27 @@ async def notify_admins(context, text: str, reply_markup=None):
                 parse_mode='Markdown', reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Admin notify {admin_id}: {e}")
+
+
+async def notify_admins_with_slips(context, slips):
+    """Send all submitted slip images after the consolidated review message."""
+    import io
+    for admin_id in ADMIN_IDS:
+        for index, slip in enumerate(slips, 1):
+            file_bytes = slip.get("file_bytes")
+            if not file_bytes:
+                continue
+            try:
+                info = slip.get("slip_info", {})
+                amount = int(slip.get("amount_num", 0) or 0)
+                txn = info.get("TRANSACTION_NO", info.get("REFERENCE", "UNKNOWN"))
+                await context.bot.send_photo(
+                    chat_id=admin_id,
+                    photo=io.BytesIO(file_bytes),
+                    caption=f"📎 Slip {index} — {amount:,} ks — Txn: {txn}",
+                )
+            except Exception as e:
+                logger.error(f"Admin slip image notify {admin_id}/{index}: {e}")
 
 async def kick_with_retry(context, user_id: int, max_retries: int = 3) -> bool:
     for attempt in range(max_retries):
@@ -2221,58 +2281,82 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     receiver_ok = "⚠️ Admin နာမည် မဟုတ်ဘူး!"
 
-            expected  = pay_data.get("amount", 0)
-            amount_ok = ""
-            if amount != "UNKNOWN":
-                try:
-                    amt_num = int(re.sub(r'[^\d]', '', amount))
-                    if amt_num >= expected:
-                        amount_ok = "✅"
-                    else:
-                        amount_ok = f"⚠️ မပြည့်မီ (လိုအပ်: {expected:,} ks)"
-                except:
-                    amount_ok = "⚠️ စစ်မရ"
-            else:
-                amount_ok = "⚠️ ဖတ်မရ"
+            expected = int(pay_data.get("amount", 0) or 0)
+            amount_num = parse_slip_amount(amount)
+            if amount_num is None:
+                await update.message.reply_text(
+                    "⚠️ Slip ထဲက ငွေပမာဏကို ဖတ်မရသေးပါ။\n\n"
+                    "ငွေပမာဏ၊ Transaction No. နှင့် Date မြင်ရအောင် ကြည်လင်သော slip ပုံကို ပြန်ပို့ပါ။\n"
+                    "ဒီ slip ကို Admin ထံ မပို့သေးပါ။",
+                    parse_mode="Markdown")
+                return
 
-            pending_payment[user_id]["slip_info"] = slip_info
-            pending_payment[user_id]["file_bytes"] = file_bytes
+            slips = pay_data.setdefault("slips", [])
+            txn_key = slip_transaction_key(slip_info)
+            if txn_key and any(s.get("txn_key") == txn_key for s in slips):
+                await update.message.reply_text(
+                    f"⚠️ ဒီ Transaction No. `{reference}` ကို အရင်ပို့ထားပြီးသားပါ။\n\n"
+                    "တူညီတဲ့ slip ကို ထပ်မပို့ပါနဲ့။ မတူတဲ့ payment slip ကိုသာ ပို့ပါ။",
+                    parse_mode="Markdown")
+                return
 
-            pkg_name  = PLAN_NAMES.get(pay_data.get("package","CH"), "Unknown")
-            months    = pay_data.get("months", 1)
-            name      = pay_data.get("name", "Unknown")
-            username  = pay_data.get("username", str(user_id))
+            slips.append({
+                "slip_info": slip_info,
+                "amount_num": amount_num,
+                "txn_key": txn_key,
+                "file_bytes": file_bytes,
+            })
+            total_paid, slip_lines = payment_slip_summary(slips)
+            remaining = expected - total_paid
+            pay_data["slip_info"] = slip_info
+            pay_data["file_bytes"] = file_bytes
+            pay_data["total_paid"] = total_paid
+
+            pkg_name = PLAN_NAMES.get(pay_data.get("package", "CH"), "Unknown")
+            months = pay_data.get("months", 1)
+            name = pay_data.get("name", "Unknown")
+            username = pay_data.get("username", str(user_id))
             chosen_method = pay_data.get("method", "")
-            method_label  = PAYMENT_METHOD_INFO.get(chosen_method, {}).get("label", chosen_method.upper() if chosen_method else "—")
+            method_label = PAYMENT_METHOD_INFO.get(
+                chosen_method, {}).get("label", chosen_method.upper() if chosen_method else "—")
 
-            txn_label = "Transaction ID" if pay_type == "Wave" else "Transaction No"
+            # Partial payments stay private with the member until the package price is reached.
+            if remaining > 0:
+                await update.message.reply_text(
+                    f"✅ Slip လက်ခံပြီးပါပြီ။\n\n"
+                    f"📦 Package: {pkg_name} — {months} လ\n"
+                    f"💵 လွှဲပြီးစုစုပေါင်း: *{total_paid:,} ks*\n"
+                    f"💰 လိုအပ်နေသေးသည်: *{remaining:,} ks*\n\n"
+                    f"⚠️ ငွေမပြည့်သေးပါ။ ကျန်ငွေကို လွှဲပြီးရင် နောက်ထပ် slip ကို ဒီနေရာမှာပဲ ပို့ပါ။\n"
+                    f"Admin ထံ မပို့သေးပါ — စုစုပေါင်း {expected:,} ks ပြည့်မှသာ စစ်ဆေးပေးပါမယ်။",
+                    parse_mode="Markdown")
+                return
+
+            total_status = "✅ ပြည့်ပြီ" if remaining == 0 else f"⚠️ {abs(remaining):,} ks ပိုနေသည် — Admin စစ်ဆေးရန်"
+            slip_block = "\n".join(slip_lines)
             admin_text = (
-                f"💰 *Payment Slip အသစ်*\n\n"
+                f"💰 *Payment Slip အသစ် — စုစုပေါင်းစစ်ရန်*\n\n"
                 f"👤 {name} ({username})\n"
                 f"🆔 ID: `{user_id}`\n"
                 f"📦 Package: {pkg_name} — {months} လ\n"
                 f"🎯 ရွေးခဲ့သော method: {method_label}\n"
-                f"💵 Expected: {expected:,} ks\n\n"
-                f"📋 *Slip အချက်အလက်:*\n"
-                f"🏦 Type: {pay_type}\n"
-                f"🔢 {txn_label}: `{reference}`\n"
-                f"💵 Amount: {amount} ks {amount_ok}\n"
-                f"📅 Date: {date_str} {time_str}\n"
-                + (f"📨 Transfer To: {transfer_to} {receiver_ok}\n" if pay_type == "KPay" else f"👤 Sender: {sender}\n")
-                + (f"📤 From: {from_account_type}\n   Account: {from_account_number}\n   Name: {from_account_name}\n📥 To: {to_account_type}\n   Account: {to_account_number}\n   Name: {to_account_name}\n🆔 Account ID: {account_id}\n💸 Fee: {fee}\n📝 Purpose: {purpose}\n" if pay_type == "CB" else "")
-                + f"\n⚠️ {pay_type} app မှာ `{reference}` စစ်ပြီးမှ Confirm လုပ်ပါ"
+                f"💵 Expected: {expected:,} ks\n"
+                f"💵 Total received: {total_paid:,} ks — {total_status}\n\n"
+                f"📋 *Slip အားလုံး:*\n{slip_block}\n"
+                f"\n⚠️ Payment app ထဲမှာ Transaction No. တစ်ခုချင်းစီကို စစ်ပြီးမှ Confirm လုပ်ပါ"
             )
             admin_kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"💬 {name} ကို Message ပို့", url=f"tg://user?id={user_id}")],
                 [InlineKeyboardButton("✅ Confirm", callback_data=f"slip_confirm_{user_id}"),
-                 InlineKeyboardButton("❌ Reject",  callback_data=f"slip_no_{user_id}")],
+                 InlineKeyboardButton("❌ Reject", callback_data=f"slip_no_{user_id}")],
             ])
             await notify_admins(context, admin_text, reply_markup=admin_kb)
+            await notify_admins_with_slips(context, slips)
             await update.message.reply_text(
-                "✅ *Slip လက်ခံရပြီ!*\n\n"
-                "Admin မှ စစ်ဆေးနေသည် — ခဏစောင့်ပါ 🙏\n"
-                "မကြာမီ Password DM ပို့ပေးမည်",
-                parse_mode='Markdown')
+                "✅ *ငွေပမာဏ ပြည့်ပါပြီ!*\n\n"
+                "Slip အားလုံးကို Admin ထံ စစ်ဆေးရန် ပို့ပြီးပါပြီ။\n"
+                "Admin အတည်ပြုပြီးမှ Membership active ဖြစ်ပါမယ်။",
+                parse_mode="Markdown")
             return
 
     # ── Auction List Mode ──
@@ -3464,7 +3548,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _pkg_code   = pay_data.get("package","CH")
         pkg         = PLAN_NAMES.get(_pkg_code, "Unknown")
         months      = pay_data.get("months", 1)
-        amount      = pay_data.get("amount", 0)
+        amount      = int(pay_data.get("amount", 0) or 0)
+        total_paid, _ = payment_slip_summary(pay_data.get("slips", []))
+        if total_paid < amount:
+            remaining = amount - total_paid
+            await query.answer(
+                f"မပြည့်သေးပါ — {remaining:,} ks လိုသေးသည်။ Member ဆီသို့ အသိပေးပြီးပါပြီ။",
+                show_alert=True)
+            try:
+                await context.bot.send_message(
+                    chat_id=member_id,
+                    text=(f"⚠️ Payment မပြည့်သေးပါ။\n\n"
+                          f"လက်ခံပြီး: {total_paid:,} ks\n"
+                          f"ကျန်ငွေ: {remaining:,} ks\n\n"
+                          "ကျန်ငွေကို လွှဲပြီး slip အသစ်ကို ဒီနေရာမှာပဲ ပို့ပါ။"),
+                )
+            except Exception as e:
+                logger.error(f"partial-payment guard DM: {e}")
+            return
         _give_txt   = "Channel link + Password ပေးမည်" if _pkg_code == "WEB" else "Channel link ပေးမည် (Password မပါ)"
         confirm_kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Yes — Approve", callback_data=f"slip_ok_{member_id}"),
@@ -3491,10 +3592,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         member_id = int(data.replace("slip_ok_", ""))
-        pay_data = pending_payment.pop(member_id, {})
+        pay_data = pending_payment.get(member_id, {})
         if not pay_data:
             await query.message.reply_text("❌ Data ကုန်သွားပြီ")
             return
+        expected_amount = int(pay_data.get("amount", 0) or 0)
+        total_paid, _ = payment_slip_summary(pay_data.get("slips", []))
+        if total_paid < expected_amount:
+            await query.message.reply_text(
+                f"❌ Approve မလုပ်နိုင်ပါ — payment {expected_amount - total_paid:,} ks လိုသေးသည်။"
+            )
+            return
+        pending_payment.pop(member_id, None)
 
         package = str(pay_data.get("package", "CH")).upper().strip()
         months = int(pay_data.get("months", 1))
@@ -3530,7 +3639,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         canonical_expire = str(saved.get("expireDate") or "")
         canonical_package = str(saved.get("package") or package).upper()
         entry_type = str(saved.get("entryType") or ("NEW" if saved.get("result") == "added" else "RENEW")).upper()
-        transaction_no = str(
+        transaction_no = ", ".join(
+            str(s.get("slip_info", {}).get("TRANSACTION_NO", s.get("slip_info", {}).get("REFERENCE", "")))
+            for s in pay_data.get("slips", [])
+            if str(s.get("slip_info", {}).get("TRANSACTION_NO", s.get("slip_info", {}).get("REFERENCE", ""))).strip()
+        ) or str(
             slip_info.get("TRANSACTION_NO")
             or slip_info.get("REFERENCE")
             or ""
@@ -3554,7 +3667,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "username": username,
                             "package": PLAN_NAMES.get(canonical_package, canonical_package),
                             "months": months,
-                            "amount": slip_info.get("AMOUNT", pay_data.get("amount", "")),
+                            "amount": total_paid,
                             "payType": slip_info.get("TYPE", "") or chosen_method.upper(),
                             "method": chosen_method.upper() if chosen_method else "",
                             "transactionNo": transaction_no,
