@@ -1,8 +1,8 @@
 // JACC PWA Service Worker
-// Version 2026.08.17-premium-v2-step3.6
+// Version 2026.08.18-ops-p1-v2
 
 const CACHE_PREFIX = 'jacc-';
-const CACHE_NAME = 'jacc-2026.08.17-premium-v2-step3.6';
+const CACHE_NAME = 'jacc-2026.08.18-ops-p1-v2';
 const BASE_PATH = '/Japan-Auction-Car-Checker';
 const APP_SHELL = [
   BASE_PATH + '/',
@@ -50,7 +50,8 @@ function isBackendRequest(url) {
     url.hostname.includes('script.googleusercontent.com') ||
     url.hostname.includes('docs.google.com') ||
     url.hostname.includes('ipapi.co') ||
-    url.pathname.includes('/api/jdm/lookup');
+    url.pathname.includes('/api/jdm/lookup') ||
+    url.pathname.includes('/api/jdm/explain');
 }
 
 function isRuntimeAsset(url) {
