@@ -54,6 +54,8 @@ assert.equal(result.summary.paymentCount, 3);
 assert.equal(result.summary.activityCount, 4);
 assert.equal(result.summary.duplicateCount, 1);
 assert.equal(result.summary.missingTransactionCount, 0);
+assert.equal(result.summary.legacyUnclassifiedCount, 0);
+assert.equal(result.summary.legacyAmount, 0);
 assert.equal(result.summary.byMethod.KPay.count, 1);
 assert.equal(result.summary.byMethod.KPay.total, 10000);
 assert.equal(result.summary.byMethod.Wave.count, 1);
@@ -70,4 +72,51 @@ assert.equal(result.summary.byEntryType.UNKNOWN, 0);
 assert.equal(result.summary.bySource.PAYMENT_SLIP, 3);
 assert.equal(result.summary.bySource.MANUAL, 1);
 assert.equal(result.summary.bySource.PROMO, 0);
+
+const legacyRows = [
+  header,
+  ["20/08/2026", "15:00", "7", "g", "Standard", 1, "50000", "KPay", "legacy-tx", "", "", "APPROVED", "", "", "", "", "", ""],
+];
+const legacySheet = {
+  getLastRow: () => legacyRows.length,
+  getLastColumn: () => header.length,
+  getRange: () => range,
+  getDataRange: () => ({ getValues: () => legacyRows }),
+};
+context.SpreadsheetApp.openById = () => ({ getSheetByName: () => legacySheet });
+const legacyResult = context.getFinanceReport_("2026-08");
+assert.equal(legacyResult.summary.totalAmount, 0);
+assert.equal(legacyResult.summary.paymentCount, 0);
+assert.equal(legacyResult.summary.activityCount, 0);
+assert.equal(legacyResult.summary.legacyUnclassifiedCount, 1);
+assert.equal(legacyResult.summary.legacyAmount, 50000);
+
+const dataFirstRows = [
+  ["20/08/2026", "15:00", "7", "g", "Standard", 1, "50000", "KPay", "legacy-tx", "", "", "APPROVED", "", "", "", "", "", ""],
+];
+const dataFirstSheet = {
+  getLastRow: () => dataFirstRows.length,
+  getLastColumn: () => header.length,
+  getRange: (row, col, numRows, numCols) => ({
+    getValues: () => [dataFirstRows[0]],
+    setFontWeight() { return this; },
+    setBackground() { return this; },
+    setFontColor() { return this; },
+    setValue(value) {
+      if (row === 1 && col >= 1 && col <= header.length) dataFirstRows[0][col - 1] = value;
+      return this;
+    },
+  }),
+  insertRowBefore: (row) => {
+    assert.equal(row, 1);
+    dataFirstRows.unshift(Array(header.length).fill(""));
+  },
+  getDataRange: () => ({ getValues: () => dataFirstRows }),
+};
+context.SpreadsheetApp.openById = () => ({ getSheetByName: () => dataFirstSheet });
+const dataFirstResult = context.getFinanceReport_("2026-08");
+assert.equal(dataFirstRows[0][0], "Date");
+assert.equal(dataFirstResult.summary.totalAmount, 0);
+assert.equal(dataFirstResult.summary.legacyUnclassifiedCount, 1);
+assert.equal(dataFirstResult.summary.legacyAmount, 50000);
 console.log("finance report logic: ok");

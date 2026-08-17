@@ -41,6 +41,9 @@ def test_finance_ledger_keeps_legacy_columns_and_adds_audit_fields() -> None:
     assert '"Amount(Ks)","PayType","TransactionNo","TransferTo","Sender","Status"' in code
     assert '"EntryType","Source","PaymentID","ApprovedBy","ExpireDate","Note"' in code
     assert 'bySource: {PAYMENT_SLIP:0, MANUAL:0, PROMO:0, OTHER:0}' in code
+    assert 'legacyUnclassifiedCount: 0' in code
+    assert 'legacyKnownAmountCount: 0' in code
+    assert 'legacyAmount: 0' in code
     assert 'fp.entryType || ""' in code
     assert 'fp.source || "PAYMENT_SLIP"' in code
     assert 'fp.approvedBy || ""' in code
@@ -64,6 +67,8 @@ def test_bot_finance_command_is_admin_only_and_uses_server_key() -> None:
     assert '"serverKey": SHEET_SERVER_KEY' in bot
     assert 'CommandHandler("finance",     finance_cmd)' in bot
     assert 'BotCommand("finance",       "📊 Monthly Finance Report (Admin)")' in bot
+    assert "legacyUnclassifiedCount" in bot
+    assert "legacy_unclassified" in bot
 
 
 def test_bot_records_activity_type_for_payment_manual_and_promo_paths() -> None:
