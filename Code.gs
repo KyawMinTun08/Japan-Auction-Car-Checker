@@ -661,6 +661,17 @@ case 'banCustomer': {
   if (!gdSheet) return _json({status:'error', msg:'no_sheet'});
   var gdRows = gdSheet.getDataRange().getValues();
   if (gdRows.length < 2) return _json({status:'ok', cars:[]});
+  var gdHeaders = gdRows[0].map(function(value){ return String(value || '').trim().toLowerCase(); });
+  var gdIndex = function(names, fallback){ for (var hi = 0; hi < names.length; hi++) { var found = gdHeaders.indexOf(String(names[hi]).toLowerCase()); if (found >= 0) return found; } return fallback; };
+  var gdEvidence = {
+    auctionSheetUrl: gdIndex(['auctionsheeturl','auctionsheet','sheeturl','auction sheet url'], -1),
+    auctionGrade: gdIndex(['auctiongrade','grade','auction grade'], -1),
+    mileage: gdIndex(['mileage','km','odometer'], -1),
+    condition: gdIndex(['condition','damage','condition notes'], -1),
+    inspectionStatus: gdIndex(['inspectionstatus','inspection','inspection status'], -1),
+    source: gdIndex(['source','sourceurl','source name'], -1),
+    sourceDate: gdIndex(['sourcedate','source date','verifiedat'], -1)
+  };
   var gdCars = [];
   for (var gdi = 1; gdi < gdRows.length; gdi++) {
     var r = gdRows[gdi];
@@ -674,7 +685,14 @@ case 'banCustomer': {
       price:    r[5] ? String(r[5]) : '',
       location: r[6] ? String(r[6]) : '',
       addedBy:  r[7] ? String(r[7]) : '',
-      imageUrl: r[8] ? String(r[8]) : ''
+      imageUrl: r[8] ? String(r[8]) : '',
+      auctionSheetUrl: gdEvidence.auctionSheetUrl >= 0 ? String(r[gdEvidence.auctionSheetUrl] || '') : '',
+      auctionGrade: gdEvidence.auctionGrade >= 0 ? String(r[gdEvidence.auctionGrade] || '') : '',
+      mileage: gdEvidence.mileage >= 0 ? String(r[gdEvidence.mileage] || '') : '',
+      condition: gdEvidence.condition >= 0 ? String(r[gdEvidence.condition] || '') : '',
+      inspectionStatus: gdEvidence.inspectionStatus >= 0 ? String(r[gdEvidence.inspectionStatus] || '') : '',
+      source: gdEvidence.source >= 0 ? String(r[gdEvidence.source] || '') : '',
+      sourceDate: gdEvidence.sourceDate >= 0 ? String(r[gdEvidence.sourceDate] || '') : ''
     });
   }
   return _json({status:'ok', cars:gdCars});
@@ -788,6 +806,110 @@ case "saveAuctionCancel": {
     acSheet.appendRow([custId, username, reqId, now, banCount, banStatus, banExpire]);
   }
   return _json({status:"ok"});
+}
+case 'saveSearchWatch': {
+  const watchAuth = _authorizeWebMember_(payload.token, payload.customerId);
+  if (watchAuth) return _json(watchAuth);
+  const watchSheet = _getSearchWatchesSheet_();
+  const watchFilters = _normalizeWatchFilters_(payload.filters || {});
+  const watchUid = String(payload.customerId || '').trim();
+  const watchLabel = String(payload.label || 'JACC search alert').trim().slice(0, 120);
+  const watchRows = watchSheet.getDataRange().getValues();
+  const watchSignature = JSON.stringify(watchFilters);
+  for (let wi = 1; wi < watchRows.length; wi++) {
+    if (String(watchRows[wi][0]) === watchUid && String(watchRows[wi][4]) === watchSignature) {
+      watchSheet.getRange(wi + 1, 6).setValue('ON');
+      return _json({status:'ok', watchId:String(watchRows[wi][2]), enabled:true});
+    }
+  }
+  const watchId = 'W' + new Date().getTime().toString(36).toUpperCase();
+  watchSheet.appendRow([watchUid, String(payload.username || ''), watchId, watchLabel, watchSignature, 'ON', new Date(), '']);
+  return _json({status:'ok', watchId:watchId, enabled:true});
+}
+case 'getSearchWatches': {
+  const watchAuth = _authorizeWebMember_(payload.token, payload.customerId);
+  if (watchAuth) return _json(watchAuth);
+  const watchSheet = _getSearchWatchesSheet_();
+  const watchRows = watchSheet.getDataRange().getValues();
+  const watchUid = String(payload.customerId || '').trim();
+  const watches = [];
+  for (let wi = 1; wi < watchRows.length; wi++) {
+    if (String(watchRows[wi][0]) !== watchUid) continue;
+    let filters = {};
+    try { filters = JSON.parse(String(watchRows[wi][4] || '{}')); } catch (e) {}
+    watches.push({watchId:String(watchRows[wi][2]), label:String(watchRows[wi][3]), filters:filters, enabled:String(watchRows[wi][5]).toUpperCase() === 'ON'});
+  }
+  return _json({status:'ok', watches:watches});
+}
+case 'deleteSearchWatch': {
+  const watchAuth = _authorizeWebMember_(payload.token, payload.customerId);
+  if (watchAuth) return _json(watchAuth);
+  const watchSheet = _getSearchWatchesSheet_();
+  const watchRows = watchSheet.getDataRange().getValues();
+  const watchUid = String(payload.customerId || '').trim();
+  const watchId = String(payload.watchId || '').trim();
+  for (let wi = 1; wi < watchRows.length; wi++) {
+    if (String(watchRows[wi][0]) === watchUid && String(watchRows[wi][2]) === watchId) {
+      watchSheet.getRange(wi + 1, 6).setValue('OFF');
+      return _json({status:'ok', enabled:false});
+    }
+  }
+  return _json({status:'error', msg:'watch_not_found'});
+}
+case 'getMyRequestsWeb': {
+  const webAuthError = _authorizeWebMember_(payload.token, payload.customerId);
+  if (webAuthError) return _json(webAuthError);
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName('Requests');
+  if (!sheet) return _json({status:'ok', requests:[]});
+  const rows = sheet.getDataRange().getValues();
+  const uid = String(payload.customerId || '');
+  const depositByReq = {};
+  const depSheet = ss.getSheetByName('Deposits');
+  if (depSheet) {
+    const depRows = depSheet.getDataRange().getValues();
+    if (depRows.length > 1) {
+      const depHeaders = depRows[0].map(String);
+      const depReqIdx = depHeaders.indexOf('ReqId');
+      const depStatIdx = depHeaders.indexOf('Status');
+      const depResultIdx = depHeaders.indexOf('AuctionResult');
+      const depPriceIdx = depHeaders.indexOf('CarPrice');
+      if (depReqIdx >= 0) {
+        for (let di = 1; di < depRows.length; di++) {
+          const depReqId = String(depRows[di][depReqIdx] || '');
+          if (!depReqId) continue;
+          depositByReq[depReqId] = {
+            depositStatus: depStatIdx >= 0 ? String(depRows[di][depStatIdx] || '') : '',
+            auctionResult: depResultIdx >= 0 ? String(depRows[di][depResultIdx] || '') : '',
+            carPrice: depPriceIdx >= 0 ? String(depRows[di][depPriceIdx] || '') : ''
+          };
+        }
+      }
+    }
+  }
+  const results = [];
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][1]) === uid) {
+      const reqId = String(rows[i][0]);
+      const deposit = depositByReq[reqId] || {};
+      results.push({
+        reqId: reqId,
+        carType: String(rows[i][3]),
+        budget: String(rows[i][4]),
+        year: String(rows[i][5]),
+        grade: String(rows[i][6]),
+        condition: String(rows[i][7]),
+        timeline: String(rows[i][8]),
+        status: String(rows[i][9]),
+        brokerId: String(rows[i][10]),
+        createdAt: String(rows[i][11] || ''),
+        depositStatus: deposit.depositStatus || '',
+        auctionResult: deposit.auctionResult || '',
+        carPrice: deposit.carPrice || ''
+      });
+    }
+  }
+  return _json({status:'ok', requests: results.reverse()});
 }
 case 'getMyRequests': {
   const ss = SpreadsheetApp.openById(SS_ID);
@@ -909,6 +1031,100 @@ function writeAuditLog(actor, action, target, result) {
     var now = Utilities.formatDate(new Date(),'Asia/Bangkok','dd/MM/yyyy HH:mm:ss');
     log.appendRow([now, actor, action, target, result]);
   } catch(e) {}
+}
+function _normalizeWatchFilters_(filters) {
+  var allowed = ['model','color','year','loc','priceMin','priceMax','sort'];
+  var result = {};
+  allowed.forEach(function(key) {
+    var value = String(filters && filters[key] || '').trim();
+    if (value) result[key] = value.slice(0, 80);
+  });
+  return result;
+}
+function _getSearchWatchesSheet_() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('SearchWatches');
+  if (!sheet) {
+    sheet = ss.insertSheet('SearchWatches');
+    sheet.appendRow(['UserID','Username','WatchID','Label','FiltersJson','Enabled','CreatedAt','LastNotifiedKeys']);
+    sheet.getRange(1, 1, 1, 8).setFontWeight('bold');
+  }
+  return sheet;
+}
+function _watchCarMatches_(car, filters) {
+  var model = String(car.model || '').toUpperCase();
+  var color = String(car.color || '').toUpperCase();
+  var loc = String(car.location || '').toUpperCase();
+  var wantedModel = String(filters.model || '').toUpperCase();
+  var wantedColor = String(filters.color || '').toUpperCase();
+  var wantedLoc = String(filters.loc || '').toUpperCase();
+  var year = Number(car.year || 0);
+  var price = Number(String(car.price || '').replace(/[^0-9.]/g, '')) || 0;
+  if (wantedModel && model.indexOf(wantedModel) === -1) return false;
+  if (wantedColor && color.indexOf(wantedColor) === -1) return false;
+  if (wantedLoc && loc.indexOf(wantedLoc) === -1) return false;
+  if (filters.year && String(year) !== String(filters.year)) return false;
+  if (filters.priceMin && price < Number(filters.priceMin)) return false;
+  if (filters.priceMax && price > Number(filters.priceMax)) return false;
+  return true;
+}
+function _sendSearchWatchTelegram_(chatId, text) {
+  var botToken = PropertiesService.getScriptProperties().getProperty('BOT_TOKEN');
+  if (!botToken || !chatId) return false;
+  try {
+    UrlFetchApp.fetch('https://api.telegram.org/bot' + botToken + '/sendMessage', {method:'post', contentType:'application/json', payload:JSON.stringify({chat_id:String(chatId), text:text})});
+    return true;
+  } catch (e) {
+    Logger.log('Search watch Telegram send failed: ' + e);
+    return false;
+  }
+}
+function checkSearchWatches() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var watchSheet = _getSearchWatchesSheet_();
+  var carSheet = ss.getSheetByName('Sheet1');
+  if (!carSheet || carSheet.getLastRow() < 2) return {status:'ok', notified:0};
+  var carRows = carSheet.getDataRange().getValues();
+  var watches = watchSheet.getDataRange().getValues();
+  var notified = 0;
+  for (var wi = 1; wi < watches.length; wi++) {
+    if (String(watches[wi][5]).toUpperCase() !== 'ON') continue;
+    var filters = {}; try { filters = JSON.parse(String(watches[wi][4] || '{}')); } catch (e) {}
+    var previous = String(watches[wi][7] || '').split('|').filter(Boolean);
+    var fresh = [];
+    for (var ci = 1; ci < carRows.length && fresh.length < 3; ci++) {
+      var row = carRows[ci];
+      var car = {date:row[0], chassis:row[1], model:row[2], color:row[3], year:row[4], price:row[5], location:row[6]};
+      if (!_watchCarMatches_(car, filters)) continue;
+      var key = String(car.date || '') + ':' + String(car.chassis || '') + ':' + String(car.price || '');
+      if (previous.indexOf(key) === -1) fresh.push({key:key, car:car});
+    }
+    if (!fresh.length) continue;
+    var lines = fresh.map(function(item) { var car=item.car; return '🚗 ' + String(car.model || '-') + ' · ' + String(car.chassis || '-') + ' · ฿' + String(car.price || '-') + ' · ' + String(car.location || '-'); });
+    var text = '🔔 JACC Saved Search Alert\n\n' + String(watches[wi][3] || 'ကားရှာဖွေမှု') + '\n\n' + lines.join('\n') + '\n\nWebsite မှ detail စစ်ပြီး broker/admin နှင့် confirm လုပ်ပါ။';
+    if (_sendSearchWatchTelegram_(watches[wi][0], text)) {
+      var keys = previous.concat(fresh.map(function(item){return item.key;})).slice(-30);
+      watchSheet.getRange(wi + 1, 8).setValue(keys.join('|'));
+      notified++;
+    }
+  }
+  return {status:'ok', notified:notified};
+}
+function installSearchWatchTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) if (triggers[i].getHandlerFunction() === 'checkSearchWatches') return {status:'ok', message:'already_installed'};
+  ScriptApp.newTrigger('checkSearchWatches').timeBased().everyHours(1).create();
+  return {status:'ok', message:'installed'};
+}
+function _authorizeWebMember_(token, userId) {
+  var safeToken = String(token || '').trim();
+  var safeUserId = String(userId || '').trim();
+  if (!safeToken || !safeUserId) return {status:'error', msg:'auth_required'};
+  var tokenResult = verifyToken(safeToken);
+  if (tokenResult.status !== 'ok' || String(tokenResult.userId || '') !== safeUserId) {
+    return {status:'error', msg:'invalid_session'};
+  }
+  return null;
 }
 // ── Helper: JSON response ──────────────────────────────────
 function _json(obj) {
