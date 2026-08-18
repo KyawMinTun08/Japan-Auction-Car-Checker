@@ -45,6 +45,7 @@ def test_bot_uses_backend_request_id_and_restores_failed_request():
     assert 'request_resp = await client.post(SHEET_WEBHOOK' in LEGACY_BOT
     assert 'request_resp.raise_for_status()' in LEGACY_BOT
     assert 'request_result = request_resp.json()' in LEGACY_BOT
-    assert 'req_id = str(request_result.get("reqId") or req_id)' in LEGACY_BOT
+    assert 'validated_req_id, validation_reason = _validate_legacy_add_request_response(' in LEGACY_BOT
+    assert 'req_id = validated_req_id' in LEGACY_BOT
     assert 'pending_request[user_id] = req' in LEGACY_BOT
     assert 'Request ID/Member ID' in LEGACY_BOT

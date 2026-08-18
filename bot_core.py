@@ -165,16 +165,64 @@ async def _send_phase1_offer(context, offer, request_data: dict) -> bool:
     return True
 
 
+def _validate_legacy_sheet_mirror_response(
+    response: Any,
+    *,
+    request_code: str,
+    user_id: int,
+) -> tuple[bool, str]:
+    """Validate the non-idempotent Apps Script mirror response.
+
+    ``addRequest`` can generate a new ID when a supplied ID is duplicated. A
+    blind retry after a timeout could therefore create a second row, so this
+    helper deliberately validates one response and returns a reconciliation
+    signal instead of retrying the write.
+    """
+    try:
+        response.raise_for_status()
+    except Exception as exc:
+        return False, f"http_error:{type(exc).__name__}"
+
+    try:
+        result = response.json()
+    except Exception as exc:
+        return False, f"invalid_json:{type(exc).__name__}"
+
+    if not isinstance(result, dict):
+        return False, "invalid_response_shape"
+    if str(result.get("status") or "").strip().lower() != "ok":
+        message = str(result.get("msg") or result.get("message") or "unknown")
+        return False, f"backend_rejected:{message[:120]}"
+
+    expected_req_id = str(request_code or "").strip().upper()
+    returned_req_id = str(result.get("reqId") or "").strip().upper()
+    if not returned_req_id:
+        return False, "missing_req_id"
+    if returned_req_id != expected_req_id:
+        return False, "req_id_mismatch"
+
+    returned_customer_id = str(result.get("customerId") or "").strip()
+    if returned_customer_id != str(user_id):
+        return False, "customer_id_mismatch"
+
+    return True, "ok"
+
+
 async def _save_request_to_legacy_sheet(
     *,
     request_code: str,
     user_id: int,
     username: str,
     request_data: dict[str, Any],
-) -> None:
+) -> bool:
+    """Mirror one central request to Google Sheets and report reconciliation state.
+
+    This write is intentionally not retried automatically: the Apps Script
+    ``addRequest`` action is not idempotent and may regenerate a duplicate ID.
+    """
     try:
         async with _legacy.httpx.AsyncClient(follow_redirects=True) as client:
-            await client.post(
+            response = await client.post(
                 _legacy.SHEET_WEBHOOK,
                 json={
                     "action": "addRequest",
@@ -194,11 +242,24 @@ async def _save_request_to_legacy_sheet(
                 },
                 timeout=10,
             )
+        ok, reason = _validate_legacy_sheet_mirror_response(
+            response,
+            request_code=request_code,
+            user_id=user_id,
+        )
+        if not ok:
+            _legacy.logger.error(
+                "Phase 1 request backup rejected or mismatched: request=%s reason=%s",
+                request_code,
+                reason,
+            )
+        return ok
     except Exception:
         _legacy.logger.exception(
             "Phase 1 request backup to Google Sheet failed: %s",
             request_code,
         )
+        return False
 
 
 async def submit_request(context, user_id: int, username: str):
@@ -265,13 +326,45 @@ async def submit_request(context, user_id: int, username: str):
             },
         )
     except _legacy.JaccPhase1Error as exc:
+        if "ACTIVE_REQUEST_ALREADY_EXISTS" in str(exc).upper():
+            _legacy.pending_request.pop(user_id, None)
+            _legacy.logger.info(
+                "Phase 1 duplicate race blocked; legacy fallback skipped: user=%s",
+                user_id,
+            )
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=(
+                    "⚠️ *Active Request ရှိပြီးသားပါ*\n\n"
+                    "ဒီ Request ကို ထပ်မတင်ထားပါ။\n"
+                    "အခြေအနေကြည့်ရန် /mystatus ကို သုံးပါ။"
+                ),
+                parse_mode="Markdown",
+            )
+            return
         _legacy.logger.warning(
             "Phase 1 sequential submit unavailable; legacy fallback: %s",
             exc,
         )
         await _original_submit_request(context, user_id, username)
         return
-    except Exception:
+    except Exception as exc:
+        if "ACTIVE_REQUEST_ALREADY_EXISTS" in str(exc).upper():
+            _legacy.pending_request.pop(user_id, None)
+            _legacy.logger.info(
+                "Phase 1 duplicate race blocked; legacy fallback skipped: user=%s",
+                user_id,
+            )
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=(
+                    "⚠️ *Active Request ရှိပြီးသားပါ*\n\n"
+                    "ဒီ Request ကို ထပ်မတင်ထားပါ။\n"
+                    "အခြေအနေကြည့်ရန် /mystatus ကို သုံးပါ။"
+                ),
+                parse_mode="Markdown",
+            )
+            return
         _legacy.logger.exception(
             "Phase 1 sequential submit failed; legacy fallback"
         )
@@ -283,12 +376,19 @@ async def submit_request(context, user_id: int, username: str):
     _legacy.pending_request.pop(user_id, None)
     request_code = str(phase1_request["request_code"])
 
-    await _save_request_to_legacy_sheet(
+    legacy_mirror_ok = await _save_request_to_legacy_sheet(
         request_code=request_code,
         user_id=user_id,
         username=username,
         request_data=request_data,
     )
+
+    mirror_notice = ""
+    if not legacy_mirror_ok:
+        mirror_notice = (
+            "\n\n⚠️ Website Status sync ကို Admin က စစ်နေပါတယ်။\n"
+            "ဒီ Request ID ကို ပြန်မတင်ပါနှင့်။"
+        )
 
     await context.bot.send_message(
         chat_id=user_id,
@@ -298,6 +398,7 @@ async def submit_request(context, user_id: int, username: str):
             f"🚗 {request_data.get('car_name', '')}\n"
             f"💰 {request_data.get('budget', '')}\n\n"
             "Broker ရွေးချယ်နေပါတယ် ⏳"
+            f"{mirror_notice}"
         ),
         parse_mode="Markdown",
     )
@@ -336,6 +437,11 @@ async def submit_request(context, user_id: int, username: str):
             text="⏳ Request သိမ်းပြီးပါပြီ။ Broker ချိတ်ဆက်မှုကို စောင့်နေပါတယ်။",
         )
 
+    mirror_status = (
+        "✅ Website mirror OK"
+        if legacy_mirror_ok
+        else "⚠️ Website mirror failed — manual reconciliation required"
+    )
     await _legacy.notify_admins(
         context,
         (
@@ -344,7 +450,8 @@ async def submit_request(context, user_id: int, username: str):
             f"📌 {'🏆 လေလံ' if request_data.get('service_type') == 'auction' else '🔍 ကားရှာ'}\n"
             f"👤 @{username}\n"
             f"🚘 {request_data.get('car_name', '')}\n"
-            f"💰 {request_data.get('budget', '')}"
+            f"💰 {request_data.get('budget', '')}\n"
+            f"{mirror_status}"
         ),
     )
 
@@ -413,6 +520,7 @@ async def _handle_phase1_accept(update, context, offer_id: str) -> None:
                 json={
                     "action": "updateRequest",
                     "reqId": request_code,
+                    "customerId": str(customer_tg_id),
                     "status": "MATCHED",
                     "brokerId": legacy_broker.get("brokerId"),
                 },

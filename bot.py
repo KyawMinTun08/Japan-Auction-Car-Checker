@@ -251,6 +251,7 @@ async def cancelrequest_cmd(update, context):
                     json={
                         "action": "updateRequest",
                         "reqId": request_code,
+                        "customerId": str(user_id),
                         "status": "CANCELLED_BY_CUSTOMER",
                     },
                     timeout=10,
