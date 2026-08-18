@@ -31,6 +31,11 @@ class JaccApp extends StatelessWidget {
       );
 }
 
+// Compatibility alias for Flutter's default generated widget smoke test.
+class MyApp extends JaccApp {
+  const MyApp({super.key});
+}
+
 class JaccWebView extends StatefulWidget {
   const JaccWebView({super.key});
 
