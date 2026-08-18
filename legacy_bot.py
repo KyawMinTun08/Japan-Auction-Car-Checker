@@ -68,8 +68,8 @@ PROMO_CODES_RAW = os.environ.get('PROMO_CODES', '')
 LOC_MAESOT   = "MaeSot Freezone"
 LOC_KLANG9   = "Klang9 Freezone"
 LOC_BORDER44 = "Best Border-44 Gate"
-ANDROID_APP_VERSION = "1.02"
-ANDROID_APP_URL = "https://u.pcloud.link/publink/show?code=XZCy8VJZgc3Sx86GI0bu5ikFH0kHkVnMvJAX"
+ANDROID_APP_VERSION = "3"
+ANDROID_APP_URL = "https://u.pcloud.link/publink/show?code=XZRvPVJZ5K2TaBDHRlkXTPXgHWsbqurqcUPk"
 
 PLAN_PRICES = {
     "CH":  {1: PLAN_CH_1M,  2: PLAN_CH_2M,  3: PLAN_CH_3M,  5: PLAN_CH_5M},
