@@ -6394,7 +6394,25 @@ async def check_expired_bans(context):
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "liftExpiredBans",
             }, timeout=15)
-        result = resp.json()
+        status_code = getattr(resp, "status_code", 0)
+        if not (200 <= status_code < 300):
+            logger.warning("check_expired_bans: webhook returned HTTP %s", status_code)
+            return
+        response_text = (getattr(resp, "text", "") or "").strip()
+        if not response_text:
+            logger.warning("check_expired_bans: webhook returned an empty body")
+            return
+        try:
+            result = resp.json()
+        except (TypeError, ValueError):
+            logger.warning("check_expired_bans: webhook returned non-JSON content")
+            return
+        if not isinstance(result, dict):
+            logger.warning(
+                "check_expired_bans: webhook returned JSON type %s, expected object",
+                type(result).__name__,
+            )
+            return
         lifted = result.get("lifted", [])
         if lifted:
             txt = "🔓 *Ban Auto-Lift*\n\n"
