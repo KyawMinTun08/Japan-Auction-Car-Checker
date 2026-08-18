@@ -12,9 +12,11 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.ValueCallback
 import android.widget.Button
 import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
@@ -22,6 +24,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private lateinit var errorPanel: View
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        filePathCallback?.onReceiveValue(uris.takeIf { it.isNotEmpty() }?.toTypedArray())
+        filePathCallback = null
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,14 +61,38 @@ class MainActivity : AppCompatActivity() {
             builtInZoomControls = false
             displayZoomControls = false
             allowFileAccess = false
-            allowContentAccess = false
-            userAgentString = "$userAgentString JACC-Android/1.02"
+            allowContentAccess = true
+            userAgentString = "$userAgentString JACC-Android/1.03"
         }
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 progressBar.progress = newProgress
                 progressBar.visibility = if (newProgress < 100) View.VISIBLE else View.GONE
+            }
+
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                this@MainActivity.filePathCallback?.onReceiveValue(null)
+                this@MainActivity.filePathCallback = filePathCallback
+
+                val acceptedTypes = fileChooserParams?.acceptTypes
+                    ?.filter { it.isNotBlank() && it != "*/*" }
+                    ?.toTypedArray()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: arrayOf("image/*")
+
+                return try {
+                    fileChooserLauncher.launch(acceptedTypes)
+                    true
+                } catch (_: Exception) {
+                    this@MainActivity.filePathCallback?.onReceiveValue(null)
+                    this@MainActivity.filePathCallback = null
+                    false
+                }
             }
         }
 
@@ -117,12 +151,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        webView.saveState(outState)
-        super.onSaveInstanceState(outState)
-    }
-
     override fun onDestroy() {
+        filePathCallback?.onReceiveValue(null)
+        filePathCallback = null
         webView.apply {
             stopLoading()
             clearHistory()
@@ -130,6 +161,11 @@ class MainActivity : AppCompatActivity() {
             destroy()
         }
         super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        webView.saveState(outState)
+        super.onSaveInstanceState(outState)
     }
 
     companion object {
