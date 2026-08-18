@@ -234,9 +234,49 @@ class JdmGradeService:
             logger.exception("JDM web session verification failed")
             return {"status": "error", "message": "session_unavailable"}
 
+    def _verified_fallback_explanation(self, safe_payload: dict[str, Any], reason: str) -> dict[str, Any]:
+        """Return a transparent, non-generative explanation from verified lookup facts only."""
+        labels = (
+            ("make", "Make"),
+            ("model", "Model"),
+            ("body_type", "Body type"),
+            ("vehicle_category", "Vehicle category"),
+            ("engine_code", "Engine code"),
+            ("transmission", "Transmission"),
+            ("production_from_year", "Production from"),
+            ("production_to_year", "Production to"),
+        )
+        lines = [
+            "Gemini AI မရရှိသေးသောကြောင့် verified lookup facts ကို template ဖြင့်သာ ပြထားပါသည်။",
+            "Known facts",
+            f"- Chassis: {safe_payload.get('chassis') or 'မရှိသေးပါ'}",
+        ]
+        for match in safe_payload.get("matches", [])[:5]:
+            facts = []
+            for key, label in labels:
+                value = match.get(key)
+                if value not in (None, "", [], {}):
+                    facts.append(f"{label}: {value}")
+            if facts:
+                lines.append("- " + ", ".join(facts))
+        lines.extend(
+            [
+                "Uncertain or missing",
+                "- Auction grade, mileage, condition, inspection, accident history, ownership, and final landed cost data မရှိသေးပါ။",
+                "Before-bid checks",
+                "- Auction sheet, inspection report, source/date evidence နှင့် broker/admin review ကို bid မတင်မီ အတည်ပြုပါ။",
+            ]
+        )
+        return {
+            "status": "ok",
+            "chassis": safe_payload.get("chassis"),
+            "text": "\n".join(lines),
+            "provider": "verified-template",
+            "notice": reason,
+            "source": safe_payload,
+        }
+
     async def explain_burmese(self, raw_chassis: str, lookup_payload: dict[str, Any]) -> dict[str, Any]:
-        if not self.gemini_api_key:
-            raise JdmLookupError("AI_EXPLANATION_NOT_CONFIGURED")
         safe_payload = {
             "chassis": lookup_payload.get("chassis"),
             "chassis_prefix": lookup_payload.get("chassis_prefix"),
@@ -245,6 +285,8 @@ class JdmGradeService:
             "status": lookup_payload.get("status"),
             "matches": lookup_payload.get("matches", [])[:5],
         }
+        if not self.gemini_api_key:
+            return self._verified_fallback_explanation(safe_payload, "AI_EXPLANATION_NOT_CONFIGURED")
         prompt = (
             "You are the JACC vehicle explanation assistant. Explain the supplied verified lookup data in easy Burmese. "
             "Use ONLY the JSON facts. Never invent auction grade, accident history, mileage, price, ownership, or safety claims. "
@@ -257,19 +299,17 @@ class JdmGradeService:
             async with httpx.AsyncClient(timeout=self.ai_timeout) as client:
                 response = await client.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
             if response.is_error:
-                logger.error("Gemini explanation failed: status=%s", response.status_code)
-                raise JdmLookupError("AI_PROVIDER_UNAVAILABLE")
+                logger.warning("Gemini explanation unavailable: status=%s; using verified fallback", response.status_code)
+                return self._verified_fallback_explanation(safe_payload, "AI_PROVIDER_UNAVAILABLE")
             data = response.json()
             parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
             text = "\n".join(str(part.get("text") or "") for part in parts).strip()
             if not text:
-                raise JdmLookupError("AI_EMPTY_RESPONSE")
+                return self._verified_fallback_explanation(safe_payload, "AI_EMPTY_RESPONSE")
             return {"status": "ok", "chassis": safe_payload["chassis"], "text": text, "provider": "gemini", "source": safe_payload}
-        except JdmLookupError:
-            raise
         except Exception:
-            logger.exception("Gemini Burmese explanation request failed")
-            raise JdmLookupError("AI_PROVIDER_UNAVAILABLE")
+            logger.exception("Gemini Burmese explanation request failed; using verified fallback")
+            return self._verified_fallback_explanation(safe_payload, "AI_PROVIDER_UNAVAILABLE")
 
     async def lookup(self, raw_chassis: str) -> dict[str, Any]:
         normalized = self.normalize_chassis(raw_chassis)
