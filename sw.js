@@ -1,7 +1,7 @@
 // JACC PWA Service Worker
-// Version 2026.08.18-payment-qr-v1
+// Version 2026.08.18-approach-b-v2
 const CACHE_PREFIX = 'jacc-';
-const CACHE_NAME = 'jacc-2026.08.18-payment-qr-v1';
+const CACHE_NAME = 'jacc-2026.08.18-approach-b-v2';
 const BASE_PATH = '/Japan-Auction-Car-Checker';
 const APP_SHELL = [
   BASE_PATH + '/',
