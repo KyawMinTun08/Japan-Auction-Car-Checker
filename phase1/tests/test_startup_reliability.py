@@ -28,6 +28,11 @@ def test_service_worker_delivers_startup_fix() -> None:
     assert "BASE_PATH + '/phase2/website_device_binding.js'" in source
 
 
+def test_payment_api_origin_is_allowed_by_csp() -> None:
+    source = INDEX.read_text(encoding="utf-8")
+    assert "https://japan-auction-car-checker-production-3624.up.railway.app" in source
+
+
 def test_device_binding_has_abortable_session_timeout() -> None:
     source = DEVICE.read_text(encoding="utf-8")
     assert "function postJson(webhook, payload, fetchImpl, timeoutMs)" in source
