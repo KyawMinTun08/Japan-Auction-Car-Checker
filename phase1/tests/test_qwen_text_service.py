@@ -48,6 +48,9 @@ def _service(**overrides):
 def test_topic_gate_and_normalization():
     assert QwenTextService.normalize_query("  Toyota   Crown\u200b 2020 ") == "Toyota Crown 2020"
     assert QwenTextService.is_car_topic("Toyota Crown under 1,500,000")
+    assert QwenTextService.is_car_topic("Crown 2012 ဈေးနှုန်းလေးတွေပြပါ")
+    assert QwenTextService.is_car_topic("Corolla 2010 price ရှာပါ")
+    assert not QwenTextService.is_car_topic("price and model")
     assert not QwenTextService.is_car_topic("Write a poem about rain")
 
 
