@@ -5360,6 +5360,7 @@ async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await client.post(SHEET_WEBHOOK, json={
                 "action": "updateRequest",
                 "reqId":  req_id,
+                "customerId": str_uid,
                 "status": "CANCELLED_BY_CUSTOMER",
             }, timeout=10)
     except Exception as e:
@@ -5500,6 +5501,70 @@ async def finish_request(update_or_query, context, user_id: int):
     else:
         await update_or_query.edit_message_text(txt, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
 
+def _validate_legacy_add_request_response(
+    result: object,
+    *,
+    user_id: int,
+) -> tuple[str | None, str]:
+    """Validate the Apps Script addRequest response before broker routing."""
+    if not isinstance(result, dict):
+        return None, "invalid_response_shape"
+    if str(result.get("status") or "").strip().lower() != "ok":
+        message = str(result.get("msg") or result.get("message") or "unknown")
+        return None, f"backend_rejected:{message[:120]}"
+
+    returned_req_id = str(result.get("reqId") or "").strip().upper()
+    if not re.fullmatch(r"[AR][A-Z0-9-]{5,64}", returned_req_id):
+        return None, "missing_or_invalid_req_id"
+
+    returned_customer_id = str(result.get("customerId") or "").strip()
+    if returned_customer_id != str(user_id):
+        return None, "customer_id_mismatch"
+
+    return returned_req_id, "ok"
+
+
+async def _lookup_legacy_request(request_code: str, user_id: int):
+    """Read-only check for a request after an ambiguous addRequest response.
+
+    Apps Script ``addRequest`` appends a row and is not idempotent. If the
+    network fails after the append, retrying the same form can create a second
+    row. This lookup lets the bot confirm the original ID without writing.
+    """
+    safe_req_id = str(request_code or "").strip().upper()
+    if not SHEET_WEBHOOK or not safe_req_id:
+        return None
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.post(
+                SHEET_WEBHOOK,
+                json={
+                    "action": "getRequest",
+                    "reqId": safe_req_id,
+                    "customerId": str(user_id),
+                },
+                timeout=10,
+            )
+        response.raise_for_status()
+        result = response.json()
+        if not isinstance(result, dict) or result.get("status") != "ok":
+            return None
+        returned_req_id = str(result.get("reqId") or "").strip().upper()
+        returned_customer_id = str(result.get("customerId") or "").strip()
+        if returned_req_id != safe_req_id:
+            return None
+        if returned_customer_id != str(user_id):
+            return None
+        return result
+    except Exception as exc:
+        logger.warning(
+            "read-only request reconciliation failed: request=%s error=%s",
+            safe_req_id,
+            type(exc).__name__,
+        )
+        return None
+
+
 async def submit_request(context, user_id: int, username: str):
     req = pending_request.pop(user_id, None)
     if not req: return
@@ -5524,24 +5589,43 @@ async def submit_request(context, user_id: int, username: str):
             }, timeout=10)
             request_resp.raise_for_status()
             request_result = request_resp.json()
-            if request_result.get("status") != "ok":
+            validated_req_id, validation_reason = _validate_legacy_add_request_response(
+                request_result,
+                user_id=user_id,
+            )
+            if not validated_req_id:
                 pending_request[user_id] = req
-                logger.error("submit_request rejected by backend: %s", request_result)
+                logger.error(
+                    "submit_request rejected or mismatched by backend: reason=%s result=%s",
+                    validation_reason,
+                    request_result,
+                )
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=("❌ Request မတင်နိုင်သေးပါ။\n\n"
                           "Request ID/Member ID ကို backend က စစ်ဆေးနေပါသည်။ "
-                          "ခဏစောင့်ပြီး /carrequest ပြန်လုပ်ပါ။"))
+                          "ဒီ Request ကို ပြန်မတင်မီ /mystatus ဖြင့် အရင်စစ်ပါ။"))
                 return
-            req_id = str(request_result.get("reqId") or req_id)
+            req_id = validated_req_id
     except Exception as e:
-        pending_request[user_id] = req
-        logger.error(f"submit_request: {e}")
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=("❌ Request မတင်နိုင်သေးပါ။\n\n"
-                  "Server ချိတ်ဆက်မှု အဆင်မပြေသေးပါ။ ခဏစောင့်ပြီး /carrequest ပြန်လုပ်ပါ။"))
-        return
+        # The write may have reached Apps Script before the client timed out.
+        # Reconcile with a read-only owner-checked lookup before allowing retry.
+        reconciled = await _lookup_legacy_request(req_id, user_id)
+        if reconciled:
+            req_id = str(reconciled.get("reqId") or req_id)
+            logger.warning(
+                "submit_request reconciled after ambiguous response: request=%s",
+                req_id,
+            )
+        else:
+            pending_request[user_id] = req
+            logger.error(f"submit_request: {e}")
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=("❌ Request မတင်နိုင်သေးပါ။\n\n"
+                      "Server ချိတ်ဆက်မှု အဆင်မပြေသေးပါ။\n"
+                      "Request ကို ပြန်မတင်မီ /mystatus ဖြင့် အရင်စစ်ပါ။"))
+            return
 
     await context.bot.send_message(
         chat_id=user_id,
