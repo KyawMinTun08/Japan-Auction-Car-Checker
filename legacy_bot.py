@@ -1033,6 +1033,8 @@ async def approve_payment_transaction(payment: dict) -> dict:
     if not SHEET_SERVER_KEY:
         return {"status": "error", "message": "server_key_not_configured"}
     payload = dict(payment or {})
+    last_result = None
+    last_error = ""
     for attempt in range(1, 4):
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -1043,27 +1045,77 @@ async def approve_payment_transaction(payment: dict) -> dict:
                         "payment": payload,
                         "serverKey": SHEET_SERVER_KEY,
                     },
-                    timeout=30,
+                    # Apps Script waits up to 30 seconds for its ScriptLock.
+                    # Leave enough time for the locked operation to finish.
+                    timeout=45,
                 )
             result = response.json()
-            if response.status_code < 400 and isinstance(result, dict):
-                if result.get("status") == "ok" or result.get("message") in {
-                    "payment_amount_mismatch",
-                    "transaction_already_used",
-                    "transaction_in_progress",
-                }:
-                    return result
-                if result.get("message") in {"unauthorized", "server_key_not_configured"}:
-                    return result
+            if isinstance(result, dict):
+                last_result = result
+                if response.status_code < 400:
+                    if result.get("status") == "ok" or result.get("message") in {
+                        "payment_amount_mismatch",
+                        "transaction_already_used",
+                        "transaction_in_progress",
+                        "transaction_review_required",
+                    }:
+                        return result
+                    if result.get("message") in {"unauthorized", "server_key_not_configured"}:
+                        return result
             logger.warning(
                 "approvePaymentTransaction failed attempt=%s/3 status=%s response=%s",
                 attempt, response.status_code, str(result)[:300],
             )
+            last_error = f"HTTP {response.status_code}"
         except Exception as exc:
+            last_error = f"{type(exc).__name__}: {str(exc)[:240]}"
             logger.warning("approvePaymentTransaction request failed attempt=%s/3: %s", attempt, exc)
         if attempt < 3:
             await asyncio.sleep(1.0 * attempt)
-    return {"status": "error", "message": "transaction_request_failed"}
+    if isinstance(last_result, dict) and last_result.get("message"):
+        return last_result
+    return {
+        "status": "error",
+        "message": "transaction_request_failed",
+        "detail": last_error,
+    }
+
+
+async def inspect_payment_transaction(payment: dict) -> dict:
+    """Read one protected transaction so lost HTTP responses can be reconciled safely."""
+    if not SHEET_WEBHOOK:
+        return {"status": "error", "message": "sheet_webhook_not_configured"}
+    if not SHEET_SERVER_KEY:
+        return {"status": "error", "message": "server_key_not_configured"}
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.post(
+                SHEET_WEBHOOK,
+                json={
+                    "action": "inspectPaymentTransaction",
+                    "payment": {
+                        "userId": str(payment.get("userId") or ""),
+                        "transactionNo": str(payment.get("transactionNo") or ""),
+                        "paymentId": str(payment.get("paymentId") or ""),
+                    },
+                    "serverKey": SHEET_SERVER_KEY,
+                },
+                timeout=20,
+            )
+        result = response.json()
+        if response.status_code < 400 and isinstance(result, dict):
+            return result
+        return {
+            "status": "error",
+            "message": "transaction_inspection_failed",
+            "detail": str(result)[:300],
+        }
+    except Exception as exc:
+        logger.warning("inspectPaymentTransaction failed: %s", exc)
+        return {
+            "status": "error",
+            "message": "transaction_inspection_failed",
+        }
 
 
 async def get_finance_report(month: str) -> dict:
@@ -3730,9 +3782,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not payment_check.get("ok"):
             reason = str(payment_check.get("reason") or "payment_validation_failed")
             await query.message.reply_text(
-                "❌ Payment ကို အတည်မပြုနိုင်သေးပါ။\\n\\n"
-                f"စစ်ဆေးချက်: `{reason}`\\n"
-                "Amount / Payment method / Transaction No / Date ကို ပြန်စစ်ပြီးမှ Approve လုပ်ပါ။\\n"
+                "❌ Payment ကို အတည်မပြုနိုင်သေးပါ။\n\n"
+                f"စစ်ဆေးချက်: `{reason}`\n"
+                "Amount / Payment method / Transaction No / Date ကို ပြန်စစ်ပြီးမှ Approve လုပ်ပါ။\n"
                 "Customer ကို မပျောက်စေရန် payment session ကို မဖျက်ထားပါ။",
                 parse_mode="Markdown",
             )
@@ -3756,7 +3808,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             getattr(query.from_user, "username", "")
             or getattr(query.from_user, "id", "")
         ).strip()
-        transaction_result = await approve_payment_transaction({
+        transaction_payload = {
             "userId": str(member_id),
             "username": username.replace("@", ""),
             "package": package,
@@ -3774,20 +3826,68 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "approvedBy": approved_by,
             "password": password,
             "source": "PAYMENT_SLIP",
-        })
+        }
+        transaction_result = await approve_payment_transaction(transaction_payload)
         if transaction_result.get("status") != "ok":
-            detail = str(transaction_result.get("message") or "transaction_request_failed")
-            await query.message.reply_text(
-                "⚠️ Server-side Member + Finance transaction ကို အပြီးသတ်မလုပ်နိုင်သေးပါ။\\n"
-                f"စစ်ဆေးချက်: `{detail}`\\n"
-                "Data မပျောက်စေရန် payment session ကို ထိန်းထားပါတယ်။ Duplicate renewal မဖြစ်စေရန် Approve ကို ထပ်မနှိပ်ပါနဲ့။",
-                parse_mode="Markdown",
-            )
-            await notify_admins(
-                context,
-                f"⚠️ Server transaction failed for {member_id}: {detail}. No second approval; inspect Finance transaction state.",
-            )
-            return
+            # A lost HTTP response can happen after Apps Script committed the
+            # transaction. Inspect the canonical Finance/member state before
+            # asking the admin to retry; never replay a committed renewal.
+            inspect_result = await inspect_payment_transaction(transaction_payload)
+            inspected_finance = inspect_result.get("finance") or {}
+            inspected_member = inspect_result.get("member") or {}
+            inspected_status = str(inspected_finance.get("status") or "").strip().upper()
+            reconciled_saved = {
+                "status": "ok",
+                "result": "reconciled",
+                "entryType": inspected_finance.get("entryType", ""),
+                "package": inspected_member.get("package") or package,
+                "password": inspected_member.get("password") or password,
+                "startDate": inspected_member.get("startDate", ""),
+                "expireDate": inspected_member.get("expireDate", ""),
+            }
+            if inspected_status == "APPROVED" and validate_member_record(reconciled_saved, package).get("ok"):
+                transaction_result = {
+                    "status": "ok",
+                    "result": "reconciled",
+                    "entryType": reconciled_saved.get("entryType", ""),
+                    "package": reconciled_saved.get("package", package),
+                    "password": reconciled_saved.get("password", password),
+                    "member": inspected_member,
+                    "financeRow": inspect_result.get("financeRow", ""),
+                }
+            else:
+                original_detail = str(
+                    transaction_result.get("message") or "transaction_request_failed"
+                )
+                if inspected_status == "PENDING" or str(inspect_result.get("state") or "").startswith("PENDING|"):
+                    detail = "transaction_pending_review"
+                    customer_note = (
+                        "Finance transaction က PENDING ဖြစ်နေသေးပါတယ်။\n"
+                        "Member ကို ထပ်မတိုးထားပါ။ Admin က Finance row ကို စစ်ပြီးမှသာ ဆက်လုပ်ပါ။"
+                    )
+                elif inspect_result.get("status") == "ok" and not inspect_result.get("found"):
+                    detail = original_detail
+                    customer_note = (
+                        "Transaction row မတွေ့သေးပါ။ Payment data မပျောက်ပါ။\n"
+                        "Webhook ပြန်ကောင်းပြီးမှ Approve ကို တစ်ကြိမ်သာ ထပ်နှိပ်ပါ။"
+                    )
+                else:
+                    detail = original_detail
+                    customer_note = (
+                        "Transaction state ကို အတည်မပြုနိုင်သေးပါ။\n"
+                        "Duplicate မဖြစ်စေရန် Approve ကို မထပ်နှိပ်ပါနှင့်။"
+                    )
+                await query.message.reply_text(
+                    "⚠️ Server-side Member + Finance transaction မပြီးသေးပါ။\n"
+                    f"စစ်ဆေးချက်: `{detail}`\n"
+                    f"{customer_note}",
+                    parse_mode="Markdown",
+                )
+                await notify_admins(
+                    context,
+                    f"⚠️ Server transaction requires review for {member_id}: {detail}. Original={original_detail}",
+                )
+                return
 
         member_payload = transaction_result.get("member") or {}
         saved = {
@@ -3805,8 +3905,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not member_check.get("ok"):
             detail = str(member_check.get("reason") or "member_integrity_check_failed")
             await query.message.reply_text(
-                "⚠️ Server transaction ပြီးသော်လည်း canonical date/package စစ်ဆေးမှု မအောင်မြင်သေးပါ။\\n"
-                f"Admin စစ်ဆေးရန်: `{detail}`\\n"
+                "⚠️ Server transaction ပြီးသော်လည်း canonical date/package စစ်ဆေးမှု မအောင်မြင်သေးပါ။\n"
+                f"Admin စစ်ဆေးရန်: `{detail}`\n"
                 "Duplicate renewal မဖြစ်စေရန် Approve ကို ထပ်မနှိပ်ပါနဲ့။",
                 parse_mode="Markdown",
             )
