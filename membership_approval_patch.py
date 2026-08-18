@@ -308,17 +308,31 @@ async def button_callback(update, context):
     query = update.callback_query
     callback_data = str(getattr(query, "data", "") or "")
 
-    if not callback_data.startswith("slip_ok_"):
+    if not callback_data.startswith(("slip_confirm_", "slip_ok_", "slip_no_")):
         return await _original_button_callback(update, context)
 
-    member_id_text = callback_data.replace("slip_ok_", "", 1).strip()
+    callback_prefix = next(
+        (prefix for prefix in ("slip_confirm_", "slip_ok_", "slip_no_") if callback_data.startswith(prefix)),
+        "",
+    )
+    member_id_text = callback_data.replace(callback_prefix, "", 1).strip()
     try:
         member_id = int(member_id_text)
     except ValueError:
         return await _original_button_callback(update, context)
 
-    # The legacy handler pops this data before writing to Google Sheets. Keep a
-    # copy so a temporary webhook failure does not destroy the approval session.
+    # Restore the durable draft before the legacy handler reads pending_payment.
+    # This covers Railway restarts/redeploys between the admin buttons.
+    if not _legacy.pending_payment.get(member_id):
+        try:
+            restored = await _legacy.get_payment_draft(member_id)
+            if restored:
+                _legacy.pending_payment[member_id] = restored
+        except Exception as exc:
+            _legacy.logger.warning("Payment draft restore failed user=%s: %s", member_id, exc)
+
+    # The legacy handler may clear data after a successful approval. Keep a copy
+    # so a temporary webhook failure does not destroy the approval session.
     payment_snapshot = dict(_legacy.pending_payment.get(member_id, {}) or {})
     _last_membership_save.pop(str(member_id), None)
 

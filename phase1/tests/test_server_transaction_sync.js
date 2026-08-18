@@ -107,6 +107,7 @@ function payment(overrides = {}) {
     userId: "1001",
     username: "tester",
     package: "WEB",
+    months: 1,
     days: 30,
     expectedAmount: 30000,
     receivedAmount: 30000,
@@ -134,9 +135,27 @@ function payment(overrides = {}) {
   assert.equal(env.members.rows[1][0], "1001");
   assert.equal(env.members.rows[1][7], "WEB");
   assert.equal(env.members.rows[1][6], "stable-pass");
+  assert.equal(env.members.rows[1][3], "18/09/2026");
   assert.equal(env.finance.rows[1][11], "APPROVED");
   assert.equal(env.finance.rows[1][12], "NEW");
   assert.equal(env.finance.rows[1][13], "PAYMENT_SLIP");
+}
+
+// Durable payment drafts survive the in-memory bot session boundary and clear only after approval.
+{
+  const env = makeContext([memberHeader], [financeHeader]);
+  const saved = env.context._savePaymentDraft_({
+    userId: "1001", username: "tester", package: "CH", months: 1,
+    amount: 15000, method: "kpay", total_paid: 15000,
+    slips: [{ slip_info: { AMOUNT: "15000", DATE: "18/08/2026", TIME: "11:00", TYPE: "KPay", TRANSACTION_NO: "TXN-DRAFT", TRANSFER_TO: "KYAW MIN TUN" }, amount_num: 15000, txn_key: "TXN-DRAFT" }],
+  });
+  assert.equal(saved.status, "ok");
+  const restored = env.context._getPaymentDraft_({ userId: "1001" });
+  assert.equal(restored.found, true);
+  assert.equal(restored.draft.slips[0].slip_info.TRANSACTION_NO, "TXN-DRAFT");
+  const cleared = env.context._clearPaymentDraft_({ userId: "1001", transactionNo: "TXN-DRAFT" });
+  assert.equal(cleared.result, "cleared");
+  assert.equal(env.context._getPaymentDraft_({ userId: "1001" }).found, false);
 }
 
 // Repeating the same approval is idempotent: no second member row or Finance row.
@@ -190,7 +209,7 @@ function payment(overrides = {}) {
 {
   const financeRows = [
     financeHeader,
-    ["18/08/2026", "11:17", "3003", "premium", "WEB", 1, 30000, "KPay", "TXN-RECOVER", "", "", "PENDING", "RENEW", "PAYMENT_SLIP", "TXN-RECOVER", "admin", "", "PENDING member+finance transaction; source=PAYMENT_SLIP; userId=3003; package=WEB; days=30; entryType=RENEW; approvedBy=admin; financeDate=18/08/2026; previousStatus=ACTIVE; previousPackage=WEB; previousStart=01/08/2026; previousExpire=31/08/2026"],
+    ["18/08/2026", "11:17", "3003", "premium", "WEB", 1, 30000, "KPay", "TXN-RECOVER", "", "", "PENDING", "RENEW", "PAYMENT_SLIP", "TXN-RECOVER", "admin", "", "PENDING member+finance transaction; source=PAYMENT_SLIP; userId=3003; package=WEB; days=30; months=1; entryType=RENEW; approvedBy=admin; financeDate=18/08/2026; previousStatus=ACTIVE; previousPackage=WEB; previousStart=01/08/2026; previousExpire=31/08/2026"],
   ];
   const env = makeContext([
     memberHeader,
