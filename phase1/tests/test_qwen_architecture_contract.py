@@ -42,7 +42,10 @@ def test_frontend_ai_search_uses_existing_authenticated_railway_contract():
     source = INDEX.read_text(encoding="utf-8")
     assert 'id="aiTextSearchCard"' in source
     assert 'id="aiCarQueryInput"' in source
+    assert 'id="homeAiQueryInput"' in source
+    assert 'id="homeAiSearchResult"' in source
     assert "askAiCarQuery" in source
+    assert "grade_requested" in source
     assert "base+'/api/ai/query'" in source
     assert "X-JACC-Device-ID" in source
     assert "X-JACC-App" in source
