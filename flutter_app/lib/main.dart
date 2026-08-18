@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:uuid/uuid.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-const websiteUrl = 'https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?jacc_app=1';
+const websiteUrl = 'https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +29,11 @@ class JaccApp extends StatelessWidget {
         ),
         home: const JaccWebView(),
       );
+}
+
+// Compatibility alias for Flutter's default generated widget smoke test.
+class MyApp extends JaccApp {
+  const MyApp({super.key});
 }
 
 class JaccWebView extends StatefulWidget {
@@ -53,8 +58,15 @@ class _JaccWebViewState extends State<JaccWebView> {
     _prepare();
   }
 
+  String _newDeviceId() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(24, (_) => random.nextInt(256));
+    final hex = bytes.map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+    return 'JACC-$hex';
+  }
+
   Future<void> _prepare() async {
-    _deviceId = await _storage.read(key: 'jacc_installation_id') ?? const Uuid().v4();
+    _deviceId = await _storage.read(key: 'jacc_installation_id') ?? _newDeviceId();
     await _storage.write(key: 'jacc_installation_id', value: _deviceId);
     _setupWebView();
     _networkSub = Connectivity().onConnectivityChanged.listen((results) {
@@ -112,6 +124,7 @@ class _JaccWebViewState extends State<JaccWebView> {
       (() => {
         const deviceId = '$escaped';
         localStorage.setItem('jacc_installation_id', deviceId);
+        window.JACC_FLUTTER_APP = true;
         if (window.__jaccNativeFetchInstalled) return;
         window.__jaccNativeFetchInstalled = true;
         const originalFetch = window.fetch.bind(window);
@@ -119,7 +132,7 @@ class _JaccWebViewState extends State<JaccWebView> {
           try {
             if (init && typeof init.body === 'string') {
               const body = JSON.parse(init.body);
-              if (body && (body.action === 'verifyLogin' || body.action === 'verifyToken')) {
+              if (body && (body.action === 'verifyLogin' || body.action === 'verifyToken' || body.action === 'getData')) {
                 body.deviceId = deviceId;
                 body.app = 'flutter';
                 init = {...init, body: JSON.stringify(body)};
