@@ -181,6 +181,18 @@ class JdmGradeService:
                 },
             )
         make_ids = sorted({str(row["make_id"]) for row in model_rows if row.get("make_id")})
+        grade_rows: list[dict[str, Any]] = []
+        if model_ids:
+            grade_rows = await self._request(
+                "GET",
+                "jacc_factory_grades",
+                params={
+                    "model_id": "in.(" + ",".join(model_ids) + ")",
+                    "is_active": "eq.true",
+                    "select": "id,chassis_code_id,model_id,grade_code,grade_name,trim_level,equipment,production_from_year,production_to_year,confidence,verified,source_id",
+                    "limit": "100",
+                },
+            )
         make_rows: list[dict[str, Any]] = []
         if make_ids:
             make_rows = await self._request(
@@ -198,6 +210,24 @@ class JdmGradeService:
         for code in code_rows:
             model = model_by_id.get(str(code.get("model_id")), {})
             make = make_by_id.get(str(model.get("make_id")), {})
+            code_id = str(code.get("id") or "")
+            model_id = str(code.get("model_id") or "")
+            factory_grades = [
+                {
+                    "grade_code": grade.get("grade_code"),
+                    "grade_name": grade.get("grade_name"),
+                    "trim_level": grade.get("trim_level"),
+                    "equipment": grade.get("equipment") or {},
+                    "production_from_year": grade.get("production_from_year"),
+                    "production_to_year": grade.get("production_to_year"),
+                    "confidence": grade.get("confidence"),
+                    "verified": bool(grade.get("verified")),
+                    "source_id": grade.get("source_id"),
+                }
+                for grade in grade_rows
+                if str(grade.get("model_id") or "") == model_id
+                and (not grade.get("chassis_code_id") or str(grade.get("chassis_code_id")) == code_id)
+            ]
             matches.append(
                 {
                     "chassis_prefix": code.get("chassis_prefix_normalized"),
@@ -211,7 +241,7 @@ class JdmGradeService:
                     "production_to_year": code.get("production_to_year"),
                     "confidence": code.get("confidence"),
                     "verified": bool(code.get("verified")),
-                    "factory_grades": [],
+                    "factory_grades": factory_grades,
                 }
             )
         return {"status": "ok", "matches": matches}

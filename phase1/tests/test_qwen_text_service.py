@@ -50,8 +50,26 @@ def test_topic_gate_and_normalization():
     assert QwenTextService.is_car_topic("Toyota Crown under 1,500,000")
     assert QwenTextService.is_car_topic("Crown 2012 ဈေးနှုန်းလေးတွေပြပါ")
     assert QwenTextService.is_car_topic("Corolla 2010 price ရှာပါ")
+    assert QwenTextService.is_grade_topic("Toyota Crown auction grade ဘယ်လောက်လဲ")
+    assert not QwenTextService.is_grade_topic("ဒီနေ့မိုးရွာမလား")
     assert not QwenTextService.is_car_topic("price and model")
     assert not QwenTextService.is_car_topic("Write a poem about rain")
+
+
+def test_grade_plan_is_validated_without_inventing_grade_values():
+    plan = QwenTextService._validate_plan(
+        {
+            "intent": "grade_info",
+            "grade_requested": True,
+            "chassis": "GRS210-6007724",
+            "filters": {"model": "Crown", "year_min": 2012},
+        }
+    )
+    assert plan["intent"] == "grade_info"
+    assert plan["grade_requested"] is True
+    assert plan["chassis"] == "GRS210-6007724"
+    assert plan["filters"]["model"] == "Crown"
+    assert "grade_code" not in plan
 
 
 def test_filters_reject_unknown_or_invalid_fields():
