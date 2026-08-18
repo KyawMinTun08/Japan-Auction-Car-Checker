@@ -577,6 +577,15 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
           <button class="btn btn-outline" onclick="explainCurrentCar()">မြန်မာလိုရှင်းပြ ↗</button>
         </div>
       </div>
+      <section class="card" id="aiTextSearchCard" aria-label="JACC AI car text search" style="margin:16px 0;border:1px solid var(--line);background:var(--surface)">
+        <div class="card-header"><div><div class="card-title">🤖 AI Car Search</div><div class="card-meta">Qwen3.7-Flash · ကားအကြောင်းအရာအတွက်သာ</div></div><span class="badge badge-brand">10/day</span></div>
+        <div class="card-body">
+          <p style="margin:0 0 10px;color:var(--ink-4);font-size:13px">ကား model၊ year၊ ဈေးနှုန်း၊ location စတာတွေကို မြန်မာလို သို့မဟုတ် English လို ရေးပြီး JACC member data ထဲမှာရှာပါ။</p>
+          <textarea id="aiCarQueryInput" rows="2" maxlength="1200" placeholder="ဥပမာ — Toyota Crown 2020 အောက်ဈေး၊ Klang9 မှာရှာပါ" style="width:100%;resize:vertical;min-height:68px" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter')askAiCarQuery()"></textarea>
+          <div style="display:flex;justify-content:flex-end;margin-top:10px"><button type="button" class="btn btn-primary" onclick="askAiCarQuery()">AI နဲ့ရှာမည် →</button></div>
+          <div id="aiCarSearchResult" style="margin-top:14px"></div>
+        </div>
+      </section>
       <div id="chassisResult" style="margin-bottom:20px"></div>
       <section class="card estimate-card" id="costEstimateCard" aria-label="Import cost estimate">
         <div class="estimate-header"><div class="estimate-kicker">Planning tool · User-entered rates</div><div class="estimate-title">THB / MMK / JPY Cost Estimate</div><div class="estimate-subtitle">ကားဈေး၊ shipping/handling နဲ့ fee များကို ကိုယ်တိုင်ထည့်ပြီး planning range ကြည့်ပါ။ Customs final cost မဟုတ်ပါ။</div></div>
@@ -686,7 +695,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.18-approach-b-v2';
+const APP_VERSION     = '2026.08.19-canter-corolla-v1';
 const REQUEST_TIMEOUT_MS = 12000;
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
 const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1458,6 +1467,73 @@ async function explainCurrentCar(){
     const source=data.source||{};const text=esc(String(data.text||'').trim()).replace(/\\n/g,'<br>');
     el.innerHTML='<section class="ai-explanation-card" aria-label="Burmese AI explanation"><div class="ai-explanation-head"><div class="ai-explanation-kicker">Source-backed JACC AI</div><div class="ai-explanation-title">ကားအချက်အလက် မြန်မာလိုရှင်းပြချက်</div><div class="ai-explanation-subtitle">AI သည် verified lookup JSON ထဲက facts ကိုသာ ရှင်းပြပြီး missing facts များကို မရှိသေးပါဟု ပြပါမည်။</div></div><div class="ai-explanation-body">'+text+'<div class="ai-explanation-meta">Provider: '+esc(data.provider||'server')+' · Checked: '+esc(source.checked_at||'-')+' · Chassis: '+esc(data.chassis||chassis)+'</div><div class="ai-explanation-disclaimer">AI explanation သည် bid အတည်ပြုချက် သို့မဟုတ် ကားဝယ်ရန် အကြံပြုချက် မဟုတ်ပါ။ Auction sheet, inspection, broker/admin review နှင့် final landed-cost ကို ထပ်စစ်ပါ။</div></div></section>';
   }catch(error){el.innerHTML='<div class="request-status-error">AI explanation မရသေးပါ။ '+esc(error&&error.message||'EXPLANATION_FAILED')+'<br><small>JDM API / Railway log / GEMINI_API_KEY configuration ကို စစ်ပါ။</small></div>';}
+}
+
+function aiCarFieldLabel(key){
+  const labels={make:'Make',model:'Model',year_min:'Year from',year_max:'Year to',price_min:'Price from',price_max:'Price to',location:'Location',chassis_prefix:'Chassis',body_type:'Body'};
+  return labels[key]||key;
+}
+function aiCarFiltersText(filters){
+  return Object.entries(filters||{}).filter(([,value])=>value!==null&&value!==''&&value!==undefined).map(([key,value])=>aiCarFieldLabel(key)+': '+String(value)).join(' · ');
+}
+function aiCarFilterRows(filters){
+  const f=filters||{};
+  const make=String(f.make||'').trim().toUpperCase();
+  const model=String(f.model||'').trim().toUpperCase();
+  const location=String(f.location||'').trim().toUpperCase();
+  const chassisPrefix=String(f.chassis_prefix||'').trim().toUpperCase();
+  const bodyType=String(f.body_type||'').trim().toUpperCase();
+  const yearMin=Number.isFinite(Number(f.year_min))?Number(f.year_min):null;
+  const yearMax=Number.isFinite(Number(f.year_max))?Number(f.year_max):null;
+  const priceMin=Number.isFinite(Number(f.price_min))?Number(f.price_min):null;
+  const priceMax=Number.isFinite(Number(f.price_max))?Number(f.price_max):null;
+  return (Array.isArray(allCars)?allCars:[]).filter(car=>{
+    const carMake=String(car.make||'').toUpperCase();
+    const carModel=String(car.model||'').toUpperCase();
+    const carLocation=String(car.location||'').toUpperCase();
+    const carChassis=String(car.chassis||'').toUpperCase();
+    const carBody=String(car.body_type||'').toUpperCase();
+    if(make&&carMake&& !carMake.includes(make)&&!carModel.includes(make))return false;
+    if(model&&!carModel.includes(model))return false;
+    if(location&&!carLocation.includes(location))return false;
+    if(chassisPrefix&&!carChassis.startsWith(chassisPrefix))return false;
+    if(bodyType&&carBody&&!carBody.includes(bodyType))return false;
+    if(yearMin!==null&&(!car.year||car.year<yearMin))return false;
+    if(yearMax!==null&&(!car.year||car.year>yearMax))return false;
+    if(priceMin!==null&&(!car.price||car.price<priceMin))return false;
+    if(priceMax!==null&&(!car.price||car.price>priceMax))return false;
+    return true;
+  });
+}
+function renderAiCarResults(filters){
+  const el=document.getElementById('aiCarSearchResult');if(!el)return;
+  const rows=aiCarFilterRows(filters);
+  const filterText=aiCarFiltersText(filters);
+  if(!rows.length){el.innerHTML='<div class="request-status-error">JACC data ထဲမှာ ကိုက်ညီတဲ့ကား မတွေ့သေးပါ။<br><small>AI filter: '+esc(filterText||'မသတ်မှတ်နိုင်သေးပါ')+'</small></div>';return;}
+  const resultRows=rows.slice(0,20).map(car=>'<tr data-ai-chassis="'+escAttr(car.chassis||'')+'" style="cursor:pointer"><td class="t-brand">'+esc(car.model||'-')+'</td><td>'+(car.year?esc(car.year):'-')+'</td><td class="t-brand mono">'+(car.price?'฿'+Number(car.price).toLocaleString():'-')+'</td><td>'+esc(car.location||'-')+'</td></tr>').join('');
+  el.innerHTML='<div class="card" style="border:1px solid var(--line);background:var(--surface-2)"><div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">Verified JACC records · '+rows.length+' found · '+esc(filterText||'Car query')+'</div><div class="table-wrap"><table><thead><tr><th>Model</th><th>Year</th><th>Price</th><th>Location</th></tr></thead><tbody>'+resultRows+'</tbody></table></div>'+(rows.length>20?'<div style="margin-top:8px;color:var(--ink-4);font-size:12px">ပထမ ၂၀ စီးကိုသာ ပြထားပါတယ်။</div>':'')+'</div>';
+  el.querySelectorAll('[data-ai-chassis]').forEach(row=>row.addEventListener('click',()=>goLookup(row.getAttribute('data-ai-chassis'))));
+}
+async function askAiCarQuery(){
+  const input=document.getElementById('aiCarQueryInput');const el=document.getElementById('aiCarSearchResult');if(!input||!el)return;
+  const query=String(input.value||'').trim();
+  if(!query){el.innerHTML='<div class="request-status-error">ကားအကြောင်း query အရင်ရေးပါ။</div>';return;}
+  const base=jdmApiBase();
+  if(!base){el.innerHTML='<div class="request-status-error">AI service URL မသတ်မှတ်ရသေးပါ။</div>';return;}
+  if(!SESSION||!SESSION.token){el.innerHTML='<div class="request-status-error">Premium session မရှိသေးပါ။</div>';return;}
+  const device=sessionDeviceFields();
+  el.innerHTML='<div class="card" style="border:1px solid var(--line);background:var(--surface-2);text-align:center;color:var(--ink-4)">⏳ JACC ကား data ထဲမှာ AI filter စစ်နေပါတယ်…</div>';
+  try{
+    const res=await fetch(base+'/api/ai/query',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+SESSION.token,'X-JACC-User-ID':String(SESSION.userId||''),'X-JACC-Device-ID':device.deviceId,'X-JACC-App':device.app},body:JSON.stringify({query:query})});
+    let data={};try{data=await res.json();}catch(e){}
+    if(!res.ok||data.status!=='ok'){
+      const code=String(data.code||'AI_QUERY_FAILED');
+      const messages={AI_DISABLED:'AI text search ကို Admin က မဖွင့်သေးပါ။',CAR_TOPIC_ONLY:'ကားအကြောင်း query ပဲ မေးနိုင်ပါတယ်။',DAILY_LIMIT_REACHED:'ဒီနေ့ AI မေးခွန်း ၁၀ ခေါက် ပြည့်သွားပါပြီ။',WEB_PREMIUM_REQUIRED:'Premium Web membership လိုအပ်ပါတယ်။'};
+      el.innerHTML='<div class="request-status-error">'+esc(messages[code]||'AI search မအောင်မြင်ပါ။')+'<br><small>'+esc(code)+'</small></div>';return;
+    }
+    renderAiCarResults(data.filters||{});
+    if(data.remaining!==undefined){el.insertAdjacentHTML('afterbegin','<div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">ဒီနေ့ AI လက်ကျန်: '+esc(data.remaining)+'</div>');}
+  }catch(error){el.innerHTML='<div class="request-status-error">AI backend ကို ဆက်သွယ်မရပါ။<br><small>'+esc(error&&error.message||'AI_QUERY_FAILED')+'</small></div>';}
 }
 
 async function lookupJdmGrade(){

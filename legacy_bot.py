@@ -8,6 +8,7 @@ import logging
 import httpx
 from phase1.phase1_client import JaccPhase1Client, JaccPhase1Error
 from jdm_lookup_service import build_jdm_http_service
+from qwen_text_service import build_qwen_text_http_service
 from website_payment_upload import build_website_payment_http_service
 from datetime import datetime, timedelta, timezone
 from payment_audit import (
@@ -6788,6 +6789,12 @@ async def main():
         web_app.router.add_options("/api/jdm/explain", jdm_http.options)
         web_app.router.add_post("/api/jdm/explain", jdm_http.explain)
         logger.info("JDM lookup and Burmese explanation endpoints mounted")
+
+    qwen_http = build_qwen_text_http_service()
+    if qwen_http is not None:
+        web_app.router.add_options("/api/ai/query", qwen_http.options)
+        web_app.router.add_post("/api/ai/query", qwen_http.query)
+        logger.info("Qwen text query endpoint mounted (feature flag controls provider calls)")
 
     payment_http = build_website_payment_http_service(
         bot=app.bot,
