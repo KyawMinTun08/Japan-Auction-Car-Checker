@@ -36,3 +36,14 @@ def test_quota_migration_is_additive_and_does_not_change_members_columns():
     assert "create or replace function public.jacc_consume_ai_quota" in source
     assert "alter table public.members" not in source.lower()
     assert "drop table public.members" not in source.lower()
+
+
+def test_frontend_ai_search_uses_existing_authenticated_railway_contract():
+    source = INDEX.read_text(encoding="utf-8")
+    assert 'id="aiTextSearchCard"' in source
+    assert 'id="aiCarQueryInput"' in source
+    assert "askAiCarQuery" in source
+    assert "base+'/api/ai/query'" in source
+    assert "X-JACC-Device-ID" in source
+    assert "X-JACC-App" in source
+    assert "JACC_AI_API_KEY" not in source
