@@ -68,8 +68,8 @@ PROMO_CODES_RAW = os.environ.get('PROMO_CODES', '')
 LOC_MAESOT   = "MaeSot Freezone"
 LOC_KLANG9   = "Klang9 Freezone"
 LOC_BORDER44 = "Best Border-44 Gate"
-ANDROID_APP_VERSION = "1.02"
-ANDROID_APP_URL = "https://u.pcloud.link/publink/show?code=XZCy8VJZgc3Sx86GI0bu5ikFH0kHkVnMvJAX"
+ANDROID_APP_VERSION = "3"
+ANDROID_APP_URL = "https://u.pcloud.link/publink/show?code=XZRvPVJZ5K2TaBDHRlkXTPXgHWsbqurqcUPk"
 
 PLAN_PRICES = {
     "CH":  {1: PLAN_CH_1M,  2: PLAN_CH_2M,  3: PLAN_CH_3M,  5: PLAN_CH_5M},
@@ -5510,7 +5510,7 @@ async def submit_request(context, user_id: int, username: str):
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            await client.post(SHEET_WEBHOOK, json={
+            request_resp = await client.post(SHEET_WEBHOOK, json={
                 "action":     "addRequest",
                 "reqId":      req_id,
                 "customerId": str(user_id),
@@ -5522,8 +5522,26 @@ async def submit_request(context, user_id: int, username: str):
                 "condition":  d.get("condition",""),
                 "timeline":   d.get("timeline",""),
             }, timeout=10)
+            request_resp.raise_for_status()
+            request_result = request_resp.json()
+            if request_result.get("status") != "ok":
+                pending_request[user_id] = req
+                logger.error("submit_request rejected by backend: %s", request_result)
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=("❌ Request မတင်နိုင်သေးပါ။\n\n"
+                          "Request ID/Member ID ကို backend က စစ်ဆေးနေပါသည်။ "
+                          "ခဏစောင့်ပြီး /carrequest ပြန်လုပ်ပါ။"))
+                return
+            req_id = str(request_result.get("reqId") or req_id)
     except Exception as e:
+        pending_request[user_id] = req
         logger.error(f"submit_request: {e}")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=("❌ Request မတင်နိုင်သေးပါ။\n\n"
+                  "Server ချိတ်ဆက်မှု အဆင်မပြေသေးပါ။ ခဏစောင့်ပြီး /carrequest ပြန်လုပ်ပါ။"))
+        return
 
     await context.bot.send_message(
         chat_id=user_id,
@@ -6394,7 +6412,25 @@ async def check_expired_bans(context):
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "liftExpiredBans",
             }, timeout=15)
-        result = resp.json()
+        status_code = getattr(resp, "status_code", 0)
+        if not (200 <= status_code < 300):
+            logger.warning("check_expired_bans: webhook returned HTTP %s", status_code)
+            return
+        response_text = (getattr(resp, "text", "") or "").strip()
+        if not response_text:
+            logger.warning("check_expired_bans: webhook returned an empty body")
+            return
+        try:
+            result = resp.json()
+        except (TypeError, ValueError):
+            logger.warning("check_expired_bans: webhook returned non-JSON content")
+            return
+        if not isinstance(result, dict):
+            logger.warning(
+                "check_expired_bans: webhook returned JSON type %s, expected object",
+                type(result).__name__,
+            )
+            return
         lifted = result.get("lifted", [])
         if lifted:
             txt = "🔓 *Ban Auto-Lift*\n\n"
