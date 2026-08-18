@@ -6499,11 +6499,16 @@ async def main():
         parse_amount=parse_slip_amount,
         transaction_key=slip_transaction_key,
         payment_summary=payment_slip_summary,
+        payment_qr_getter=get_payment_qr,
     )
     if payment_http is not None:
         web_app.router.add_options("/api/payment/slip", payment_http.options)
         web_app.router.add_post("/api/payment/slip", payment_http.upload)
-        logger.info("Website payment slip endpoint mounted at /api/payment/slip")
+        web_app.router.add_options("/api/payment/methods", payment_http.options)
+        web_app.router.add_get("/api/payment/methods", payment_http.payment_methods)
+        web_app.router.add_options("/api/payment/qr/{method}", payment_http.options)
+        web_app.router.add_get("/api/payment/qr/{method}", payment_http.payment_qr)
+        logger.info("Website payment slip, methods, and QR endpoints mounted")
 
     runner = web.AppRunner(web_app)
     await runner.setup()

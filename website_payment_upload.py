@@ -47,6 +47,7 @@ class WebsitePaymentHttp:
         parse_amount: Callable[[Any], int | None],
         transaction_key: Callable[[dict[str, Any]], str],
         payment_summary: Callable[[list[dict[str, Any]]], tuple[int, list[str]]],
+        payment_qr_getter: Callable[[str], Awaitable[str]] | None = None,
     ) -> None:
         self.bot = bot
         self.sheet_webhook = str(sheet_webhook or "").strip()
@@ -59,6 +60,7 @@ class WebsitePaymentHttp:
         self.parse_amount = parse_amount
         self.transaction_key = transaction_key
         self.payment_summary = payment_summary
+        self.payment_qr_getter = payment_qr_getter
         self.max_upload_bytes = min(
             MAX_UPLOAD_BYTES,
             max(256 * 1024, int(os.environ.get("PAYMENT_SLIP_MAX_BYTES", MAX_UPLOAD_BYTES))),
@@ -79,8 +81,8 @@ class WebsitePaymentHttp:
             headers.update(
                 {
                     "Access-Control-Allow-Origin": origin,
-                    "Access-Control-Allow-Methods": "POST,OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-JACC-User-ID, X-JACC-Device-ID, X-JACC-App",
                 }
             )
         return headers
@@ -139,6 +141,19 @@ class WebsitePaymentHttp:
         except Exception:
             logger.exception("Website payment session verification failed")
             return {"status": "error", "message": "session_unavailable"}
+
+    async def _verify_payment_read_session(self, request: web.Request) -> dict[str, Any]:
+        authorization = request.headers.get("Authorization", "")
+        token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+        raw_user_id = str(request.headers.get("X-JACC-User-ID", "")).strip()
+        if not raw_user_id.isdigit() or len(raw_user_id) > 20:
+            return {"status": "error", "message": "member_id_required"}
+        return await self._verify_member(
+            token,
+            int(raw_user_id),
+            str(request.headers.get("X-JACC-Device-ID", "")).strip()[:100],
+            str(request.headers.get("X-JACC-App", "web")).strip().lower()[:20],
+        )
 
     @staticmethod
     def _valid_image_signature(data: bytes, mime: str) -> bool:
@@ -226,6 +241,71 @@ class WebsitePaymentHttp:
             except Exception:
                 logger.exception("Website payment admin notify failed for %s", admin_id)
         return delivered
+
+    async def payment_methods(self, request: web.Request) -> web.Response:
+        """Return safe payment labels/details without exposing Telegram file IDs."""
+        if not self._allowed_origin(request):
+            return self._json(request, {"status": "error", "code": "ORIGIN_NOT_ALLOWED"}, 403)
+        session = await self._verify_payment_read_session(request)
+        if str(session.get("status", "")).lower() != "ok":
+            return self._json(request, {"status": "error", "code": session.get("message", "WEB_ACCESS_REQUIRED")}, 401)
+        methods = []
+        for method in ("kpay", "wave", "cb"):
+            info = self.payment_method_info.get(method, {})
+            methods.append(
+                {
+                    "key": method,
+                    "label": self._safe_label(info.get("label"), method.upper()),
+                    "name": self._safe_label(info.get("name"), method.upper()),
+                    "number": self._safe_label(info.get("number"), "Contact admin"),
+                    "owner": self._safe_label(info.get("owner"), "JACC payment account"),
+                }
+            )
+        return self._json(request, {"status": "ok", "methods": methods})
+
+    async def payment_qr(self, request: web.Request) -> web.StreamResponse:
+        """Proxy a configured Telegram-hosted QR without exposing bot credentials."""
+        if not self._allowed_origin(request):
+            return self._json(request, {"status": "error", "code": "ORIGIN_NOT_ALLOWED"}, 403)
+        session = await self._verify_payment_read_session(request)
+        if str(session.get("status", "")).lower() != "ok":
+            return self._json(request, {"status": "error", "code": session.get("message", "WEB_ACCESS_REQUIRED")}, 401)
+        method = str(request.match_info.get("method", "")).strip().lower()
+        if method not in ALLOWED_METHODS:
+            return self._json(request, {"status": "error", "code": "PAYMENT_METHOD_INVALID"}, 400)
+        if self.payment_qr_getter is None:
+            return self._json(request, {"status": "error", "code": "QR_UNAVAILABLE"}, 503)
+        try:
+            file_id = str(await self.payment_qr_getter(method) or "").strip()
+            if not file_id:
+                return self._json(request, {"status": "error", "code": "QR_NOT_CONFIGURED"}, 404)
+            telegram_file = await self.bot.get_file(file_id)
+            output = io.BytesIO()
+            downloader = getattr(telegram_file, "download_to_memory", None)
+            if callable(downloader):
+                await downloader(out=output)
+            else:
+                byte_downloader = getattr(telegram_file, "download_as_bytearray", None)
+                if not callable(byte_downloader):
+                    return self._json(request, {"status": "error", "code": "QR_DOWNLOAD_UNSUPPORTED"}, 502)
+                output.write(bytes(await byte_downloader()))
+            data = output.getvalue()
+            if not data:
+                return self._json(request, {"status": "error", "code": "QR_EMPTY"}, 502)
+            file_path = str(getattr(telegram_file, "file_path", "") or "").lower()
+            extension = file_path.rsplit(".", 1)[-1] if "." in file_path else "jpg"
+            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(extension, "image/jpeg")
+            headers = self._headers(request)
+            headers.update(
+                {
+                    "Cache-Control": "private, max-age=300",
+                    "Content-Disposition": f'inline; filename="jacc-{method}-qr.{extension}"',
+                }
+            )
+            return web.Response(body=data, content_type=mime, headers=headers)
+        except Exception:
+            logger.exception("Payment QR proxy failed for %s", method)
+            return self._json(request, {"status": "error", "code": "QR_PROXY_FAILED"}, 502)
 
     async def upload(self, request: web.Request) -> web.Response:
         if not self._allowed_origin(request):
@@ -333,7 +413,21 @@ class WebsitePaymentHttp:
         )
 
 
-def build_website_payment_http_service(*, bot: Any, sheet_webhook: str, admin_ids: list[int], pending_payment: dict[int, dict[str, Any]], plan_prices: dict[str, dict[int, int]], plan_names: dict[str, str], payment_method_info: dict[str, dict[str, Any]], gemini_reader: Callable[[bytes], Awaitable[dict[str, Any]]], parse_amount: Callable[[Any], int | None], transaction_key: Callable[[dict[str, Any]], str], payment_summary: Callable[[list[dict[str, Any]]], tuple[int, list[str]]]) -> WebsitePaymentHttp | None:
+def build_website_payment_http_service(
+    *,
+    bot: Any,
+    sheet_webhook: str,
+    admin_ids: list[int],
+    pending_payment: dict[int, dict[str, Any]],
+    plan_prices: dict[str, dict[int, int]],
+    plan_names: dict[str, str],
+    payment_method_info: dict[str, dict[str, Any]],
+    gemini_reader: Callable[[bytes], Awaitable[dict[str, Any]]],
+    parse_amount: Callable[[Any], int | None],
+    transaction_key: Callable[[dict[str, Any]], str],
+    payment_summary: Callable[[list[dict[str, Any]]], tuple[int, list[str]]],
+    payment_qr_getter: Callable[[str], Awaitable[str]] | None = None,
+) -> WebsitePaymentHttp | None:
     enabled = os.environ.get("PAYMENT_UPLOAD_ENABLED", "1").strip().lower()
     if enabled in {"0", "false", "no", "off"}:
         logger.info("Website payment upload disabled by PAYMENT_UPLOAD_ENABLED")
@@ -353,4 +447,5 @@ def build_website_payment_http_service(*, bot: Any, sheet_webhook: str, admin_id
         parse_amount=parse_amount,
         transaction_key=transaction_key,
         payment_summary=payment_summary,
+        payment_qr_getter=payment_qr_getter,
     )
