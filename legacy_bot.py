@@ -1081,6 +1081,114 @@ async def approve_payment_transaction(payment: dict) -> dict:
     }
 
 
+async def save_payment_draft(payment: dict) -> dict:
+    """Persist a reviewable payment draft before notifying admins."""
+    if not SHEET_WEBHOOK or not SHEET_SERVER_KEY:
+        return {"status": "error", "message": "draft_storage_not_configured"}
+    payload = dict(payment or {})
+    safe_slips = []
+    for item in payload.get("slips", []) or []:
+        info = dict(item.get("slip_info", {}) or {})
+        safe_slips.append({
+            "slip_info": {
+                "AMOUNT": str(info.get("AMOUNT") or ""),
+                "DATE": str(info.get("DATE") or ""),
+                "TIME": str(info.get("TIME") or ""),
+                "TYPE": str(info.get("TYPE") or ""),
+                "TRANSACTION_NO": str(info.get("TRANSACTION_NO") or info.get("REFERENCE") or ""),
+                "REFERENCE": str(info.get("REFERENCE") or ""),
+                "SENDER": str(info.get("SENDER") or ""),
+                "TRANSFER_TO": str(info.get("TRANSFER_TO") or ""),
+                "RECEIVER": str(info.get("RECEIVER") or ""),
+            },
+            "amount_num": int(item.get("amount_num", 0) or 0),
+            "txn_key": str(item.get("txn_key") or ""),
+        })
+    draft = {
+        "userId": str(payload.get("userId") or ""),
+        "username": str(payload.get("username") or ""),
+        "package": str(payload.get("package") or "CH"),
+        "months": int(payload.get("months", 1) or 1),
+        "amount": int(payload.get("amount", 0) or 0),
+        "method": str(payload.get("method") or ""),
+        "total_paid": int(payload.get("total_paid", 0) or 0),
+        "slips": safe_slips,
+        "slip_info": dict(payload.get("slip_info", {}) or {}),
+    }
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.post(
+                SHEET_WEBHOOK,
+                json={"action": "savePaymentDraft", "draft": draft, "serverKey": SHEET_SERVER_KEY},
+                timeout=15,
+            )
+        result = response.json()
+        return result if isinstance(result, dict) else {"status": "error", "message": "invalid_draft_response"}
+    except Exception as exc:
+        logger.warning("savePaymentDraft failed user=%s: %s", draft.get("userId"), exc)
+        return {"status": "error", "message": "draft_save_failed"}
+
+
+async def get_payment_draft(user_id: int | str) -> dict:
+    """Restore a pending payment draft after a bot restart or worker recycle."""
+    if not SHEET_WEBHOOK or not SHEET_SERVER_KEY:
+        return {}
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.post(
+                SHEET_WEBHOOK,
+                json={
+                    "action": "getPaymentDraft",
+                    "draft": {"userId": str(user_id)},
+                    "serverKey": SHEET_SERVER_KEY,
+                },
+                timeout=15,
+            )
+        result = response.json()
+        if isinstance(result, dict) and result.get("status") == "ok" and result.get("found"):
+            draft = result.get("draft") or {}
+            draft["waiting_slip"] = True
+            return draft
+    except Exception as exc:
+        logger.warning("getPaymentDraft failed user=%s: %s", user_id, exc)
+    return {}
+
+
+async def clear_payment_draft(user_id: int | str, transaction_no: str = "") -> bool:
+    """Mark a successfully handled draft as cleared without deleting its audit row."""
+    if not SHEET_WEBHOOK or not SHEET_SERVER_KEY:
+        return False
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.post(
+                SHEET_WEBHOOK,
+                json={
+                    "action": "clearPaymentDraft",
+                    "draft": {"userId": str(user_id), "transactionNo": str(transaction_no or "")},
+                    "serverKey": SHEET_SERVER_KEY,
+                },
+                timeout=15,
+            )
+        result = response.json()
+        return isinstance(result, dict) and result.get("status") == "ok"
+    except Exception as exc:
+        logger.warning("clearPaymentDraft failed user=%s: %s", user_id, exc)
+        return False
+
+
+async def ensure_payment_session(user_id: int | str) -> dict:
+    """Use memory first, then restore the durable draft if memory was lost."""
+    member_id = int(user_id)
+    existing = pending_payment.get(member_id, {}) or {}
+    if existing:
+        return existing
+    restored = await get_payment_draft(member_id)
+    if restored:
+        pending_payment[member_id] = restored
+        return restored
+    return {}
+
+
 async def inspect_payment_transaction(payment: dict) -> dict:
     """Read one protected transaction so lost HTTP responses can be reconciled safely."""
     if not SHEET_WEBHOOK:
@@ -2394,6 +2502,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # ── Payment Slip Mode ──
+    if user_id not in pending_payment:
+        restored_payment = await get_payment_draft(user_id)
+        if restored_payment:
+            pending_payment[user_id] = restored_payment
     if user_id in pending_payment:
         pay_data = pending_payment[user_id]
         if pay_data.get("waiting_slip"):
@@ -2461,6 +2573,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pay_data["slip_info"] = slip_info
             pay_data["file_bytes"] = file_bytes
             pay_data["total_paid"] = total_paid
+            pay_data["userId"] = str(user_id)
+            draft_result = await save_payment_draft(pay_data)
+            if draft_result.get("status") != "ok":
+                logger.error("Payment draft persistence failed user=%s result=%s", user_id, draft_result)
+                await update.message.reply_text(
+                    "⚠️ Payment data ကို server မှာ မသိမ်းနိုင်သေးပါ။\n"
+                    "Admin approval မပို့သေးပါ — ခဏနေရင် slip ကို ပြန်ပို့ပါ။"
+                )
+                return
 
             pkg_name = PLAN_NAMES.get(pay_data.get("package", "CH"), "Unknown")
             months = pay_data.get("months", 1)
@@ -3702,7 +3823,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
             return
         member_id = int(data.replace("slip_confirm_",""))
-        pay_data  = pending_payment.get(member_id, {})
+        pay_data  = await ensure_payment_session(member_id)
         if not pay_data:
             await query.answer("❌ Data ကုန်သွားပြီ", show_alert=True)
             return
@@ -3754,7 +3875,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         member_id = int(data.replace("slip_ok_", ""))
-        pay_data = pending_payment.get(member_id, {})
+        pay_data = await ensure_payment_session(member_id)
         if not pay_data:
             await query.message.reply_text("❌ Data ကုန်သွားပြီ")
             return
@@ -3915,6 +4036,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚠️ Canonical member response failed for {member_id}: {detail}. Finance row was committed; manual review required.",
             )
             return
+        await clear_payment_draft(member_id, transaction_no)
         pending_payment.pop(member_id, None)
         canonical_password = str(saved.get("password") or password or "")
         canonical_expire = str(saved.get("expireDate") or "")
@@ -3952,6 +4074,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
             return
         member_id = int(data.replace("slip_no_",""))
+        await clear_payment_draft(member_id)
         pending_payment.pop(member_id, None)
         try:
             admin_link = f"\n💬 [Admin ကို ဆက်သွယ်](https://t.me/{ADMIN_USERNAME})" if ADMIN_USERNAME else ""

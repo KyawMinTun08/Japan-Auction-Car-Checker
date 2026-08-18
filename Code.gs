@@ -272,6 +272,20 @@ function doPost(e) {
         if (inspectAuth) return _json(inspectAuth);
         return _json(inspectPaymentTransaction_(data.payment || data));
 
+      // ── Durable Telegram payment draft recovery ─────────────
+      case "savePaymentDraft":
+        var draftSaveAuth = _authorizeFinanceReport_(data.serverKey);
+        if (draftSaveAuth) return _json(draftSaveAuth);
+        return _json(_savePaymentDraft_(data.draft || data));
+      case "getPaymentDraft":
+        var draftGetAuth = _authorizeFinanceReport_(data.serverKey);
+        if (draftGetAuth) return _json(draftGetAuth);
+        return _json(_getPaymentDraft_(data.draft || data));
+      case "clearPaymentDraft":
+        var draftClearAuth = _authorizeFinanceReport_(data.serverKey);
+        if (draftClearAuth) return _json(draftClearAuth);
+        return _json(_clearPaymentDraft_(data.draft || data));
+
       // ── Admin Finance Summary ───────────────────────
       case "getFinanceReport":
         var financeAuth = _authorizeFinanceReport_(data.serverKey);
@@ -1163,6 +1177,22 @@ function _parseMemberDate(value) {
   return parsed;
 }
 
+function _addMembershipPeriod_(baseDate, days, months) {
+  var result = new Date(baseDate.getTime());
+  var monthCount = parseInt(months, 10) || 0;
+  if (monthCount > 0) {
+    var originalDay = result.getDate();
+    result.setDate(1);
+    result.setMonth(result.getMonth() + monthCount);
+    var lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+    result.setDate(Math.min(originalDay, lastDay));
+  } else {
+    result.setDate(result.getDate() + (parseInt(days, 10) || 0));
+  }
+  result.setHours(23, 59, 59, 999);
+  return result;
+}
+
 function _normalizePackage(value) {
   var pkg = String(value || "CH").trim().toUpperCase()
     .replace(/[_-]+/g, " ");
@@ -1513,7 +1543,7 @@ function _pendingMemberMatches_(member, meta) {
   }
   if (!baseDate) return false;
 
-  var expectedExpire = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
+  var expectedExpire = _addMembershipPeriod_(baseDate, days, meta.months);
   // Recover only the exact member mutation represented by this pending row.
   // If another renewal ran afterward, require manual review instead of
   // attributing that later expiry to this transaction.
@@ -1602,6 +1632,121 @@ function inspectPaymentTransaction_(payment) {
   };
 }
 
+var PAYMENT_DRAFT_SHEET = "Payment_Drafts";
+var PAYMENT_DRAFT_HEADERS = [
+  "DraftKey", "UserID", "Username", "Package", "Months", "Amount",
+  "Method", "TotalPaid", "SlipsJson", "SlipInfoJson", "Status",
+  "CreatedAt", "UpdatedAt", "LastTransactionNo"
+];
+
+function _getPaymentDraftSheet_() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName(PAYMENT_DRAFT_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(PAYMENT_DRAFT_SHEET);
+    sheet.appendRow(PAYMENT_DRAFT_HEADERS);
+  } else if (sheet.getLastRow() < 1) {
+    sheet.appendRow(PAYMENT_DRAFT_HEADERS);
+  }
+  return sheet;
+}
+
+function _paymentDraftSafeSlips_(slips) {
+  return (Array.isArray(slips) ? slips : []).map(function(item) {
+    var info = item && item.slip_info ? item.slip_info : {};
+    return {
+      slip_info: {
+        AMOUNT: String(info.AMOUNT || ""),
+        DATE: String(info.DATE || ""),
+        TIME: String(info.TIME || ""),
+        TYPE: String(info.TYPE || ""),
+        TRANSACTION_NO: String(info.TRANSACTION_NO || info.REFERENCE || ""),
+        REFERENCE: String(info.REFERENCE || ""),
+        SENDER: String(info.SENDER || ""),
+        TRANSFER_TO: String(info.TRANSFER_TO || ""),
+        RECEIVER: String(info.RECEIVER || "")
+      },
+      amount_num: Number(item && item.amount_num || 0),
+      txn_key: String(item && item.txn_key || "")
+    };
+  });
+}
+
+function _savePaymentDraft_(draft) {
+  draft = draft || {};
+  var userId = String(draft.userId || "").trim();
+  if (!userId) return {status:"error", message:"user_id_required"};
+  var sheet = _getPaymentDraftSheet_();
+  var now = Utilities.formatDate(new Date(), "Asia/Bangkok", "dd/MM/yyyy HH:mm:ss");
+  var slips = _paymentDraftSafeSlips_(draft.slips || []);
+  var rows = sheet.getDataRange().getValues();
+  var rowNumber = 0;
+  var createdAt = now;
+  for (var i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i][1] || "").trim() !== userId) continue;
+    if (String(rows[i][10] || "").trim().toUpperCase() === "CLEARED") break;
+    rowNumber = i + 1;
+    createdAt = String(rows[i][11] || now);
+    break;
+  }
+  var values = [
+    "USER-" + userId, userId, String(draft.username || ""),
+    String(draft.package || "CH").trim().toUpperCase(),
+    parseInt(draft.months, 10) || 1, _financeAmount_(draft.amount) || 0,
+    String(draft.method || "").trim(), Number(draft.total_paid || 0),
+    JSON.stringify(slips), JSON.stringify(draft.slip_info || {}),
+    "READY", createdAt, now,
+    String((slips.length && slips[slips.length - 1].slip_info.TRANSACTION_NO) || "")
+  ];
+  if (rowNumber) sheet.getRange(rowNumber, 1, 1, values.length).setValues([values]);
+  else sheet.appendRow(values);
+  return {status:"ok", result:"saved", draftKey:"USER-" + userId};
+}
+
+function _getPaymentDraft_(draft) {
+  draft = draft || {};
+  var userId = String(draft.userId || "").trim();
+  if (!userId) return {status:"error", message:"user_id_required"};
+  var sheet = _getPaymentDraftSheet_();
+  var rows = sheet.getDataRange().getValues();
+  for (var i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i][1] || "").trim() !== userId) continue;
+    if (String(rows[i][10] || "").trim().toUpperCase() === "CLEARED") continue;
+    var slips = [];
+    var slipInfo = {};
+    try { slips = JSON.parse(String(rows[i][8] || "[]")); } catch (e) {}
+    try { slipInfo = JSON.parse(String(rows[i][9] || "{}")); } catch (e) {}
+    return {
+      status:"ok", found:true,
+      draft: {
+        userId:String(rows[i][1] || ""), username:String(rows[i][2] || ""),
+        package:String(rows[i][3] || "CH"), months:parseInt(rows[i][4], 10) || 1,
+        amount:Number(rows[i][5] || 0), method:String(rows[i][6] || ""),
+        total_paid:Number(rows[i][7] || 0), slips:slips, slip_info:slipInfo,
+        status:String(rows[i][10] || "READY")
+      }
+    };
+  }
+  return {status:"ok", found:false};
+}
+
+function _clearPaymentDraft_(draft) {
+  draft = draft || {};
+  var userId = String(draft.userId || "").trim();
+  if (!userId) return {status:"error", message:"user_id_required"};
+  var sheet = _getPaymentDraftSheet_();
+  var rows = sheet.getDataRange().getValues();
+  for (var i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i][1] || "").trim() !== userId) continue;
+    if (String(rows[i][10] || "").trim().toUpperCase() === "CLEARED") continue;
+    sheet.getRange(i + 1, 11).setValue("CLEARED");
+    sheet.getRange(i + 1, 13).setValue(Utilities.formatDate(new Date(), "Asia/Bangkok", "dd/MM/yyyy HH:mm:ss"));
+    sheet.getRange(i + 1, 14).setValue(String(draft.transactionNo || ""));
+    return {status:"ok", result:"cleared"};
+  }
+  return {status:"ok", result:"not_found"};
+}
+
 function approvePaymentTransaction_(payment) {
   payment = payment || {};
   var userId = String(payment.userId || "").trim();
@@ -1611,7 +1756,8 @@ function approvePaymentTransaction_(payment) {
   var approvedBy = String(payment.approvedBy || "").trim();
   var expectedAmount = _financeAmount_(payment.expectedAmount);
   var receivedAmount = _financeAmount_(payment.receivedAmount);
-  var days = parseInt(payment.days || (parseInt(payment.months, 10) * 30), 10);
+  var calendarMonths = parseInt(payment.months, 10) || 0;
+  var days = parseInt(payment.days || (calendarMonths * 30), 10);
   var method = _financeMethod_(payment.payType || payment.method || "");
   var transactionNo = String(payment.transactionNo || payment.paymentId || "").trim();
   var paymentId = String(payment.paymentId || transactionNo).trim();
@@ -1709,6 +1855,7 @@ function approvePaymentTransaction_(payment) {
     "userId=" + userId,
     "package=" + targetPackage,
     "days=" + days,
+    "months=" + calendarMonths,
     "entryType=" + entryType,
     "approvedBy=" + approvedBy,
     "financeDate=" + financeDate,
@@ -1719,7 +1866,7 @@ function approvePaymentTransaction_(payment) {
   ].join("; ");
   financeSheet.appendRow([
     financeDate, financeTime, userId, username,
-    targetPackage, Math.max(1, Math.round(days / 30)), receivedAmount,
+    targetPackage, calendarMonths || Math.max(1, Math.round(days / 30)), receivedAmount,
     payment.payType || method, transactionNo,
     payment.receiver || payment.transferTo || "", payment.sender || "", "PENDING",
     entryType, source, paymentId, approvedBy, "", pendingNote
@@ -1729,7 +1876,7 @@ function approvePaymentTransaction_(payment) {
 
   var saved;
   try {
-    saved = saveMember(userId, username, days, String(payment.password || ""), targetPackage);
+    saved = saveMember(userId, username, days, String(payment.password || ""), targetPackage, calendarMonths);
   } catch (saveError) {
     _setFinanceTransactionState_(financeSheet, financeRow, "ERROR", entryType, source,
       paymentId, approvedBy, "", "Member save exception; manual review required");
@@ -1772,7 +1919,7 @@ function approvePaymentTransaction_(payment) {
 }
 
 // ── saveMember ─────────────────────────────────────────────
-function saveMember(userId, username, expireDays, password, pkg) {
+function saveMember(userId, username, expireDays, password, pkg, expireMonths) {
   var ss     = SpreadsheetApp.openById(SS_ID);
   var sheet  = ss.getSheetByName(MEMBERS);
   var now    = new Date();
@@ -1794,7 +1941,7 @@ function saveMember(userId, username, expireDays, password, pkg) {
       var currentIsActive = currentStatus === "ACTIVE"
         && currentExpire && currentExpire > now;
       var renewalBase = currentIsActive ? currentExpire : now;
-      var expire = new Date(renewalBase.getTime() + days * 24 * 60 * 60 * 1000);
+      var expire = _addMembershipPeriod_(renewalBase, days, expireMonths);
       var expireStr = Utilities.formatDate(expire, "Asia/Bangkok", "dd/MM/yyyy");
       var currentPackage = _normalizePackage(rows[i][C_PACKAGE]);
       var currentPassword = String(rows[i][C_PASSWORD] || "").trim();
@@ -1839,7 +1986,7 @@ function saveMember(userId, username, expireDays, password, pkg) {
   if (normalizedPackage === "WEB" && !requestedPassword) {
     return {status:"error", message:"web_password_required"};
   }
-  var expire = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  var expire = _addMembershipPeriod_(now, days, expireMonths);
   var expireStr = Utilities.formatDate(expire, "Asia/Bangkok", "dd/MM/yyyy");
   var newPassword = normalizedPackage === "WEB" ? requestedPassword : "";
   sheet.appendRow([
