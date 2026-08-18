@@ -105,6 +105,15 @@ async def resetdevice_cmd(update, context):
         )
         return
 
+    if result_message == "device_binding_not_configured":
+        await message.reply_text(
+            "❌ Device Binding configuration မပြီးသေးပါ\n"
+            "Apps Script Script Properties ထဲက `JACC_DEVICE_HASH_SECRET` "
+            "နဲ့ binding mode ကို စစ်ပါ။",
+            parse_mode="Markdown",
+        )
+        return
+
     await message.reply_text(
         "❌ Device Reset မအောင်မြင်ပါ\n"
         f"Backend: `{result_message or 'unknown_error'}`",

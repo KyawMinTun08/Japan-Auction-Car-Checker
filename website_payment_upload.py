@@ -129,8 +129,13 @@ class WebsitePaymentHttp:
             if response.is_error:
                 return {"status": "error", "message": "session_unavailable"}
             data = response.json()
-            if not isinstance(data, dict) or str(data.get("status", "")).lower() != "ok":
+            if not isinstance(data, dict):
                 return {"status": "error", "message": "invalid_session"}
+            if str(data.get("status", "")).lower() != "ok":
+                backend_message = str(data.get("message") or data.get("msg") or "invalid_session")
+                if backend_message == "invalid_token":
+                    backend_message = "invalid_session"
+                return {"status": "error", "message": backend_message}
             returned_id = str(data.get("userId", user_id)).strip()
             if returned_id and returned_id != str(user_id):
                 return {"status": "error", "message": "member_mismatch"}

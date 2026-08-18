@@ -216,15 +216,28 @@ class JdmGradeService:
             )
         return {"status": "ok", "matches": matches}
 
-    async def verify_web_session(self, token: str) -> dict[str, Any]:
+    async def verify_web_session(
+        self,
+        token: str,
+        user_id: str = "",
+        device_id: str = "",
+        app_name: str = "web",
+    ) -> dict[str, Any]:
         if not self.sheet_webhook or not token:
             return {"status": "error", "message": "web_access_required"}
+        payload: dict[str, Any] = {"action": "verifyToken", "token": token}
+        if user_id:
+            payload["userId"] = str(user_id).strip()
+        if device_id:
+            payload["deviceId"] = str(device_id).strip()[:160]
+        if app_name:
+            payload["app"] = str(app_name).strip().lower()[:20]
         try:
             async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
                 response = await client.post(
                     self.sheet_webhook,
                     headers={"Content-Type": "text/plain"},
-                    json={"action": "verifyToken", "token": token},
+                    json=payload,
                 )
             if response.is_error:
                 return {"status": "error", "message": "session_unavailable"}
@@ -363,7 +376,7 @@ class JdmLookupHttp:
                 {
                     "Access-Control-Allow-Origin": origin,
                     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-JACC-User-ID, X-JACC-Device-ID, X-JACC-App",
                 }
             )
         return headers
@@ -375,7 +388,10 @@ class JdmLookupHttp:
         headers = self._headers(request)
         auth = request.headers.get("Authorization", "")
         token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
-        session = await self.service.verify_web_session(token)
+        user_id = request.headers.get("X-JACC-User-ID", "").strip()
+        device_id = request.headers.get("X-JACC-Device-ID", "").strip()[:160]
+        app_name = request.headers.get("X-JACC-App", "web").strip().lower()[:20]
+        session = await self.service.verify_web_session(token, user_id, device_id, app_name)
         if session.get("status") != "ok":
             return web.json_response({"status": "error", "code": session.get("message", "WEB_ACCESS_REQUIRED")}, status=401, headers=headers)
         try:
@@ -401,7 +417,10 @@ class JdmLookupHttp:
         raw = request.query.get("chassis", "")
         auth = request.headers.get("Authorization", "")
         token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
-        session = await self.service.verify_web_session(token)
+        user_id = request.headers.get("X-JACC-User-ID", "").strip()
+        device_id = request.headers.get("X-JACC-Device-ID", "").strip()[:160]
+        app_name = request.headers.get("X-JACC-App", "web").strip().lower()[:20]
+        session = await self.service.verify_web_session(token, user_id, device_id, app_name)
         if session.get("status") != "ok":
             return web.json_response(
                 {"status": "error", "code": session.get("message", "WEB_ACCESS_REQUIRED")},

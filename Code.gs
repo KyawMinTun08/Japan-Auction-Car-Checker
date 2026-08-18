@@ -85,7 +85,7 @@ function doPost(e) {
       // ── Verify Login (Password → Token) ─────────────────
       case "validateLogin":
       case "verifyLogin":
-        var loginResult = verifyLogin(data.password);
+        var loginResult = verifyLogin(data.password, data.deviceId, data.app);
         writeAuditLog(
           loginResult.username || "Unknown",
           "LOGIN",
@@ -96,7 +96,13 @@ function doPost(e) {
 
       // ── Verify Token (on page load) ──────────────────────
       case "verifyToken":
-        return _json(verifyToken(data.token));
+        return _json(verifyToken(data.token, data.deviceId, data.app, data.userId));
+
+      // ── Admin-only Device Reset ──────────────────────────
+      case "resetMemberDevice":
+        var resetDeviceAuth = _authorizeFinanceReport_(data.serverKey);
+        if (resetDeviceAuth) return _json(resetDeviceAuth);
+        return _json(resetMemberDevice(data.userId));
 
       // ── Get Password by UserID ───────────────────────────
       case "getPassword":
@@ -667,6 +673,7 @@ case 'banCustomer': {
       // ExpireDate = ban expire date (col 4, index 3, 1-based = 4)
       // Store ban info in the Token column and invalidate any active session.
       sheet.getRange(i + 1, C_TOKEN + 1).setValue('BAN_EXPIRE:' + banExpire);
+      _revokeMemberSessions_(uid);
       writeAuditLog('Admin', 'BAN', 'UserID:' + uid, 'expire:' + banExpire);
       return _json({ status: 'ok', banExpire: banExpire });
       
@@ -675,8 +682,10 @@ case 'banCustomer': {
   return _json({ status: 'error', msg: 'user_not_found' });
 }
  case 'getData': {
-  var tokenResult = verifyToken(data.token);
-  if (tokenResult.status !== 'ok') return _json({status:'error', msg:'invalid_token'});
+  var tokenResult = verifyToken(data.token, data.deviceId, data.app, data.userId);
+  if (tokenResult.status !== 'ok') {
+    return _json({status:'error', msg:tokenResult.message || tokenResult.msg || 'invalid_token'});
+  }
   var gdSheet = ss.getSheetByName('Sheet1');
   if (!gdSheet) return _json({status:'error', msg:'no_sheet'});
   var gdRows = gdSheet.getDataRange().getValues();
@@ -828,7 +837,7 @@ case "saveAuctionCancel": {
   return _json({status:"ok"});
 }
 case 'saveSearchWatch': {
-  const watchAuth = _authorizeWebMember_(payload.token, payload.customerId);
+  const watchAuth = _authorizeWebMember_(payload.token, payload.customerId, payload.deviceId, payload.app);
   if (watchAuth) return _json(watchAuth);
   const watchSheet = _getSearchWatchesSheet_();
   const watchFilters = _normalizeWatchFilters_(payload.filters || {});
@@ -847,7 +856,7 @@ case 'saveSearchWatch': {
   return _json({status:'ok', watchId:watchId, enabled:true});
 }
 case 'getSearchWatches': {
-  const watchAuth = _authorizeWebMember_(payload.token, payload.customerId);
+  const watchAuth = _authorizeWebMember_(payload.token, payload.customerId, payload.deviceId, payload.app);
   if (watchAuth) return _json(watchAuth);
   const watchSheet = _getSearchWatchesSheet_();
   const watchRows = watchSheet.getDataRange().getValues();
@@ -862,7 +871,7 @@ case 'getSearchWatches': {
   return _json({status:'ok', watches:watches});
 }
 case 'deleteSearchWatch': {
-  const watchAuth = _authorizeWebMember_(payload.token, payload.customerId);
+  const watchAuth = _authorizeWebMember_(payload.token, payload.customerId, payload.deviceId, payload.app);
   if (watchAuth) return _json(watchAuth);
   const watchSheet = _getSearchWatchesSheet_();
   const watchRows = watchSheet.getDataRange().getValues();
@@ -877,7 +886,7 @@ case 'deleteSearchWatch': {
   return _json({status:'error', msg:'watch_not_found'});
 }
 case 'getMyRequestsWeb': {
-  const webAuthError = _authorizeWebMember_(payload.token, payload.customerId);
+  const webAuthError = _authorizeWebMember_(payload.token, payload.customerId, payload.deviceId, payload.app);
   if (webAuthError) return _json(webAuthError);
   const ss = SpreadsheetApp.openById(SS_ID);
   const sheet = ss.getSheetByName('Requests');
@@ -1136,13 +1145,13 @@ function installSearchWatchTrigger() {
   ScriptApp.newTrigger('checkSearchWatches').timeBased().everyHours(1).create();
   return {status:'ok', message:'installed'};
 }
-function _authorizeWebMember_(token, userId) {
+function _authorizeWebMember_(token, userId, deviceId, app) {
   var safeToken = String(token || '').trim();
   var safeUserId = String(userId || '').trim();
   if (!safeToken || !safeUserId) return {status:'error', msg:'auth_required'};
-  var tokenResult = verifyToken(safeToken);
+  var tokenResult = verifyToken(safeToken, deviceId, app, safeUserId);
   if (tokenResult.status !== 'ok' || String(tokenResult.userId || '') !== safeUserId) {
-    return {status:'error', msg:'invalid_session'};
+    return {status:'error', msg:tokenResult.message || tokenResult.msg || 'invalid_session'};
   }
   return null;
 }
@@ -1967,6 +1976,7 @@ function saveMember(userId, username, expireDays, password, pkg, expireMonths) {
       sheet.getRange(i+1, C_PACKAGE+1).setValue(normalizedPackage);
       // Force a fresh login only after the admin approves the renewal.
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      _revokeMemberSessions_(String(userId));
       writeAuditLog('Admin', 'RENEW', username, 'pkg:' + normalizedPackage);
       var renewalType = currentPackage === "CH" && normalizedPackage === "WEB" ? "UPGRADE" : "RENEW";
       return {
@@ -2027,6 +2037,7 @@ function getMembers() {
     // session token.
     if (status !== "ACTIVE" || _normalizePackage(rows[i][C_PACKAGE]) !== "WEB") {
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      _revokeMemberSessions_(String(rows[i][C_USERID] || '').trim());
     }
     members.push({
       userId:     String(rows[i][C_USERID]),
@@ -2043,7 +2054,7 @@ function getMembers() {
 }
 
 // ── verifyLogin (Password → return token) ─────────────────
-function verifyLogin(password) {
+function verifyLogin(password, deviceId, app) {
   if (!password) return {status:"error", message:"No password"};
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName(MEMBERS);
@@ -2053,7 +2064,7 @@ function verifyLogin(password) {
   for (var i = 1; i < rows.length; i++) {
     var storedPw = String(rows[i][C_PASSWORD] || "");
     if (!storedPw) continue;
-    if (storedPw.trim() !== password.trim()) continue;
+    if (storedPw.trim() !== String(password).trim()) continue;
 
     var memberPackage = _normalizePackage(rows[i][C_PACKAGE]);
     if (memberPackage !== "WEB") {
@@ -2073,17 +2084,25 @@ function verifyLogin(password) {
       return {status:"error", message:"expired"};
     }
 
-    // Generate session token
+    var memberId = String(rows[i][C_USERID] || '').trim();
+    var deviceCheck = _verifyAndBindDevice_(memberId, deviceId, app);
+    if (!deviceCheck.ok) return deviceCheck;
+
+    // Preserve the legacy one-token behavior while recording a durable session.
+    _revokeMemberSessions_(memberId);
     var token = Utilities.getUuid();
+    var sessionResult = _createAuthSession_(token, memberId, deviceCheck, expireDate);
+    if (sessionResult.status !== 'ok') return sessionResult;
     sheet.getRange(i+1, C_TOKEN+1).setValue(token);
     return {
       status:     "ok",
       token:      token,
-      userId:     String(rows[i][C_USERID]),
+      userId:     memberId,
       username:   String(rows[i][C_USERNAME]),
-      
       package:    _normalizePackage(rows[i][C_PACKAGE]),
-      expireDate: Utilities.formatDate(expireDate, "Asia/Bangkok", "dd/MM/yyyy")
+      expireDate: Utilities.formatDate(expireDate, "Asia/Bangkok", "dd/MM/yyyy"),
+      deviceBound: !!deviceCheck.deviceBound,
+      clientApp: deviceCheck.clientApp || 'web'
     };
   }
 
@@ -2091,39 +2110,53 @@ function verifyLogin(password) {
 }
 
 // ── verifyToken ────────────────────────────────────────────
-function verifyToken(token) {
-  if (!token) return {status:"error", message:"No token"};
+function verifyToken(token, deviceId, app, userId) {
+  var safeToken = String(token || '').trim();
+  if (!safeToken) return {status:"error", message:"No token"};
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName(MEMBERS);
   var rows  = sheet.getDataRange().getValues();
   var now   = new Date();
 
   for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][C_TOKEN]) !== token) continue;
+    if (String(rows[i][C_TOKEN] || '').trim() !== safeToken) continue;
+    var memberId = String(rows[i][C_USERID] || '').trim();
+    if (userId && _normalizeBindingUserId_(userId) !== _normalizeBindingUserId_(memberId)) {
+      return {status:'error', message:'member_mismatch'};
+    }
     var memberPackage = _normalizePackage(rows[i][C_PACKAGE]);
     if (memberPackage !== "WEB") {
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      _revokeMemberSessions_(memberId);
       return {status:"error", message:"web_access_required"};
     }
     var memberStatus = String(rows[i][C_STATUS] || "").trim().toUpperCase();
     if (memberStatus === "KICKED" || memberStatus === "BANNED" || memberStatus === "EXPIRED") {
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      _revokeMemberSessions_(memberId);
       return {status:"error", message:memberStatus.toLowerCase()};
     }
     var rawDate    = rows[i][C_EXPIRE];
     var expireDate = _parseMemberDate(rawDate);
     if (!expireDate || expireDate < now) {
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
-      // Clear expired token
+      _revokeMemberSessions_(memberId);
       return {status:"error", message:"expired"};
     }
+
+    var deviceCheck = _verifyAndBindDevice_(memberId, deviceId, app);
+    if (!deviceCheck.ok) return deviceCheck;
+    var sessionCheck = _verifyAuthSession_(safeToken, memberId, deviceCheck, expireDate);
+    if (sessionCheck.status !== 'ok') return sessionCheck;
+
     return {
       status:     "ok",
-      userId:     String(rows[i][C_USERID]),
+      userId:     memberId,
       username:   String(rows[i][C_USERNAME]),
-      
       package:    _normalizePackage(rows[i][C_PACKAGE]),
-      expireDate: Utilities.formatDate(expireDate, "Asia/Bangkok", "dd/MM/yyyy")
+      expireDate: Utilities.formatDate(expireDate, "Asia/Bangkok", "dd/MM/yyyy"),
+      deviceBound: !!deviceCheck.deviceBound,
+      clientApp: deviceCheck.clientApp || 'web'
     };
   }
 
@@ -2142,6 +2175,7 @@ function getPassword(userId) {
     if (String(rows[i][C_USERID]) !== String(userId)) continue;
     if (_normalizePackage(rows[i][C_PACKAGE]) !== "WEB") {
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      _revokeMemberSessions_(String(rows[i][C_USERID] || '').trim());
       return {status:"error", message:"web_access_required"};
     }
     var memberStatus = String(rows[i][C_STATUS] || "").trim().toUpperCase();
@@ -2173,10 +2207,12 @@ function resetPassword(username, newPassword) {
     if (_normalizePackage(rows[i][C_PACKAGE]) !== "WEB") {
       sheet.getRange(i+1, C_PASSWORD+1).setValue("");
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
+      _revokeMemberSessions_(rowUserId);
       return {status:"error", message:"web_access_required"};
     }
     sheet.getRange(i+1, C_PASSWORD+1).setValue(newPassword);
     sheet.getRange(i+1, C_TOKEN+1).setValue("");
+    _revokeMemberSessions_(rowUserId);
     writeAuditLog('Admin', 'PASSWORD_RESET', uname, 'SUCCESS');
     return {
       status:   "ok",
@@ -2229,6 +2265,7 @@ function updateMemberId(username, newId, newPassword) {
     if (newPassword) sheet.getRange(i+1, C_PASSWORD+1).setValue(newPassword);
     // Clear token (force re-login)
     sheet.getRange(i+1, C_TOKEN+1).setValue("");
+    _revokeMemberSessions_(oldId);
     // Log the change
     _logIdChange(ss, username, oldId, String(newId), nowStr);
 
