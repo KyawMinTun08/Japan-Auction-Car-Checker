@@ -3875,7 +3875,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         member_id = int(data.replace("slip_ok_", ""))
-        pay_data = await ensure_payment_session(member_id)
+        pay_data = pending_payment.get(member_id, {})
         if not pay_data:
             await query.message.reply_text("❌ Data ကုန်သွားပြီ")
             return
@@ -3903,9 +3903,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not payment_check.get("ok"):
             reason = str(payment_check.get("reason") or "payment_validation_failed")
             await query.message.reply_text(
-                "❌ Payment ကို အတည်မပြုနိုင်သေးပါ။\n\n"
-                f"စစ်ဆေးချက်: `{reason}`\n"
-                "Amount / Payment method / Transaction No / Date ကို ပြန်စစ်ပြီးမှ Approve လုပ်ပါ။\n"
+                "❌ Payment ကို အတည်မပြုနိုင်သေးပါ။\\n\\n"
+                f"စစ်ဆေးချက်: `{reason}`\\n"
+                "Amount / Payment method / Transaction No / Date ကို ပြန်စစ်ပြီးမှ Approve လုပ်ပါ။\\n"
                 "Customer ကို မပျောက်စေရန် payment session ကို မဖျက်ထားပါ။",
                 parse_mode="Markdown",
             )
@@ -3915,134 +3915,93 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Keep the session until the locked server transaction succeeds.
+        # Remove the session only after the receipt passes all deterministic checks.
+        pay_data = pending_payment.pop(member_id, {})
         package = str(pay_data.get("package", "CH")).upper().strip()
         months = int(pay_data.get("months", 1))
         name = pay_data.get("name", "Unknown")
         username = pay_data.get("username", str(member_id))
         password = generate_password() if package == "WEB" else ""
 
-        slip_info = pay_data.get("slip_info", {}) or {}
-        chosen_method = pay_data.get("method", "")
-        transaction_no = str(payment_check.get("transaction_no") or "").strip()
-        approved_by = str(
-            getattr(query.from_user, "username", "")
-            or getattr(query.from_user, "id", "")
-        ).strip()
-        transaction_payload = {
-            "userId": str(member_id),
-            "username": username.replace("@", ""),
-            "package": package,
-            "days": months * 30,
-            "expectedAmount": expected_amount,
-            "receivedAmount": payment_check.get("amount") or total_paid,
-            "payType": slip_info.get("TYPE", "") or chosen_method.upper(),
-            "method": chosen_method.upper() if chosen_method else "",
-            "transactionNo": transaction_no,
-            "paymentId": transaction_no,
-            "date": slip_info.get("DATE", datetime.now().strftime("%d/%m/%Y")),
-            "time": slip_info.get("TIME", datetime.now().strftime("%H:%M")),
-            "receiver": slip_info.get("TRANSFER_TO", slip_info.get("RECEIVER", "")),
-            "sender": slip_info.get("SENDER", ""),
-            "approvedBy": approved_by,
-            "password": password,
-            "source": "PAYMENT_SLIP",
-        }
-        transaction_result = await approve_payment_transaction(transaction_payload)
-        if transaction_result.get("status") != "ok":
-            # A lost HTTP response can happen after Apps Script committed the
-            # transaction. Inspect the canonical Finance/member state before
-            # asking the admin to retry; never replay a committed renewal.
-            inspect_result = await inspect_payment_transaction(transaction_payload)
-            inspected_finance = inspect_result.get("finance") or {}
-            inspected_member = inspect_result.get("member") or {}
-            inspected_status = str(inspected_finance.get("status") or "").strip().upper()
-            reconciled_saved = {
-                "status": "ok",
-                "result": "reconciled",
-                "entryType": inspected_finance.get("entryType", ""),
-                "package": inspected_member.get("package") or package,
-                "password": inspected_member.get("password") or password,
-                "startDate": inspected_member.get("startDate", ""),
-                "expireDate": inspected_member.get("expireDate", ""),
-            }
-            if inspected_status == "APPROVED" and validate_member_record(reconciled_saved, package).get("ok"):
-                transaction_result = {
-                    "status": "ok",
-                    "result": "reconciled",
-                    "entryType": reconciled_saved.get("entryType", ""),
-                    "package": reconciled_saved.get("package", package),
-                    "password": reconciled_saved.get("password", password),
-                    "member": inspected_member,
-                    "financeRow": inspect_result.get("financeRow", ""),
-                }
-            else:
-                original_detail = str(
-                    transaction_result.get("message") or "transaction_request_failed"
-                )
-                if inspected_status == "PENDING" or str(inspect_result.get("state") or "").startswith("PENDING|"):
-                    detail = "transaction_pending_review"
-                    customer_note = (
-                        "Finance transaction က PENDING ဖြစ်နေသေးပါတယ်။\n"
-                        "Member ကို ထပ်မတိုးထားပါ။ Admin က Finance row ကို စစ်ပြီးမှသာ ဆက်လုပ်ပါ။"
-                    )
-                elif inspect_result.get("status") == "ok" and not inspect_result.get("found"):
-                    detail = original_detail
-                    customer_note = (
-                        "Transaction row မတွေ့သေးပါ။ Payment data မပျောက်ပါ။\n"
-                        "Webhook ပြန်ကောင်းပြီးမှ Approve ကို တစ်ကြိမ်သာ ထပ်နှိပ်ပါ။"
-                    )
-                else:
-                    detail = original_detail
-                    customer_note = (
-                        "Transaction state ကို အတည်မပြုနိုင်သေးပါ။\n"
-                        "Duplicate မဖြစ်စေရန် Approve ကို မထပ်နှိပ်ပါနှင့်။"
-                    )
-                await query.message.reply_text(
-                    "⚠️ Server-side Member + Finance transaction မပြီးသေးပါ။\n"
-                    f"စစ်ဆေးချက်: `{detail}`\n"
-                    f"{customer_note}",
-                    parse_mode="Markdown",
-                )
-                await notify_admins(
-                    context,
-                    f"⚠️ Server transaction requires review for {member_id}: {detail}. Original={original_detail}",
-                )
-                return
-
-        member_payload = transaction_result.get("member") or {}
-        saved = {
-            "status": "ok",
-            "result": transaction_result.get("result", "approved"),
-            "entryType": transaction_result.get("entryType", ""),
-            "previousPackage": transaction_result.get("previousPackage", ""),
-            "package": member_payload.get("package") or transaction_result.get("package") or package,
-            "password": member_payload.get("password") or transaction_result.get("password") or password,
-            "startDate": member_payload.get("startDate", ""),
-            "expireDate": member_payload.get("expireDate", ""),
-            "canonicalMemberChecked": True,
-        }
+        saved = await save_member_to_sheet(
+            str(member_id),
+            username.replace("@", ""),
+            months * 30,
+            password,
+            package,
+        )
+        saved = await enrich_member_save_result(
+            str(member_id), saved, package, strict=True)
         member_check = validate_member_record(saved, package)
-        if not member_check.get("ok"):
-            detail = str(member_check.get("reason") or "member_integrity_check_failed")
+        if saved.get("status") != "ok" or not member_check.get("ok"):
+            detail = str(saved.get("message") or member_check.get("reason") or "member_integrity_check_failed")
             await query.message.reply_text(
-                "⚠️ Server transaction ပြီးသော်လည်း canonical date/package စစ်ဆေးမှု မအောင်မြင်သေးပါ။\n"
-                f"Admin စစ်ဆေးရန်: `{detail}`\n"
+                "⚠️ Member Sheet save ပြီးသော်လည်း canonical date/package စစ်ဆေးမှု မအောင်မြင်သေးပါ။\\n"
+                f"Admin စစ်ဆေးရန်: `{detail}`\\n"
                 "Duplicate renewal မဖြစ်စေရန် Approve ကို ထပ်မနှိပ်ပါနဲ့။",
                 parse_mode="Markdown",
             )
             await notify_admins(
                 context,
-                f"⚠️ Canonical member response failed for {member_id}: {detail}. Finance row was committed; manual review required.",
+                f"⚠️ Member integrity check failed after save for {member_id}: {detail}. Finance/DM မဆက်လုပ်ပါ။",
             )
             return
-        await clear_payment_draft(member_id, transaction_no)
-        pending_payment.pop(member_id, None)
+        slip_info = pay_data.get("slip_info", {})
+        chosen_method = pay_data.get("method", "")
         canonical_password = str(saved.get("password") or password or "")
         canonical_expire = str(saved.get("expireDate") or "")
         canonical_package = str(saved.get("package") or package).upper()
-        entry_type = str(saved.get("entryType") or "").upper()
-
+        entry_type = str(saved.get("entryType") or ("NEW" if saved.get("result") == "added" else "RENEW")).upper()
+        transaction_no = str(payment_check.get("transaction_no") or "").strip()
+        if transaction_no.upper() == "UNKNOWN":
+            transaction_no = ""
+        approved_by = str(
+            getattr(query.from_user, "username", "")
+            or getattr(query.from_user, "id", "")
+        ).strip()
+        finance_logged = await log_finance_entry({
+            "date": slip_info.get("DATE", datetime.now().strftime("%d/%m/%Y")),
+            "time": slip_info.get("TIME", datetime.now().strftime("%H:%M")),
+            "userId": str(member_id),
+            "username": username,
+            "package": PLAN_NAMES.get(canonical_package, canonical_package),
+            "months": months,
+            "amount": payment_check.get("amount") or total_paid,
+            "payType": slip_info.get("TYPE", "") or chosen_method.upper(),
+            "method": chosen_method.upper() if chosen_method else "",
+            "transactionNo": transaction_no,
+            "receiver": slip_info.get("TRANSFER_TO", slip_info.get("RECEIVER", "")),
+            "sender": slip_info.get("SENDER", ""),
+            "accountNumber": slip_info.get("ACCOUNT_NUMBER", ""),
+            "accountId": slip_info.get("ACCOUNT_ID", ""),
+            "accountName": slip_info.get("ACCOUNT_NAME", ""),
+            "fromAccountType": slip_info.get("FROM_ACCOUNT_TYPE", ""),
+            "fromAccountNumber": slip_info.get("FROM_ACCOUNT_NUMBER", ""),
+            "fromAccountName": slip_info.get("FROM_ACCOUNT_NAME", ""),
+            "toAccountType": slip_info.get("TO_ACCOUNT_TYPE", ""),
+            "toAccountNumber": slip_info.get("TO_ACCOUNT_NUMBER", ""),
+            "toAccountName": slip_info.get("TO_ACCOUNT_NAME", ""),
+            "fee": slip_info.get("FEE", ""),
+            "purpose": slip_info.get("PURPOSE", ""),
+            "status": "APPROVED",
+            "entryType": entry_type,
+            "source": "PAYMENT_SLIP",
+            "paymentId": transaction_no,
+            "approvedBy": approved_by,
+            "expireDate": canonical_expire,
+            "note": f"Approved after strict Bot checks; slip_count={len(slips)}",
+        })
+        if not finance_logged:
+            await query.message.reply_text(
+                "⚠️ Member Sheet ထဲ save ပြီးပါပြီ၊ ဒါပေမယ့် Finance record ကို ၃ ကြိမ် retry ပြီးတာတောင် မအောင်မြင်သေးပါ။\\n"
+                "Duplicate renewal မဖြစ်စေရန် Approve ကို ထပ်မနှိပ်ပါနဲ့။ Admin က Finance row ကို စစ်ပြီးမှ Customer ကို DM ပို့ပါမယ်။",
+                parse_mode="Markdown",
+            )
+            await notify_admins(
+                context,
+                f"⚠️ Finance log failed after member save for {member_id}; transaction={transaction_no}. Manual reconciliation required; do not re-approve.",
+            )
+            return
         invite_url = await create_invite_link(context, months * 30)
         await send_approval_dm(
             context,
