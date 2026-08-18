@@ -58,7 +58,7 @@ android {
     // The pull-request APK workflow expects app-release.apk even when no
     // release keystore is available and AGP emits app-release-unsigned.apk.
     // Keep both names so unsigned validation builds remain backward-compatible.
-    tasks.named("assembleRelease") {
+    tasks.matching { it.name == "assembleRelease" }.configureEach {
         doLast {
             val outputDir = layout.buildDirectory.dir("outputs/apk/release").get().asFile
             val unsignedApk = outputDir.resolve("app-release-unsigned.apk")

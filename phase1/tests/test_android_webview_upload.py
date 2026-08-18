@@ -19,6 +19,6 @@ def test_android_release_version_is_bumped_for_file_chooser_fix() -> None:
     source = GRADLE.read_text(encoding="utf-8")
     assert "versionCode = 103" in source
     assert 'versionName = "1.03"' in source
-    assert 'tasks.named("assembleRelease")' in source
+    assert 'tasks.matching { it.name == "assembleRelease" }.configureEach' in source
     assert 'app-release-unsigned.apk' in source
     assert 'app-release.apk' in source
