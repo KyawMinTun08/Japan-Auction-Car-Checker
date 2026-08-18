@@ -34,6 +34,8 @@ class JdmGradeService:
             "Content-Type": "application/json",
         }
         self.timeout = float(os.environ.get("JDM_LOOKUP_TIMEOUT", "8"))
+        # Gemini can take longer than the database lookup; keep its timeout separate.
+        self.ai_timeout = float(os.environ.get("JDM_AI_TIMEOUT", "30"))
         self.cache_days = int(os.environ.get("JDM_CACHE_DAYS", "30"))
         self.hash_salt = os.environ.get("JDM_HASH_SALT", "jacc-jdm-cache-v1")
         self.provider_key = "local_jacc"
@@ -252,7 +254,7 @@ class JdmGradeService:
         )
         url = "https://generativelanguage.googleapis.com/v1beta/models/" + self.gemini_model + ":generateContent?key=" + self.gemini_api_key
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.ai_timeout) as client:
                 response = await client.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
             if response.is_error:
                 logger.error("Gemini explanation failed: status=%s", response.status_code)
