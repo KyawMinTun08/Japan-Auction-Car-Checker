@@ -746,8 +746,23 @@ function writeCarsCache(cars){
   if(!SESSION||!SESSION.userId)return;
   try{localStorage.setItem(dataCacheKey(),JSON.stringify({version:APP_VERSION,savedAt:Date.now(),cars:Array.isArray(cars)?cars:[]}));}catch(e){console.warn('[JACC] local cache write failed',e);}
 }
+function normalizeModelDisplay(value){
+  const model=String(value||'').replace(/[\u0000-\u001F\u007F\u00A0\u200B-\u200D\u2060\uFEFF]/g,'').replace(/[._]+/g,' ').replace(/\s+/g,' ').trim().toUpperCase();
+  const aliases={
+    'ALTO ECO':'ALTO',
+    'AQUAE':'AQUA',
+    'COROLLA FEILDER':'COROLLA FIELDER',
+    'FEILDER':'COROLLA FIELDER',
+    'FIELDER':'COROLLA FIELDER',
+    'COROLLA FIELDER HYBRID':'COROLLA FIELDER',
+    'FREED HYBRID':'FREED',
+    'SUPER GREAT TRUCK':'SUPER GREAT'
+  };
+  return aliases[model]||model;
+}
+
 function renderCarsData(cars){
-  allCars=Array.isArray(cars)?cars:[];
+  allCars=(Array.isArray(cars)?cars:[]).map(car=>Object.assign({},car,{model:normalizeModelDisplay(car.model)})).filter(car=>car.model&&car.model!=='UNKNOWN');
   document.getElementById('liveCount').textContent=allCars.length;
   populateFilters();renderDashboard();renderExplorer();renderPrice();renderChassisTbl();renderTrends();renderSavedSearches();
   if(pendingSharedChassis){const shared=pendingSharedChassis;pendingSharedChassis='';setTimeout(()=>{switchTab('chassis',false);const input=document.getElementById('chassisInput');if(input){input.value=shared;lookupChassis();}},0);}
@@ -1000,11 +1015,15 @@ async function init(){
       // Clean non-semantic separators and known numeric/typo noise from the Sheet feed.
       // Only remove a leading number when it is attached to a known model name; valid
       // model names such as N-BOX, CX5, and NV200 remain untouched.
-      model=model.replace(/[\u0000-\u001F\u007F]/g,'').replace(/[._]+/g,' ').replace(/\s+/g,' ').trim();
+      model=model.replace(/[\u0000-\u001F\u007F\u00A0\u200B-\u200D\u2060\uFEFF]/g,'').replace(/[._]+/g,' ').replace(/\s+/g,' ').trim();
       model=model.replace(/^\d+\s+(?=(?:ALPHARD|AQUA|VANETTE|VANNETTE|VANNTEE)\b)/,'').trim();
 
       /* ── MODEL_NORM: preserve model variants used for grouping ── */
       const MODEL_NORM={
+        'ALTO ECO':'ALTO','AQUAE':'AQUA',
+        'COROLLA FEILDER':'COROLLA FIELDER','FEILDER':'COROLLA FIELDER','FIELDER':'COROLLA FIELDER',
+        'COROLLA FIELDER HYBRID':'COROLLA FIELDER','FREED HYBRID':'FREED',
+        'SUPER GREAT TRUCK':'SUPER GREAT',
         'ADVAN':'AD VAN','NISSAN ADVAN':'AD VAN',
         'GK3':'FIT','GK5':'FIT','GE6':'FIT','GE8':'FIT','HONDA FIT':'FIT','HONDAFIT':'FIT','HONDA':'FIT',
         'FIT HYBRID':'FIT HYBRID','FIT SHUTTLE HYBRID':'FIT SHUTTLE HYBRID','HONDA FIT HYBRID':'FIT HYBRID',
@@ -1067,7 +1086,7 @@ function parseDate(s){const str=String(s||'').trim();const p=str.split('/');if(p
 function destroyChart(k){if(charts[k]){try{charts[k].destroy()}catch(e){}delete charts[k];}}
 
 function savedSearchesStorageKey(){return SAVED_SEARCHES_KEY+'_'+String(SESSION&&SESSION.userId||'guest');}
-function readSavedSearches(){try{const parsed=JSON.parse(localStorage.getItem(savedSearchesStorageKey())||'[]');return Array.isArray(parsed)?parsed.filter(item=>item&&item.filters&&item.id):[];}catch(e){return [];}}
+function readSavedSearches(){try{const parsed=JSON.parse(localStorage.getItem(savedSearchesStorageKey())||'[]');return Array.isArray(parsed)?parsed.filter(item=>item&&item.filters&&item.id).map(item=>Object.assign({},item,{filters:Object.assign({},item.filters,{model:normalizeModelDisplay(item.filters.model||'')})})):[];}catch(e){return [];}}
 function writeSavedSearches(items){try{localStorage.setItem(savedSearchesStorageKey(),JSON.stringify(Array.isArray(items)?items.slice(0,8):[]));}catch(e){console.warn('[JACC] saved search write failed',e);}}
 function searchFilterSnapshot(){return{model:document.getElementById('fModel')?.value||'',color:document.getElementById('fColor')?.value||'',year:document.getElementById('fYear')?.value||'',loc:document.getElementById('fLoc')?.value||'',priceMin:document.getElementById('fPriceMin')?.value||'',priceMax:document.getElementById('fPriceMax')?.value||'',sort:document.getElementById('fSort')?.value||'new'};}
 function savedSearchLabel(filters){const parts=[];if(filters.model)parts.push(filters.model);if(filters.loc)parts.push(filters.loc);if(filters.year)parts.push(filters.year);if(filters.color)parts.push(filters.color);if(filters.priceMin||filters.priceMax)parts.push('฿'+(filters.priceMin||'0')+'–'+(filters.priceMax||'∞'));return parts.length?parts.join(' · '):'All cars';}
@@ -1193,8 +1212,9 @@ function renderDashDrillDown(){
 }
 
 function populateFilters(){
-  const u=arr=>[...new Set(arr)].filter(Boolean).sort();
-  setOpts('fModel',u(allCars.map(c=>c.model)));
+  const u=arr=>[...new Set(arr)].filter(Boolean).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:'base'}));
+  const models=u(allCars.map(c=>normalizeModelDisplay(c.model)));
+  setOpts('fModel',models);
   setOpts('fColor',u(allCars.map(c=>c.color).filter(c=>c&&c!=='-')));
   setOpts('fYear',u(allCars.map(c=>c.year).filter(y=>y>0)).sort((a,b)=>b-a));
   setOpts('fLoc',u(allCars.map(c=>c.location).filter(l=>l&&l!=='-')));
