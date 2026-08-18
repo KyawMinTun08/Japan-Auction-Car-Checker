@@ -383,58 +383,81 @@ case "incrementDecline":
             .setBackground("#1A2535").setFontColor("#FFFFFF");
         }
         var ar = data;
+        var arCustomerId = String(ar.customerId || "").replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060\uFEFF]/g, "").trim();
+        var arUsername = String(ar.username || "").replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060\uFEFF]/g, "").trim();
+        if (!/^\d+$/.test(arCustomerId)) return _json({status:"error", msg:"customer_id_required"});
+        if (!arUsername) return _json({status:"error", msg:"username_required"});
+
+        var requestedReqId = _normalizeRequestId_(ar.reqId);
+        var requestIdRegenerated = false;
+        if (requestedReqId && !_validRequestId_(requestedReqId)) {
+          requestedReqId = "";
+          requestIdRegenerated = true;
+        }
+        if (requestedReqId && _requestIdExists_(arSheet, requestedReqId)) {
+          requestedReqId = "";
+          requestIdRegenerated = true;
+        }
+        var requestPrefix = String(ar.carType || "").trim().toUpperCase() === "AUCTION" ? "A" : "R";
+        var storedReqId = requestedReqId || _newRequestId_(arSheet, requestPrefix);
+        var createdDate = Utilities.formatDate(new Date(),"Asia/Bangkok","dd/MM/yyyy HH:mm");
         arSheet.appendRow([
-          ar.reqId      || "",
-          ar.customerId || "",
-          ar.username   || "",
+          storedReqId,
+          arCustomerId,
+          arUsername,
           ar.carType    || "",
           ar.budget     || "",
           ar.year       || "",
           ar.grade      || "",
           ar.condition  || "",
           ar.timeline   || "",
-          "OPEN", "", 
-          Utilities.formatDate(new Date(),"Asia/Bangkok","dd/MM/yyyy HH:mm")
+          "OPEN", "", createdDate
         ]);
-        return _json({status:"ok"});
+        return _json({status:"ok", reqId:storedReqId, customerId:arCustomerId, username:arUsername, createdDate:createdDate, requestIdRegenerated:requestIdRegenerated});
 
       // ── Update Request ────────────────────────────────
       case "updateRequest":
         var urSheet = ss.getSheetByName("Requests");
         if (!urSheet) return _json({status:"error",msg:"no_sheet"});
-        var urId   = String(data.reqId||"");
+        var urId   = _normalizeRequestId_(data.reqId);
+        var urOwnerId = String(data.customerId || "").trim();
         var urRows = urSheet.getDataRange().getValues();
         for (var uri = 1; uri < urRows.length; uri++) {
-          if (String(urRows[uri][0]) === urId) {
-            if (data.status   !== undefined)
-              urSheet.getRange(uri+1,10).setValue(data.status);
-            if (data.brokerId !== undefined)
-              urSheet.getRange(uri+1,11).setValue(data.brokerId);
-            return _json({status:"ok"});
+          if (_normalizeRequestId_(urRows[uri][0]) !== urId) continue;
+          if (urOwnerId && String(urRows[uri][1] || "").trim() !== urOwnerId) {
+            return _json({status:"error",msg:"request_owner_mismatch"});
           }
+          if (data.status   !== undefined)
+            urSheet.getRange(uri+1,10).setValue(String(data.status || "").trim().toUpperCase());
+          if (data.brokerId !== undefined)
+            urSheet.getRange(uri+1,11).setValue(String(data.brokerId || "").trim());
+          return _json({status:"ok", reqId:urId, customerId:String(urRows[uri][1] || "")});
         }
-        return _json({status:"error",msg:"not_found"});// ── Get Request ──────────────────────────────
+        return _json({status:"error",msg:"not_found"});      // ── Get Request ──────────────────────────────
       case "getRequest":
         var grSheet = ss.getSheetByName("Requests");
         if (!grSheet) return _json({status:"error",msg:"no_sheet"});
-        var grId   = String(data.reqId || "");
+        var grId   = _normalizeRequestId_(data.reqId);
+        var grOwnerId = String(data.customerId || "").trim();
         var grRows = grSheet.getDataRange().getValues();
         for (var gri = 1; gri < grRows.length; gri++) {
-          if (String(grRows[gri][0]) === grId) {
-            return _json({
-              status:     "ok",
-              reqId:      String(grRows[gri][0]),
-              customerId: String(grRows[gri][1]),
-              username:   String(grRows[gri][2]),
-              carType:    String(grRows[gri][3]),
-              budget:     String(grRows[gri][4]),
-              year:       String(grRows[gri][5]),
-              grade:      String(grRows[gri][6]),
-              condition:  String(grRows[gri][7]),
-              timeline:   String(grRows[gri][8]),
-              reqStatus:  String(grRows[gri][9]),
-            });
+          if (_normalizeRequestId_(grRows[gri][0]) !== grId) continue;
+          if (grOwnerId && String(grRows[gri][1] || "").trim() !== grOwnerId) {
+            return _json({status:"error",msg:"request_owner_mismatch"});
           }
+          return _json({
+            status:     "ok",
+            reqId:      String(grRows[gri][0]),
+            customerId: String(grRows[gri][1]),
+            username:   String(grRows[gri][2]),
+            carType:    String(grRows[gri][3]),
+            budget:     String(grRows[gri][4]),
+            year:       String(grRows[gri][5]),
+            grade:      String(grRows[gri][6]),
+            condition:  String(grRows[gri][7]),
+            timeline:   String(grRows[gri][8]),
+            reqStatus:  String(grRows[gri][9]),
+          });
         }
         return _json({status:"error",msg:"not_found"});  // ════════════════════════════════════════════════════════
 // DEPOSIT FLOW — Code.gs ADDITIONS
@@ -1136,6 +1159,36 @@ function installSearchWatchTrigger() {
   ScriptApp.newTrigger('checkSearchWatches').timeBased().everyHours(1).create();
   return {status:'ok', message:'installed'};
 }
+function _normalizeRequestId_(value) {
+  return String(value || "")
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060\uFEFF]/g, "")
+    .trim()
+    .toUpperCase();
+}
+
+function _validRequestId_(value) {
+  return /^[AR][A-Z0-9-]{5,64}$/.test(String(value || ""));
+}
+
+function _requestIdExists_(sheet, reqId) {
+  if (!sheet || sheet.getLastRow() < 2) return false;
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  var wanted = _normalizeRequestId_(reqId);
+  for (var i = 0; i < rows.length; i++) {
+    if (_normalizeRequestId_(rows[i][0]) === wanted) return true;
+  }
+  return false;
+}
+
+function _newRequestId_(sheet, prefix) {
+  var safePrefix = String(prefix || "R").toUpperCase() === "A" ? "A" : "R";
+  for (var attempt = 0; attempt < 20; attempt++) {
+    var candidate = safePrefix + Utilities.getUuid().replace(/-/g, "").slice(0, 10).toUpperCase();
+    if (!_requestIdExists_(sheet, candidate)) return candidate;
+  }
+  throw new Error("request_id_generation_failed");
+}
+
 function _authorizeWebMember_(token, userId) {
   var safeToken = String(token || '').trim();
   var safeUserId = String(userId || '').trim();

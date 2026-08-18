@@ -5510,7 +5510,7 @@ async def submit_request(context, user_id: int, username: str):
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            await client.post(SHEET_WEBHOOK, json={
+            request_resp = await client.post(SHEET_WEBHOOK, json={
                 "action":     "addRequest",
                 "reqId":      req_id,
                 "customerId": str(user_id),
@@ -5522,8 +5522,26 @@ async def submit_request(context, user_id: int, username: str):
                 "condition":  d.get("condition",""),
                 "timeline":   d.get("timeline",""),
             }, timeout=10)
+            request_resp.raise_for_status()
+            request_result = request_resp.json()
+            if request_result.get("status") != "ok":
+                pending_request[user_id] = req
+                logger.error("submit_request rejected by backend: %s", request_result)
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=("❌ Request မတင်နိုင်သေးပါ။\n\n"
+                          "Request ID/Member ID ကို backend က စစ်ဆေးနေပါသည်။ "
+                          "ခဏစောင့်ပြီး /carrequest ပြန်လုပ်ပါ။"))
+                return
+            req_id = str(request_result.get("reqId") or req_id)
     except Exception as e:
+        pending_request[user_id] = req
         logger.error(f"submit_request: {e}")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=("❌ Request မတင်နိုင်သေးပါ။\n\n"
+                  "Server ချိတ်ဆက်မှု အဆင်မပြေသေးပါ။ ခဏစောင့်ပြီး /carrequest ပြန်လုပ်ပါ။"))
+        return
 
     await context.bot.send_message(
         chat_id=user_id,
