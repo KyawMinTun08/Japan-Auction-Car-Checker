@@ -91,8 +91,14 @@ def test_member_integrity_verification_includes_start_and_expire_dates() -> None
 
 def test_payment_approval_uses_server_side_transaction_action() -> None:
     bot = LEGACY.read_text(encoding="utf-8")
+    apps_script = CODE.read_text(encoding="utf-8")
     assert "async def approve_payment_transaction" in bot
+    assert "async def inspect_payment_transaction" in bot
     assert '"action": "approvePaymentTransaction"' in bot
+    assert '"action": "inspectPaymentTransaction"' in bot
+    assert "timeout=45" in bot
+    assert "transaction_pending_review" in bot
+    assert 'case "inspectPaymentTransaction":' in apps_script
     assert "Server-side Member + Finance transaction" in bot
     assert "pending_payment.pop(member_id, None)" in bot
 

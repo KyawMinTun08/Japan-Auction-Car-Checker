@@ -167,6 +167,62 @@ function payment(overrides = {}) {
   assert.equal(env.finance.rows[1][12], "UPGRADE");
 }
 
+// A stale/KICKED Premium row can be reactivated as Standard without a new member row.
+{
+  const env = makeContext([
+    memberHeader,
+    ["5509257916", "phyokoko116590", "29/06/2026", "29/07/2026", "KICKED", 0, "old-pass", "WEB-PROMO", ""],
+  ], [financeHeader]);
+  const result = env.context.approvePaymentTransaction_(payment({
+    userId: "5509257916", username: "phyokoko116590", package: "CH",
+    expectedAmount: 15000, receivedAmount: 15000,
+    transactionNo: "TXN-REACTIVATE", paymentId: "TXN-REACTIVATE",
+  }));
+  assert.equal(result.status, "ok");
+  assert.equal(env.members.rows.length, 2);
+  assert.equal(env.members.rows[1][0], "5509257916");
+  assert.equal(env.members.rows[1][4], "ACTIVE");
+  assert.equal(env.members.rows[1][7], "CH");
+  assert.notEqual(env.members.rows[1][2], "29/06/2026");
+}
+
+// A pending row is recovered only when the canonical member exactly matches the saved transaction.
+{
+  const financeRows = [
+    financeHeader,
+    ["18/08/2026", "11:17", "3003", "premium", "WEB", 1, 30000, "KPay", "TXN-RECOVER", "", "", "PENDING", "RENEW", "PAYMENT_SLIP", "TXN-RECOVER", "admin", "", "PENDING member+finance transaction; source=PAYMENT_SLIP; userId=3003; package=WEB; days=30; entryType=RENEW; approvedBy=admin; financeDate=18/08/2026; previousStatus=ACTIVE; previousPackage=WEB; previousStart=01/08/2026; previousExpire=31/08/2026"],
+  ];
+  const env = makeContext([
+    memberHeader,
+    ["3003", "premium", "01/08/2026", "30/09/2026", "ACTIVE", 0, "old-pass", "WEB", ""],
+  ], financeRows, { "JACC_TXN_STATE_TXN-RECOVER": "PENDING|2" });
+  const result = env.context.approvePaymentTransaction_(payment({
+    userId: "3003", username: "premium", transactionNo: "TXN-RECOVER", paymentId: "TXN-RECOVER",
+  }));
+  assert.equal(result.status, "ok");
+  assert.equal(result.result, "recovered");
+  assert.equal(env.members.rows.length, 2);
+  assert.equal(env.finance.rows[1][11], "APPROVED");
+  assert.equal(env.props["JACC_TXN_STATE_TXN-RECOVER"], undefined);
+}
+
+// A pending transaction is inspectable but is never silently replayed.
+{
+  const financeRows = [
+    financeHeader,
+    ["18/08/2026", "11:17", "1001", "tester", "WEB", 1, 30000, "KPay", "TXN-PENDING", "", "", "PENDING", "NEW", "PAYMENT_SLIP", "TXN-PENDING", "admin", "", "PENDING member+finance transaction"],
+  ];
+  const env = makeContext([memberHeader], financeRows, { "JACC_TXN_STATE_TXN-PENDING": "PENDING|2" });
+  const result = env.context.approvePaymentTransaction_(payment({
+    transactionNo: "TXN-PENDING", paymentId: "TXN-PENDING",
+  }));
+  assert.equal(result.message, "transaction_in_progress");
+  const inspected = env.context.inspectPaymentTransaction_({ userId: "1001", paymentId: "TXN-PENDING" });
+  assert.equal(inspected.status, "ok");
+  assert.equal(inspected.finance.status, "PENDING");
+  assert.equal(inspected.state, "PENDING|2");
+}
+
 // Existing Premium password is stable on renewal and the start date remains unchanged.
 {
   const env = makeContext([

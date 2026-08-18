@@ -266,6 +266,12 @@ function doPost(e) {
         if (approvalAuth) return _json(approvalAuth);
         return _json(approvePaymentTransaction_(data.payment || data));
 
+      // ── Inspect one protected payment transaction safely ──
+      case "inspectPaymentTransaction":
+        var inspectAuth = _authorizeFinanceReport_(data.serverKey);
+        if (inspectAuth) return _json(inspectAuth);
+        return _json(inspectPaymentTransaction_(data.payment || data));
+
       // ── Admin Finance Summary ───────────────────────
       case "getFinanceReport":
         var financeAuth = _authorizeFinanceReport_(data.serverKey);
@@ -1475,6 +1481,127 @@ function _setFinanceTransactionState_(sheet, rowNumber, status, entryType, sourc
   ]]);
 }
 
+function _pendingTransactionMeta_(note) {
+  var meta = {};
+  String(note || "").split(";").forEach(function(part) {
+    var bits = part.split("=");
+    if (bits.length < 2) return;
+    var key = String(bits.shift() || "").trim();
+    if (key) meta[key] = bits.join("=").trim();
+  });
+  return meta;
+}
+
+function _pendingMemberMatches_(member, meta) {
+  if (!member || member.status !== "ACTIVE") return false;
+  var targetPackage = _normalizePackage(meta.package || "");
+  if (!targetPackage || member.package !== targetPackage) return false;
+  var days = parseInt(meta.days || "", 10);
+  if (!isFinite(days) || days <= 0) return false;
+  var currentExpire = _parseMemberDate(member.expireDate);
+  if (!currentExpire) return false;
+
+  var baseDate = null;
+  if (String(meta.previousStatus || "").toUpperCase() === "ACTIVE") {
+    baseDate = _parseMemberDate(meta.previousExpire || "");
+  }
+  if (!baseDate) {
+    baseDate = _parseMemberDate(meta.financeDate || "");
+  }
+  if (!baseDate) {
+    baseDate = _parseMemberDate(Utilities.formatDate(new Date(), "Asia/Bangkok", "dd/MM/yyyy"));
+  }
+  if (!baseDate) return false;
+
+  var expectedExpire = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
+  // Recover only the exact member mutation represented by this pending row.
+  // If another renewal ran afterward, require manual review instead of
+  // attributing that later expiry to this transaction.
+  if (currentExpire.getTime() !== expectedExpire.getTime()) return false;
+  if (targetPackage === "WEB" && !String(member.password || "").trim()) return false;
+  return true;
+}
+
+function _recoverPendingTransaction_(financeSheet, membersSheet, duplicate, payment, stateStore) {
+  if (!duplicate || String(duplicate.status || "").trim().toUpperCase() !== "PENDING") return null;
+  var rows = financeSheet.getDataRange().getValues();
+  var row = rows[duplicate.row - 1] || [];
+  var meta = _pendingTransactionMeta_(row[17]);
+  var userId = String(payment.userId || "").trim();
+  if (!userId || String(meta.userId || "").trim() !== userId) return null;
+  var memberLookup = _findMemberRecord_(membersSheet, userId);
+  if (memberLookup.count !== 1 || !_pendingMemberMatches_(memberLookup.record, meta)) return null;
+
+  var member = memberLookup.record;
+  var paymentId = String(payment.paymentId || payment.transactionNo || duplicate.paymentId || duplicate.transactionNo || "").trim();
+  var entryType = String(meta.entryType || "").trim() || "RENEW";
+  var source = String(meta.source || "PAYMENT_SLIP").trim() || "PAYMENT_SLIP";
+  var approvedBy = String(payment.approvedBy || meta.approvedBy || "").trim();
+  var note = "Recovered after lost response; canonical member matched; transaction committed";
+  _setFinanceTransactionState_(financeSheet, duplicate.row, "APPROVED", entryType, source,
+    paymentId, approvedBy, member.expireDate, note);
+  writeAuditLog(approvedBy || "Admin", "PAYMENT_TRANSACTION", userId,
+    "RECOVERED:" + entryType + ":" + paymentId);
+  var stateKey = _transactionStateKey_(paymentId || duplicate.paymentId || duplicate.transactionNo);
+  if (stateKey) stateStore.deleteProperty(stateKey);
+  return {
+    status:"ok", result:"recovered", duplicate:true, entryType:entryType,
+    package:member.package, member:member, financeRow:duplicate.row,
+    password:member.password
+  };
+}
+
+function inspectPaymentTransaction_(payment) {
+  payment = payment || {};
+  var userId = String(payment.userId || "").trim();
+  var paymentId = String(payment.paymentId || payment.transactionNo || "").trim();
+  var tokens = _transactionIdTokens_(paymentId);
+  if (!tokens.length) return {status:"error", message:"transaction_no_required"};
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var membersSheet = ss.getSheetByName(MEMBERS);
+  if (!membersSheet) return {status:"error", message:"members_sheet_missing"};
+  var financeSheet = ss.getSheetByName(FINANCE_SHEET);
+  if (!financeSheet) {
+    return {
+      status:"ok", found:false, state:"", member:_findMemberRecord_(membersSheet, userId).record || null
+    };
+  }
+  _ensureFinanceHeaders_(financeSheet);
+
+  var stateStore = PropertiesService.getScriptProperties();
+  var stateKey = _transactionStateKey_(paymentId);
+  var state = String(stateStore.getProperty(stateKey) || "").trim();
+  var duplicate = _financeDuplicatePayment_(financeSheet, tokens);
+  var memberLookup = _findMemberRecord_(membersSheet, userId);
+  if (!duplicate) {
+    return {
+      status:"ok", found:false, state:state,
+      member:memberLookup.record || null, memberCount:memberLookup.count
+    };
+  }
+  if (userId && String(duplicate.userId || "").trim() !== userId) {
+    return {status:"error", message:"transaction_already_used", financeRow:duplicate.row};
+  }
+
+  var rows = financeSheet.getDataRange().getValues();
+  var row = rows[duplicate.row - 1] || [];
+  return {
+    status:"ok", found:true, state:state, financeRow:duplicate.row,
+    finance: {
+      date:String(row[0] || ""), time:String(row[1] || ""),
+      userId:String(row[2] || ""), username:String(row[3] || ""),
+      package:String(row[4] || ""), months:String(row[5] || ""),
+      amount:String(row[6] || ""), payType:String(row[7] || ""),
+      transactionNo:String(row[8] || ""), status:String(row[11] || "").trim().toUpperCase(),
+      entryType:String(row[12] || ""), source:String(row[13] || ""),
+      paymentId:String(row[14] || ""), approvedBy:String(row[15] || ""),
+      expireDate:String(row[16] || ""), note:String(row[17] || "")
+    },
+    member:memberLookup.record || null, memberCount:memberLookup.count
+  };
+}
+
 function approvePaymentTransaction_(payment) {
   payment = payment || {};
   var userId = String(payment.userId || "").trim();
@@ -1521,15 +1648,28 @@ function approvePaymentTransaction_(payment) {
   if (!financeSheet) financeSheet = ss.insertSheet(FINANCE_SHEET);
   _ensureFinanceHeaders_(financeSheet);
 
+  var stateStore = PropertiesService.getScriptProperties();
   var duplicate = _financeDuplicatePayment_(financeSheet, tokens);
   if (duplicate) {
     if (String(duplicate.userId || "").trim() !== userId) {
       return {status:"error", message:"transaction_already_used", financeRow:duplicate.row};
     }
-    if (String(duplicate.status || "").trim().toUpperCase() === "PENDING") {
+    var duplicateStatus = String(duplicate.status || "").trim().toUpperCase();
+    if (duplicateStatus === "PENDING") {
+      var recovered = _recoverPendingTransaction_(
+        financeSheet, membersSheet, duplicate, payment, stateStore
+      );
+      if (recovered) return recovered;
       return {status:"error", message:"transaction_in_progress", financeRow:duplicate.row};
     }
     var duplicateMember = _findMemberRecord_(membersSheet, userId);
+    if (duplicateStatus !== "APPROVED") {
+      return {
+        status:"error", message:"transaction_review_required",
+        financeRow:duplicate.row, financeStatus:duplicateStatus,
+        member:duplicateMember.record || null
+      };
+    }
     return {
       status:"ok", result:"duplicate", duplicate:true,
       financeRow:duplicate.row, member:duplicateMember.record || null
@@ -1541,13 +1681,19 @@ function approvePaymentTransaction_(payment) {
     return {status:"error", message:"duplicate_member_rows", userId:userId};
   }
   var previous = memberLookup.record;
-  if (previous && previous.package === "WEB" && targetPackage === "CH") {
+  var previousExpire = previous ? _parseMemberDate(previous.expireDate) : null;
+  var previousIsActive = !!(previous
+    && previous.status === "ACTIVE"
+    && previousExpire
+    && previousExpire > new Date());
+  // Keep active Premium users from silently losing Web access, but allow an
+  // expired/KICKED Premium row to reactivate as Standard without a duplicate row.
+  if (previousIsActive && previous.package === "WEB" && targetPackage === "CH") {
     return {status:"error", message:"web_to_channel_downgrade_not_allowed"};
   }
   var entryType = !previous
     ? "NEW"
     : (previous.package === "CH" && targetPackage === "WEB" ? "UPGRADE" : "RENEW");
-  var stateStore = PropertiesService.getScriptProperties();
   var stateKey = _transactionStateKey_(paymentId || transactionNo);
   var existingState = String(stateStore.getProperty(stateKey) || "").trim();
   if (existingState) {
@@ -1557,7 +1703,20 @@ function approvePaymentTransaction_(payment) {
   var now = new Date();
   var financeDate = dateText || Utilities.formatDate(now, "Asia/Bangkok", "dd/MM/yyyy");
   var financeTime = String(payment.time || Utilities.formatDate(now, "Asia/Bangkok", "HH:mm")).trim();
-  var pendingNote = "PENDING member+finance transaction; source=" + source;
+  var pendingNote = [
+    "PENDING member+finance transaction",
+    "source=" + source,
+    "userId=" + userId,
+    "package=" + targetPackage,
+    "days=" + days,
+    "entryType=" + entryType,
+    "approvedBy=" + approvedBy,
+    "financeDate=" + financeDate,
+    "previousStatus=" + (previous ? previous.status : "NONE"),
+    "previousPackage=" + (previous ? previous.package : ""),
+    "previousStart=" + (previous ? previous.startDate : ""),
+    "previousExpire=" + (previous ? previous.expireDate : "")
+  ].join("; ");
   financeSheet.appendRow([
     financeDate, financeTime, userId, username,
     targetPackage, Math.max(1, Math.round(days / 30)), receivedAmount,
@@ -1588,8 +1747,8 @@ function approvePaymentTransaction_(payment) {
   var after = afterLookup.record;
   var integrityOk = afterLookup.count === 1 && after && after.package === targetPackage
     && after.status === "ACTIVE" && after.startDate && after.expireDate;
-  if (previous && after && previous.startDate !== after.startDate) integrityOk = false;
-  if (previous && previous.package === "WEB" && previous.password
+  if (previous && previousIsActive && after && previous.startDate !== after.startDate) integrityOk = false;
+  if (previous && previousIsActive && previous.package === "WEB" && previous.password
       && after && previous.password !== after.password) integrityOk = false;
   if (!integrityOk) {
     stateStore.setProperty(stateKey, "MEMBER_SAVED|" + financeRow);
@@ -1629,9 +1788,12 @@ function saveMember(userId, username, expireDays, password, pkg) {
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][C_USERID]) === String(userId)) {
       // Renewal: add purchased days after the current expiry when it is still
-      // active. Expired accounts restart from the admin approval time.
+      // active. Expired/KICKED accounts restart from the admin approval time.
       var currentExpire = _parseMemberDate(rows[i][C_EXPIRE]);
-      var renewalBase = currentExpire && currentExpire > now ? currentExpire : now;
+      var currentStatus = String(rows[i][C_STATUS] || "").trim().toUpperCase();
+      var currentIsActive = currentStatus === "ACTIVE"
+        && currentExpire && currentExpire > now;
+      var renewalBase = currentIsActive ? currentExpire : now;
       var expire = new Date(renewalBase.getTime() + days * 24 * 60 * 60 * 1000);
       var expireStr = Utilities.formatDate(expire, "Asia/Bangkok", "dd/MM/yyyy");
       var currentPackage = _normalizePackage(rows[i][C_PACKAGE]);
@@ -1649,6 +1811,9 @@ function saveMember(userId, username, expireDays, password, pkg) {
         }
       }
 
+      if (!currentIsActive) {
+        sheet.getRange(i+1, C_START+1).setValue(startStr);
+      }
       sheet.getRange(i+1, C_EXPIRE+1).setValue(expireStr);
       sheet.getRange(i+1, C_STATUS+1).setValue("ACTIVE");
       sheet.getRange(i+1, C_PASSWORD+1).setValue(effectivePassword);
