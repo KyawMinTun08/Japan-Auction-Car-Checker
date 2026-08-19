@@ -45,6 +45,20 @@ def _service(**overrides):
     return service
 
 
+def test_url_configuration_removes_only_accidental_url_wrapping():
+    service = QwenTextService(
+        supabase_url=' "\u200bhttps://supabase.example/ " ',
+        service_role_key="db-test-key",
+        sheet_webhook="'https://script.example/exec\u2060'",
+    )
+    assert service.supabase_url == "https://supabase.example"
+    assert service.sheet_webhook == "https://script.example/exec"
+
+    configured = _service(JACC_AI_BASE_URL='"\u200bhttps://dashscope.example/v1/\ufeff"')
+    assert configured.base_url == "https://dashscope.example/v1"
+    assert configured.api_key == "qwen-test-key"
+
+
 def test_topic_gate_and_normalization():
     assert QwenTextService.normalize_query("  Toyota   Crown\u200b 2020 ") == "Toyota Crown 2020"
     assert QwenTextService.is_car_topic("Toyota Crown under 1,500,000")

@@ -99,6 +99,14 @@ class QwenTextError(RuntimeError):
         self.status = status
 
 
+def _clean_env_url(value: Any) -> str:
+    """Remove accidental invisible characters/outer quotes from URL config only."""
+    cleaned = _INVISIBLE_RE.sub("", str(value or "")).strip()
+    while len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {"'", '"'}:
+        cleaned = cleaned[1:-1].strip()
+    return cleaned.rstrip("/")
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = str(os.environ.get(name, "")).strip().lower()
     if not raw:
@@ -118,8 +126,8 @@ class QwenTextService:
     """Qwen filter-plan adapter with server-side session/quota seams."""
 
     def __init__(self, *, supabase_url: str, service_role_key: str, sheet_webhook: str) -> None:
-        self.supabase_url = str(supabase_url or "").strip().rstrip("/")
-        self.sheet_webhook = str(sheet_webhook or "").strip()
+        self.supabase_url = _clean_env_url(supabase_url)
+        self.sheet_webhook = _clean_env_url(sheet_webhook)
         self.supabase_headers = {
             "apikey": str(service_role_key or "").strip(),
             "Authorization": f"Bearer {str(service_role_key or '').strip()}",
@@ -128,12 +136,12 @@ class QwenTextService:
         self.enabled = _env_bool("JACC_AI_ENABLED", False)
         self.topic_only = _env_bool("JACC_AI_TOPIC_ONLY", True)
         self.provider = str(os.environ.get("JACC_AI_PROVIDER", "qwencloud")).strip().lower()
-        self.base_url = str(
+        self.base_url = _clean_env_url(
             os.environ.get(
                 "JACC_AI_BASE_URL",
                 "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
             )
-        ).strip().rstrip("/")
+        )
         self.model = str(os.environ.get("JACC_AI_MODEL", "qwen3.7-flash")).strip()
         self.api_key = str(os.environ.get("JACC_AI_API_KEY", "")).strip()
         self.daily_limit = _clamp_int("JACC_AI_DAILY_LIMIT", 10, 1, 100)
