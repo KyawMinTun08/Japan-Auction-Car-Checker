@@ -39,9 +39,9 @@ jobs:
           KEY_PASSWORD: ${{ secrets.JACC_KEY_PASSWORD }}
         run: |
           test -n "$KEYSTORE_BASE64" || { echo "Missing JACC_KEYSTORE_BASE64"; exit 1; }
-          test -n "$STORE_PASSWORD" || { echo "Missing JACC_KEYSTORE_PASSWORD"; exit 1; }
-          test -n "$KEY_ALIAS" || { echo "Missing JACC_KEY_ALIAS"; exit 1; }
-          test -n "$KEY_PASSWORD" || { echo "Missing JACC_KEY_PASSWORD"; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "Missing STORE_PASSWORD"; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "Missing KEY_ALIAS"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "Missing KEY_PASSWORD"; exit 1; }
 
       - name: Restore and verify release keystore
         working-directory: android-app
@@ -74,24 +74,24 @@ jobs:
           test -f "$APK"
           BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
-          PACKAGE=$("$BUILD_TOOLS/aapt" dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
-          VERSION_NAME=$("$BUILD_TOOLS/aapt" dump badging "$APK" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
-          VERSION_CODE=$("$BUILD_TOOLS/aapt" dump badging "$APK" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+          PACKAGE=$($BUILD_TOOLS/aapt dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
+          VERSION_NAME=$($BUILD_TOOLS/aapt dump badging "$APK" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          VERSION_CODE=$($BUILD_TOOLS/aapt dump badging "$APK" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
           echo "Detected package: $PACKAGE"
           echo "Detected version: $VERSION_NAME ($VERSION_CODE)"
           test "$PACKAGE" = "com.kyawmintun.jacc"
-          test "$VERSION_NAME" = "1.03"
-          test "$VERSION_CODE" = "103"
+          test "$VERSION_NAME" = "1.04"
+          test "$VERSION_CODE" = "104"
 
       - name: Rename APK
         working-directory: android-app
-        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.03-APKPure-signed.apk
+        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.04-APKPure-signed.apk
 
       - name: Upload verified signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: JACC-v1.03-APKPure-ready
-          path: android-app/JACC-v1.03-APKPure-signed.apk
+          name: JACC-v1.04-APKPure-ready
+          path: android-app/JACC-v1.04-APKPure-signed.apk
           if-no-files-found: error
           retention-days: 30
 
