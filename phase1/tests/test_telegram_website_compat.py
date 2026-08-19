@@ -99,6 +99,24 @@ def test_payment_approval_uses_stable_two_step_flow() -> None:
     assert "pending_payment.pop(member_id, None)" in bot
 
 
+def test_approval_callback_does_not_block_on_sheet_password_lookup() -> None:
+    patch = PATCH.read_text(encoding="utf-8")
+    save_block = patch[patch.index("async def save_member_to_sheet"):patch.index("async def send_approval_dm")]
+    dm_block = patch[patch.index("async def send_approval_dm"):patch.index("async def button_callback")]
+    callback_block = patch[patch.index("async def button_callback"):patch.index("# The legacy main function")]
+
+    # Telegram callback queries expire while the handler is waiting. Apps
+    # Script saveMember already preserves an existing Web password and returns
+    # the effective password, so no pre/post approval lookup belongs here.
+    assert "await _fetch_sheet_member" not in save_block
+    assert "await _fetch_sheet_member" not in dm_block
+    assert "await _fetch_sheet_member" not in callback_block
+    assert "await _original_button_callback(update, context)" in callback_block
+    assert "_PAYMENT_DRAFT_RESTORE_TIMEOUT_SECONDS = 3.0" in patch
+    assert "asyncio.wait_for(" in callback_block
+    assert "continuing without network wait" in callback_block
+
+
 def test_photo_car_ocr_is_admin_only_but_payment_slip_flow_remains_available() -> None:
     bot = LEGACY.read_text(encoding="utf-8")
     payment_mode = bot.index("# ── Payment Slip Mode ──")

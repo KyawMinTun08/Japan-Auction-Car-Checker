@@ -17,10 +17,10 @@ import queue_launcher as _queue
 
 _legacy = _queue._legacy
 _original_button_callback = _legacy.button_callback
-_original_generate_password = _legacy.generate_password
 _original_send_approval_dm = _legacy.send_approval_dm
 _last_membership_save: dict[str, dict[str, Any]] = {}
 _approval_lock = asyncio.Lock()
+_PAYMENT_DRAFT_RESTORE_TIMEOUT_SECONDS = 3.0
 
 
 def _normalise_package(value: Any) -> str:
@@ -127,20 +127,10 @@ async def save_member_to_sheet(
         _legacy.logger.error("Membership save failed: %s", detail)
         return {"status": "error", "message": detail}
 
-    # Renewal rule: an existing Web member keeps the current Sheet password.
-    # This prevents the bot from showing a newly generated password while the
-    # Apps Script renewal path keeps the old password in Members!G.
-    if clean_package.startswith("WEB"):
-        current = await _fetch_sheet_member(clean_user_id, attempts=2)
-        current_password = str(current.get("password") or "").strip()
-        current_package = _normalise_package(current.get("package") or "")
-        if current_password and current_package.startswith("WEB"):
-            if clean_password and clean_password != current_password:
-                _legacy.logger.info(
-                    "Preserving existing Web password on renewal user=%s",
-                    clean_user_id,
-                )
-            clean_password = current_password
+    # The Apps Script saveMember path is canonical for password preservation:
+    # same-package Web renewals keep Members!G and return the effective password.
+    # Do not perform a blocking pre-lookup here; the approval callback has already
+    # answered Telegram and must not spend callback time on a second Sheet call.
 
     payload = {
         "action": "saveMember",
@@ -257,24 +247,18 @@ async def send_approval_dm(
     package: str = "CH",
     expire_date: str = "",
 ):
-    """Send only the password and canonical expiry stored in the Members sheet."""
+    """Send the canonical password returned by saveMember without another Sheet call."""
     clean_package = _normalise_package(package)
     verified_password = str(password or "").strip()
 
-    if clean_package.startswith("WEB"):
-        current = await _fetch_sheet_member(str(member_id), attempts=3)
-        sheet_password = str(current.get("password") or "").strip()
-        sheet_package = _normalise_package(current.get("package") or "")
-        if sheet_password and sheet_package.startswith("WEB"):
-            verified_password = sheet_password
-        else:
-            # Never send an unverified generated password. That is the exact
-            # mismatch that caused renewed members to be locked out.
-            verified_password = ""
-            _legacy.logger.error(
-                "Web approval password not verifiable in Sheet user=%s",
-                member_id,
-            )
+    # saveMember returns the effective password after applying the Apps Script
+    # renewal rule. Avoid a second blocking lookup here; a failed lookup after a
+    # successful save must not turn approval into a Telegram callback timeout.
+    if clean_package.startswith("WEB") and not verified_password:
+        _legacy.logger.error(
+            "Web approval password missing from canonical save response user=%s",
+            member_id,
+        )
 
     await _original_send_approval_dm(
         context,
@@ -325,9 +309,18 @@ async def button_callback(update, context):
     # This covers Railway restarts/redeploys between the admin buttons.
     if not _legacy.pending_payment.get(member_id):
         try:
-            restored = await _legacy.get_payment_draft(member_id)
+            restored = await asyncio.wait_for(
+                _legacy.get_payment_draft(member_id),
+                timeout=_PAYMENT_DRAFT_RESTORE_TIMEOUT_SECONDS,
+            )
             if restored:
                 _legacy.pending_payment[member_id] = restored
+        except asyncio.TimeoutError:
+            _legacy.logger.warning(
+                "Payment draft restore timed out user=%s after %.1fs; continuing without network wait",
+                member_id,
+                _PAYMENT_DRAFT_RESTORE_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             _legacy.logger.warning("Payment draft restore failed user=%s: %s", member_id, exc)
 
@@ -336,27 +329,13 @@ async def button_callback(update, context):
     payment_snapshot = dict(_legacy.pending_payment.get(member_id, {}) or {})
     _last_membership_save.pop(str(member_id), None)
 
-    # For a Web renewal, make the legacy callback generate the already-stored
-    # password. This keeps its admin confirmation text, save payload and member
-    # DM all consistent. Serialize this tiny override because generate_password
-    # is a module global used by other handlers too.
-    forced_password = ""
-    target_package = _normalise_package(payment_snapshot.get("package", "CH"))
-    if target_package.startswith("WEB"):
-        current = await _fetch_sheet_member(str(member_id), attempts=2)
-        current_password = str(current.get("password") or "").strip()
-        current_package = _normalise_package(current.get("package") or "")
-        if current_password and current_package.startswith("WEB"):
-            forced_password = current_password
-
+    # The legacy handler calls query.answer() at its first line. Never perform
+    # Sheet/network I/O before delegating, or Telegram may reject the callback as
+    # too old before the approval logic starts. Apps Script saveMember remains
+    # the canonical password-preservation authority.
     try:
         async with _approval_lock:
-            if forced_password:
-                _legacy.generate_password = lambda: forced_password
-            try:
-                await _original_button_callback(update, context)
-            finally:
-                _legacy.generate_password = _original_generate_password
+            await _original_button_callback(update, context)
     except Exception as exc:
         # The legacy handler removes pending_payment before the Sheet write. If
         # the write already succeeded and a later Telegram response failed,
