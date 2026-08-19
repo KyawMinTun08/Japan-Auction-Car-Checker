@@ -3225,7 +3225,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Callback Handler ──────────────────────────────────
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    # membership_approval_patch may acknowledge protected payment callbacks
+    # before restoring the durable draft. Avoid answering the same callback twice.
+    if not getattr(query, "_jacc_callback_answered", False):
+        await query.answer()
+        try:
+            setattr(query, "_jacc_callback_answered", True)
+        except Exception:
+            pass
     data  = query.data
 
     # ── 🚗 Buying Car 10 Day Promo ──
