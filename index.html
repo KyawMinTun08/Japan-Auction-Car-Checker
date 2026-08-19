@@ -71,6 +71,11 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--ink-2);displa
 .login-hint a{color:var(--brand);font-weight:600;text-decoration:none;font-family:var(--font-mono)}
 .login-hint a:hover{text-decoration:underline}
 .login-brute{display:none;margin-top:12px;text-align:center;font-size:12px;color:var(--bad);font-weight:600;background:var(--bad-soft);padding:8px 12px;border-radius:var(--r-sm)}
+.login-remember{margin:12px 0 14px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
+.login-remember-control{display:flex;align-items:flex-start;gap:9px;cursor:pointer;font-size:11.5px;color:var(--ink-2);line-height:1.45}.login-remember-control input{margin-top:2px;width:16px;height:16px;accent-color:var(--brand);flex:0 0 auto}.login-remember-title{font-weight:800;color:var(--ink-1)}
+.login-remember-note,.login-remember-status{display:block;margin-left:25px;margin-top:4px;font-size:10px;line-height:1.45}.login-remember-note{color:var(--ink-5)}.login-remember-status{color:var(--ok)}
+.member-save-login-card{margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2);display:flex;align-items:center;justify-content:space-between;gap:12px}.member-save-login-copy{min-width:0}.member-save-login-copy strong{display:block;color:var(--ink-1);font-size:12px}.member-save-login-copy small{display:block;margin-top:4px;color:var(--ink-4);font-size:10px;line-height:1.5}.member-save-login-card .btn{flex:0 0 auto;white-space:nowrap}
+@media(max-width:520px){.member-save-login-card{align-items:stretch;flex-direction:column}.member-save-login-card .btn{width:100%}}
 .login-promo{margin-top:22px;border-top:1px solid var(--line-soft);padding-top:18px}
 .login-promo-tag{font-size:10px;color:var(--ink-5);text-align:center;margin-bottom:10px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600}
 .login-promo-card{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,var(--ink-1) 0%,#1A2030 100%);border-radius:var(--r-md);padding:14px 16px;text-decoration:none;border:1px solid rgba(255,255,255,0.06);transition:transform 0.2s}
@@ -328,9 +333,14 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
     <div class="login-field">
       <label class="login-label" for="loginPw">Access Password</label>
       <div class="password-wrap">
-        <input id="loginPw" class="login-input" type="password" placeholder="Password ထည့်ပါ" autocomplete="current-password" autocapitalize="none" spellcheck="false" onpaste="setTimeout(normalizePasswordField,0)" onkeydown="if(event.key==='Enter')doLogin()">
+        <input id="loginPw" name="password" class="login-input" type="password" placeholder="Password ထည့်ပါ" autocomplete="current-password" autocapitalize="none" spellcheck="false" onpaste="setTimeout(normalizePasswordField,0)" onkeydown="if(event.key==='Enter')doLogin()">
         <button class="password-toggle" type="button" onclick="togglePasswordVisibility()" aria-label="Show password" title="Show / hide password">👁</button>
       </div>
+    </div>
+    <div class="login-remember">
+      <label class="login-remember-control" for="rememberLogin"><input id="rememberLogin" type="checkbox"><span><span class="login-remember-title">Save Login on this device</span><br>App / Website ပြန်ဖွင့်လျှင် password ပြန်မရိုက်ရအောင် မှတ်ထားမည်</span></label>
+      <span class="login-remember-note">Password ကို plain text အဖြစ် မသိမ်းပါ။ ဒီ device ထဲမှာ encrypted အဖြစ်သာ သိမ်းမည်။</span>
+      <span id="loginRememberStatus" class="login-remember-status" role="status" aria-live="polite"></span>
     </div>
     <button id="loginBtn" class="login-btn" onclick="doLogin()"><span>Sign In →</span></button>
     <div id="loginBrute" class="login-brute"></div>
@@ -509,6 +519,7 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
             <div class="member-card-body"><div class="member-payment-methods" role="tablist" aria-label="Payment methods"><button type="button" class="member-payment-method" data-payment-method="kpay" onclick="selectMemberPaymentMethod('kpay')"><span>▣</span> KPay</button><button type="button" class="member-payment-method" data-payment-method="wave" onclick="selectMemberPaymentMethod('wave')"><span>◉</span> Wave Money</button><button type="button" class="member-payment-method" data-payment-method="cb" onclick="selectMemberPaymentMethod('cb')"><span>▤</span> CB Pay</button></div><div id="memberPaymentDetails" class="member-payment-details" hidden><div class="member-payment-detail-head"><div><div class="member-payment-detail-kicker">Payment account</div><strong id="memberPaymentName">—</strong></div><span id="memberPaymentBadge" class="member-payment-badge">—</span></div><div class="member-payment-number-row"><div><div class="member-payment-detail-kicker">Phone / account number</div><strong id="memberPaymentNumber">—</strong></div><button type="button" class="member-payment-copy" onclick="copyMemberPaymentNumber()">Copy</button></div><div id="memberPaymentOwner" class="member-payment-owner">—</div><div class="member-payment-qr-shell"><div id="memberPaymentQrEmpty" class="member-payment-qr-empty">QR ကို ပြသရန် payment method ရွေးပါ</div><img id="memberPaymentQr" class="member-payment-qr" alt="Payment QR code" hidden></div><div class="member-payment-actions"><button type="button" id="memberPaymentQrSave" class="btn btn-primary btn-sm" onclick="saveMemberPaymentQr()" disabled>⬇ Save QR</button><span id="memberPaymentQrStatus" class="member-payment-qr-status" role="status" aria-live="polite"></span></div></div><div class="member-payment-note"><strong>Payment slip workflow</strong><br>Package၊ amount နှင့် payment method ကို ရွေးပြီး slip ကို Website မှ တိုက်ရိုက်တင်နိုင်ပါသည်။ Admin စစ်ဆေးပြီးမှ membership အတည်ပြုပါမည်။</div><form id="memberUploadForm" class="member-upload-form" onsubmit="submitMemberSlip(event)"><div class="member-upload-kicker">Upload payment slip</div><div class="member-upload-help">JPG၊ PNG သို့မဟုတ် WEBP · အများဆုံး 8 MB · ကြည်လင်သော slip တစ်ပုံသာ ရွေးပါ</div><div class="member-upload-grid"><div class="member-upload-field"><label for="memberSlipMonths">Package period</label><select id="memberSlipMonths" name="months"><option value="1">1 month</option><option value="2">2 months</option><option value="3">3 months</option></select></div><div class="member-upload-field"><label for="memberSlipMethod">Payment method</label><select id="memberSlipMethod" name="method"><option value="kpay">KPay</option><option value="wave">Wave Money</option><option value="cb">CB Pay</option></select></div></div><div class="member-upload-field" style="margin-top:8px"><label for="memberSlipFile">Payment slip image</label><input id="memberSlipFile" name="slip" type="file" accept="image/jpeg,image/png,image/webp" required></div><button id="memberUploadSubmit" class="btn btn-primary btn-sm member-upload-submit" type="submit">📤 Submit payment slip</button><div id="memberUploadAvailability" class="member-upload-availability"></div><div id="memberUploadStatus" class="member-upload-status" role="status" aria-live="polite"></div></form><div class="member-action-list" style="margin-top:10px"><button type="button" class="member-action" onclick="memberOpenBot('renew')"><span class="member-action-icon">↻</span><span class="member-action-copy"><strong>Renew / Upgrade via JACC Bot</strong><small>Alternative payment QR flow</small></span><span class="member-action-arrow">›</span></button></div><div class="member-security-note"><span>🛡</span><span><strong>Security note:</strong> Password၊ session token နှင့် payment account information ကို public page တွင် မပြပါ။</span></div></div>
           </section>
         </div>
+        <div class="member-save-login-card"><div class="member-save-login-copy"><strong>Save Login</strong><small id="memberSaveLoginStatus">ဒီ device အတွက် login setting ကို စစ်နေသည်</small></div><button id="forgetSavedLoginBtn" type="button" class="btn btn-outline btn-sm" onclick="forgetSavedLogin()">Forget saved login</button></div>
         <div class="member-logout-row"><button type="button" class="btn btn-outline" onclick="doLogout()">🚪 Logout from JACC</button></div>
       </div>
     </div>
@@ -686,10 +697,14 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.18-approach-b-v2';
+const APP_VERSION     = '2026.08.19-save-login-v1';
 const REQUEST_TIMEOUT_MS = 12000;
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
 const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const REMEMBER_LOGIN_KEY = 'jacc_remember_login_v1';
+const REMEMBER_LOGIN_DB = 'jacc_remember_login_db_v1';
+const REMEMBER_LOGIN_STORE = 'credentials';
+const REMEMBER_LOGIN_VERSION = 1;
 let deferredInstallPrompt = null;
 let waitingServiceWorker = null;
 
@@ -714,6 +729,17 @@ function normalizePasswordValue(value){
   return v;
 }
 function normalizePasswordField(){const el=document.getElementById('loginPw');if(el)el.value=normalizePasswordValue(el.value);}
+function isMobileDevice(){return /Android|iPhone|iPad|iPod|Mobile/i.test(String(navigator.userAgent||''));}
+function rememberLoginStatus(){try{return localStorage.getItem(REMEMBER_LOGIN_KEY)==='1';}catch(e){return false;}}
+function rememberLoginSupported(){return !!(window.crypto&&window.crypto.subtle&&window.indexedDB);}
+function openRememberLoginDb(){return new Promise((resolve,reject)=>{if(!rememberLoginSupported()){reject(new Error('remember_login_unavailable'));return;}const request=indexedDB.open(REMEMBER_LOGIN_DB,1);request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains(REMEMBER_LOGIN_STORE))db.createObjectStore(REMEMBER_LOGIN_STORE);};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error||new Error('remember_login_db_error'));});}
+function rememberLoginDbGet(db,key){return new Promise((resolve,reject)=>{const request=db.transaction(REMEMBER_LOGIN_STORE,'readonly').objectStore(REMEMBER_LOGIN_STORE).get(key);request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>reject(request.error||new Error('remember_login_read_error'));});}
+function rememberLoginDbPut(db,key,value){return new Promise((resolve,reject)=>{const request=db.transaction(REMEMBER_LOGIN_STORE,'readwrite').objectStore(REMEMBER_LOGIN_STORE).put(value,key);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error||new Error('remember_login_write_error'));});}
+async function saveRememberedLogin(password){if(!rememberLoginSupported())return false;let db;try{db=await openRememberLoginDb();let key=await rememberLoginDbGet(db,'key');if(!key)key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);const iv=crypto.getRandomValues(new Uint8Array(12));const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(password));await rememberLoginDbPut(db,'key',key);await rememberLoginDbPut(db,'credential',{version:REMEMBER_LOGIN_VERSION,iv:Array.from(iv),data:Array.from(new Uint8Array(encrypted)),savedAt:Date.now()});localStorage.setItem(REMEMBER_LOGIN_KEY,'1');return true;}catch(e){console.warn('[JACC] remember login save failed',e);try{localStorage.removeItem(REMEMBER_LOGIN_KEY);}catch(ignore){}return false;}finally{if(db)db.close();}}
+async function readRememberedLogin(){if(!rememberLoginStatus()||!rememberLoginSupported())return null;let db;try{db=await openRememberLoginDb();const key=await rememberLoginDbGet(db,'key');const record=await rememberLoginDbGet(db,'credential');if(!key||!record||record.version!==REMEMBER_LOGIN_VERSION||!Array.isArray(record.iv)||!Array.isArray(record.data))return null;const decrypted=await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(record.iv)},key,new Uint8Array(record.data));const password=normalizePasswordValue(new TextDecoder().decode(decrypted));return password||null;}catch(e){console.warn('[JACC] remember login read failed',e);return null;}finally{if(db)db.close();}}
+async function clearRememberedLogin(){try{localStorage.removeItem(REMEMBER_LOGIN_KEY);}catch(e){}if(!window.indexedDB)return;try{await new Promise((resolve,reject)=>{const request=indexedDB.deleteDatabase(REMEMBER_LOGIN_DB);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error);request.onblocked=()=>resolve();});}catch(e){console.warn('[JACC] remember login clear failed',e);}}
+function updateRememberLoginUi(){const enabled=rememberLoginStatus();const status=document.getElementById('loginRememberStatus');if(status)status.textContent=enabled?'ဒီ device မှာ Save Login မှတ်ထားပါသည်':'Save Login မဖွင့်ထားပါ';const accountStatus=document.getElementById('memberSaveLoginStatus');if(accountStatus)accountStatus.textContent=enabled?'ဒီ device မှာ Login ကို encrypted အဖြစ် မှတ်ထားပါသည်':'Save Login မမှတ်ထားပါ';const forget=document.getElementById('forgetSavedLoginBtn');if(forget)forget.disabled=!enabled;}
+async function forgetSavedLogin(){await clearRememberedLogin();const checkbox=document.getElementById('rememberLogin');if(checkbox)checkbox.checked=false;updateRememberLoginUi();showToast('ဒီ device မှ Save Login ကို ဖျက်ပြီးပါပြီ','ok');}
 function togglePasswordVisibility(){const el=document.getElementById('loginPw');if(!el)return;el.type=el.type==='password'?'text':'password';}
 function showToast(message,type=''){
   const stack=document.getElementById('toastStack');if(!stack)return;
@@ -804,6 +830,27 @@ function getLoginAttempts(){try{return JSON.parse(sessionStorage.getItem('login_
 function setLoginAttempts(obj){sessionStorage.setItem('login_tries',JSON.stringify(obj));}
 function isLocked(){const t=getLoginAttempts();if(t.lockUntil&&Date.now()<t.lockUntil)return Math.ceil((t.lockUntil-Date.now())/60000);return 0;}
 
+async function requestLogin(password){
+  const res=await fetchWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('verifyLogin',{password}))});
+  if(!res.ok)throw new Error('http_'+res.status);
+  let result;
+  try{result=await res.json();}catch(parseError){throw new Error('invalid_server_response');}
+  return result;
+}
+function loginResultReason(result){return String(result&& (result.message||result.msg||result.error)||'').toLowerCase();}
+function saveSessionFromLoginResult(result){return JACCDeviceBinding.saveSession({token:result.token,userId:result.userId,username:result.username,package:result.package,expireDate:result.expireDate,loginTime:Date.now()});}
+function setLoginErrorFromResult(result,err,brute){
+  const reason=loginResultReason(result);const t=getLoginAttempts();
+  if(JACCDeviceBinding.isDeviceError(result))err.textContent=JACCDeviceBinding.deviceErrorMessage(result);
+  else if(reason==='wrong_password'||reason.includes('password')){
+    t.count=(t.count||0)+1;
+    if(t.count>=MAX_LOGIN_TRIES){t.lockUntil=Date.now()+LOCKOUT_MINUTES*60*1000;t.count=0;err.textContent='❌ '+MAX_LOGIN_TRIES+' ကြိမ် မှားပြီ — '+LOCKOUT_MINUTES+' မိနစ် Lock';brute.style.display='block';brute.textContent='⚠️ Admin ဆက်သွယ်ပါ: @JapanAuctionCar_Bot';}
+    else err.textContent='❌ Password မှားတယ် ('+(MAX_LOGIN_TRIES-t.count)+' ကြိမ် ကျန်)';
+  }else if(reason==='expired'||reason.includes('expire'))err.textContent='⏰ Membership ကုန်ဆုံးပြီ — /renew လုပ်ပါ';
+  else if(reason==='unknown_action'||reason.includes('unknown action'))err.textContent='⚠️ Login service action မကိုက်ညီပါ — Admin ကို ဆက်သွယ်ပါ';
+  else err.textContent='⚠️ Server error — ခဏနေရင် ပြန်ကြိုးစားပါ';
+  return t;
+}
 async function doLogin(){
   const pw=normalizePasswordValue(document.getElementById('loginPw').value);
   document.getElementById('loginPw').value=pw;
@@ -816,28 +863,16 @@ async function doLogin(){
   if(!pw){err.style.display='block';err.textContent='Password ထည့်ပါ';return;}
   btn.querySelector('span').textContent='⏳ Checking...';btn.disabled=true;err.style.display='none';
   try{
-    const res=await fetchWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('verifyLogin',{password:pw}))});
-    if(!res.ok)throw new Error('http_'+res.status);
-    let result;
-    try{result=await res.json();}catch(parseError){throw new Error('invalid_server_response');}
+    const result=await requestLogin(pw);
     if(result.status!=='ok'){
-      const reason=String(result.message||result.msg||result.error||'').toLowerCase();
-      const t=getLoginAttempts();
-      if(JACCDeviceBinding.isDeviceError(result)){
-        err.textContent=JACCDeviceBinding.deviceErrorMessage(result);
-      }
-      else if(reason==='wrong_password'||reason.includes('password')){
-        t.count=(t.count||0)+1;
-        if(t.count>=MAX_LOGIN_TRIES){t.lockUntil=Date.now()+LOCKOUT_MINUTES*60*1000;t.count=0;err.textContent='❌ '+MAX_LOGIN_TRIES+' ကြိမ် မှားပြီ — '+LOCKOUT_MINUTES+' မိနစ် Lock';brute.style.display='block';brute.textContent='⚠️ Admin ဆက်သွယ်ပါ: @JapanAuctionCar_Bot';}
-        else err.textContent='❌ Password မှားတယ် ('+(MAX_LOGIN_TRIES-t.count)+' ကြိမ် ကျန်)';
-      }
-      else if(reason==='expired'||reason.includes('expire'))err.textContent='⏰ Membership ကုန်ဆုံးပြီ — /renew လုပ်ပါ';
-      else if(reason==='unknown_action'||reason.includes('unknown action'))err.textContent='⚠️ Login service action မကိုက်ညီပါ — Admin ကို ဆက်သွယ်ပါ';
-      else err.textContent='⚠️ Server error — ခဏနေရင် ပြန်ကြိုးစားပါ';
-      err.style.display='block';setLoginAttempts(t);btn.querySelector('span').textContent='Sign In →';btn.disabled=false;return;
+      const t=setLoginErrorFromResult(result,err,brute);err.style.display='block';setLoginAttempts(t);btn.querySelector('span').textContent='Sign In →';btn.disabled=false;return;
     }
     setLoginAttempts({count:0,lockUntil:0});
-    SESSION=JACCDeviceBinding.saveSession({token:result.token,userId:result.userId,username:result.username,package:result.package,expireDate:result.expireDate,loginTime:Date.now()});
+    const checkbox=document.getElementById('rememberLogin');
+    if(checkbox&&checkbox.checked){const saved=await saveRememberedLogin(pw);if(!saved){const status=document.getElementById('loginRememberStatus');if(status)status.textContent='ဒီ browser မှာ encrypted save မရနိုင်ပါ — ဒီ session ကိုပဲ အသုံးပြုမည်';}}
+    else await clearRememberedLogin();
+    updateRememberLoginUi();
+    SESSION=saveSessionFromLoginResult(result);
     logVisitor();showApp();
   }catch(e){
     err.style.display='block';
@@ -847,16 +882,26 @@ async function doLogin(){
     btn.querySelector('span').textContent='Sign In →';btn.disabled=false;
   }
 }
-
+async function restoreRememberedLogin(){
+  const password=await readRememberedLogin();
+  if(!password)return {ok:false,reason:'saved_login_missing'};
+  try{
+    const result=await requestLogin(password);
+    if(result.status==='ok'){SESSION=saveSessionFromLoginResult(result);return {ok:true};}
+    const reason=loginResultReason(result);
+    if(reason==='wrong_password'||reason.includes('password')||reason==='expired'||reason.includes('expire')||reason==='kicked'||reason==='banned')await clearRememberedLogin();
+    return {ok:false,reason,deviceError:JACCDeviceBinding.isDeviceError(result),response:result};
+  }catch(error){return {ok:false,reason:'backend_unavailable',error:error};}
+}
 async function restoreSession(){
   window.JACC_SESSION_ERROR='';
   const restored=await JACCDeviceBinding.verifyStoredSession({webhook:WEBHOOK,timeoutMs:REQUEST_TIMEOUT_MS});
   if(restored.ok){SESSION=restored.session;return true;}
-  if(restored.deviceError){
-    window.JACC_SESSION_ERROR=JACCDeviceBinding.deviceErrorMessage(restored.response||{message:restored.reason});
-  }else if(restored.reason==='backend_unavailable'){
-    window.JACC_SESSION_ERROR='⚠️ Login server ကို ဆက်သွယ်မရပါ။ Internet စစ်ပြီး ပြန်ဖွင့်ပါ။';
-  }
+  const remembered=await restoreRememberedLogin();
+  if(remembered.ok)return true;
+  const deviceResponse=remembered.deviceError?remembered.response:(restored.deviceError?restored.response:null);
+  if(deviceResponse)window.JACC_SESSION_ERROR=JACCDeviceBinding.deviceErrorMessage(deviceResponse||{message:remembered.reason||restored.reason});
+  else if(restored.reason==='backend_unavailable'||remembered.reason==='backend_unavailable')window.JACC_SESSION_ERROR='⚠️ Login server ကို ဆက်သွယ်မရပါ။ Internet စစ်ပြီး ပြန်ဖွင့်ပါ။';
   return false;
 }
 
@@ -913,10 +958,10 @@ function renderMemberTab(){
   if(!SESSION)return;
   const info=memberPackageInfo(SESSION.package);const username=String(SESSION.username||'Member');const userId=String(SESSION.userId||'—');const expire=String(SESSION.expireDate||'—');const initial=esc(username.charAt(0).toUpperCase()||'?');const days=memberDaysRemaining(expire);const active=days==='—'||Number(days)>0;const status=active?'Active':'Expired';
   const set=(id,value)=>{const el=document.getElementById(id);if(el)el.textContent=value;};
-  set('memberAvatarLarge',initial);set('memberHeroName',username);set('memberHeroId','Member ID · '+userId);set('memberHeroStatus',status+' Member');set('memberHeroPackage',info.label);set('memberMetaPackage',info.short);set('memberMetaStatus',status);set('memberMetaExpire',expire);set('memberDetailUsername','@'+username);set('memberDetailUserId',userId);set('memberDetailPackage',info.label);set('memberDetailStatus',status);set('memberDetailExpire',expire);set('memberDetailDays',days==='—'?'—':days+' days');set('memberActivityCars',allCars.length?allCars.length.toLocaleString():'—');set('memberActivitySaved',String(memberSavedSearchCount()));renderMemberUploadAvailability();loadMemberPaymentMethods();
+  set('memberAvatarLarge',initial);set('memberHeroName',username);set('memberHeroId','Member ID · '+userId);set('memberHeroStatus',status+' Member');set('memberHeroPackage',info.label);set('memberMetaPackage',info.short);set('memberMetaStatus',status);set('memberMetaExpire',expire);set('memberDetailUsername','@'+username);set('memberDetailUserId',userId);set('memberDetailPackage',info.label);set('memberDetailStatus',status);set('memberDetailExpire',expire);set('memberDetailDays',days==='—'?'—':days+' days');set('memberActivityCars',allCars.length?allCars.length.toLocaleString():'—');set('memberActivitySaved',String(memberSavedSearchCount()));updateRememberLoginUi();renderMemberUploadAvailability();loadMemberPaymentMethods();
 }
 
-function doLogout(){try{if(SESSION&&SESSION.userId)localStorage.removeItem(dataCacheKey());}catch(e){}JACCDeviceBinding.clearSession();location.reload();}
+async function doLogout(){try{if(SESSION&&SESSION.userId)localStorage.removeItem(dataCacheKey());}catch(e){}JACCDeviceBinding.clearSession();await clearRememberedLogin();location.reload();}
 
 async function logVisitor(){
   try{
@@ -928,6 +973,9 @@ async function logVisitor(){
 
 window.addEventListener('DOMContentLoaded',async function(){
   updateNetworkStatus();registerServiceWorker();
+  const rememberCheckbox=document.getElementById('rememberLogin');
+  if(rememberCheckbox){rememberCheckbox.checked=rememberLoginStatus()||isMobileDevice();rememberCheckbox.addEventListener('change',function(){if(!this.checked)clearRememberedLogin().finally(updateRememberLoginUi);updateRememberLoginUi();});}
+  updateRememberLoginUi();
   document.getElementById('memberSlipMethod')?.addEventListener('change',function(){selectMemberPaymentMethod(this.value)});
   const requestedHash=location.hash.replace(/^#/,'');
   const requestedTab=requestedHash.split('=')[0];
@@ -937,6 +985,7 @@ window.addEventListener('DOMContentLoaded',async function(){
   loading.style.display='flex';
   if(await restoreSession()){showApp();if(['dashboard','explorer','price','chassis','trends','member'].includes(requestedTab))setTimeout(()=>switchTab(requestedTab,false),0);return;}
   login.style.display='flex';loading.style.display='none';
+  updateRememberLoginUi();
   if(window.JACC_SESSION_ERROR){
     const err=document.getElementById('loginErr');
     err.textContent=window.JACC_SESSION_ERROR;err.style.display='block';
