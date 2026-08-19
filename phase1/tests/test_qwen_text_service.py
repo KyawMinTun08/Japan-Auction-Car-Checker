@@ -59,6 +59,32 @@ def test_url_configuration_removes_only_accidental_url_wrapping():
     assert configured.api_key == "qwen-test-key"
 
 
+def test_session_timeout_is_bounded_and_configurable(monkeypatch):
+    monkeypatch.setenv("JACC_AI_SESSION_TIMEOUT_SECONDS", "45")
+    configured = QwenTextService(
+        supabase_url="https://supabase.example",
+        service_role_key="db-test-key",
+        sheet_webhook="https://script.example/exec",
+    )
+    assert configured.session_timeout_seconds == 45.0
+
+    monkeypatch.setenv("JACC_AI_SESSION_TIMEOUT_SECONDS", "2")
+    bounded_low = QwenTextService(
+        supabase_url="https://supabase.example",
+        service_role_key="db-test-key",
+        sheet_webhook="https://script.example/exec",
+    )
+    assert bounded_low.session_timeout_seconds == 5.0
+
+    monkeypatch.setenv("JACC_AI_SESSION_TIMEOUT_SECONDS", "invalid")
+    fallback = QwenTextService(
+        supabase_url="https://supabase.example",
+        service_role_key="db-test-key",
+        sheet_webhook="https://script.example/exec",
+    )
+    assert fallback.session_timeout_seconds == 25.0
+
+
 def test_topic_gate_and_normalization():
     assert QwenTextService.normalize_query("  Toyota   Crown\u200b 2020 ") == "Toyota Crown 2020"
     assert QwenTextService.is_car_topic("Toyota Crown under 1,500,000")
