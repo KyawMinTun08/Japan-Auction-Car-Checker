@@ -122,6 +122,14 @@ def _clamp_int(name: str, default: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
+def _clamp_float(name: str, default: float, low: float, high: float) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(low, min(high, value))
+
+
 class QwenTextService:
     """Qwen filter-plan adapter with server-side session/quota seams."""
 
@@ -147,8 +155,9 @@ class QwenTextService:
         self.daily_limit = _clamp_int("JACC_AI_DAILY_LIMIT", 10, 1, 100)
         self.max_input_chars = _clamp_int("JACC_AI_MAX_INPUT_CHARS", 1200, 100, 4000)
         self.max_output_tokens = _clamp_int("JACC_AI_MAX_OUTPUT_TOKENS", 350, 64, 1200)
-        self.timeout_seconds = max(
-            5.0, min(60.0, float(os.environ.get("JACC_AI_TIMEOUT_SECONDS", "30")))
+        self.timeout_seconds = _clamp_float("JACC_AI_TIMEOUT_SECONDS", 30.0, 5.0, 60.0)
+        self.session_timeout_seconds = _clamp_float(
+            "JACC_AI_SESSION_TIMEOUT_SECONDS", 25.0, 5.0, 60.0
         )
         self.quota_feature = "car_text"
         self.timezone = ZoneInfo("Asia/Yangon")
@@ -464,7 +473,10 @@ class QwenTextHttp:
         if app_name:
             payload["app"] = app_name
         try:
-            async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=self.service.session_timeout_seconds,
+                follow_redirects=True,
+            ) as client:
                 response = await client.post(
                     self.service.sheet_webhook,
                     headers={"Content-Type": "text/plain"},
