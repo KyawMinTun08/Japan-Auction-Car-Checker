@@ -828,7 +828,18 @@ function normalizeModelDisplay(value){
     'CROWN PAREAL':'CROWN',
     'BONGO TRUCK':'BONGO',
     'BONGO BRAWNY TRUCK':'BONGO',
-    'BONGO VAN':'BONGO'
+    'BONGO VAN':'BONGO',
+    'ESTIMA HYBRID':'ESTIMA',
+    'DELICA TRUCK':'DELICA',
+    'DELICA VAN':'DELICA',
+    'FIT SHUTTLE':'FIT SHUTTLE HYBRID',
+    'HIACE VAN':'HIACE',
+    'HIACE WAGON':'HIACE',
+    'HIJET TRUCK':'HIJET',
+    'HIJET VAN':'HIJET',
+    'LITEACE TRUCK':'LITEACE',
+    'LITEACE VAN':'LITEACE',
+    'PIXIS VAN':'PIXIS TRUCK'
   };
   return aliases[model]||model;
 }
@@ -1041,11 +1052,11 @@ const BGs=['linear-gradient(135deg,#FEF2F4,#FECDD3)','linear-gradient(135deg,#FE
 
 /* ── BRAND_MAP (updated) ── */
 const BRAND_MAP={
-  'Toyota':         {color:'#C8102E',models:['CROWN','WISH','ALPHARD','VELLFIRE','VOXY','VOXY HYBRID','HIACE','HIACE VAN','HIACE WAGON','SUCCEED','SUCCEED VAN','SUCCEED WAGON','PROBOX','VANGUARD','LAND CRUISER','LAND CRUISER PRADO','PRIUS','AQUA','COROLLA AXIO','CAMRY','HARRIER','YARIS','FORTUNER','ESTIMA','NOAH','NOAH HYBRID','ESQUIRE','SIENTA','RUSH','MARK X','KLUGER','HILUX','HILUX SURF','IQ','BELTA','BLADE','CELSIOR','COROLLA FIELDER','PASSO','RACTIS','TOWNACE VAN','VITZ','SUPER CUSTOM','PIXIS TRUCK','PIXIS VAN']},
+  'Toyota':         {color:'#C8102E',models:['CROWN','WISH','ALPHARD','VELLFIRE','VOXY','VOXY HYBRID','HIACE','SUCCEED','SUCCEED VAN','SUCCEED WAGON','PROBOX','VANGUARD','LAND CRUISER','LAND CRUISER PRADO','PRIUS','AQUA','COROLLA AXIO','CAMRY','HARRIER','YARIS','FORTUNER','ESTIMA','NOAH','NOAH HYBRID','ESQUIRE','SIENTA','RUSH','MARK X','KLUGER','HILUX','HILUX SURF','IQ','BELTA','BLADE','CELSIOR','COROLLA FIELDER','PASSO','RACTIS','TOWNACE VAN','LITEACE','VITZ','SUPER CUSTOM','PIXIS TRUCK']},
   'Lexus':          {color:'#111827',models:['LEXUS LS']},
   'Nissan':         {color:'#1D4ED8',models:['AD VAN','X-TRAIL','JUKE','NOTE','SERENA','ELGRAND','TEANA','VANETTE VAN','VANETTE TRUCK','LEAF','GT-R','MARCH','DAYZ','LAFESTA','FUGA','MINICAB TRUCK']},
   'Honda':          {color:'#B45309',models:['FIT','FIT HYBRID','FIT SHUTTLE HYBRID','INSIGHT','FREED','STEPWGN','ODYSSEY','N-BOX','JADE','VEZEL','GRACE','STREAM','CR-V']},
-  'Daihatsu':       {color:'#15803D',models:['HIJET','HIJET TRUCK','HIJET VAN','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI']},
+  'Daihatsu':       {color:'#15803D',models:['HIJET','MOVE','TANTO','MIRA','ROCKY','BOON','WAKE','CAST','THOR','ATRAI']},
   'Mitsubishi':     {color:'#6D28D9',models:['PAJERO','OUTLANDER','DELICA','ECLIPSE','ECLIPSE CROSS','GALANT','TRITON','COLT','ASX','RVR']},
   'Subaru':         {color:'#0E7490',models:['IMPREZA','SAMBAR','SAMBAR TRUCK','SAMBAR VAN','FORESTER','LEGACY','OUTBACK','XV','WRX','BRZ','EXIGA']},
   'Mazda':          {color:'#BE185D',models:['BONGO','ATENZA','DEMIO','CX-5','CX-3','AXELA','FAMILIA','BIANTE','PREMACY','SCRUM TRUCK']},
@@ -1069,8 +1080,8 @@ function getBrandLogoUrl(brand){return BRAND_LOGOS[brand]||null;}
 const BODY_TYPE_MAP={
   'Sedan':    {emoji:'🚗',color:'#1D4ED8',models:['CROWN','TEANA','CAMRY','COROLLA AXIO','ATENZA','LEGACY','IMPREZA','AXELA','FUGA','GRACE','LAFESTA','WRX','LEXUS LS','BELTA','CELSIOR','COROLLA FIELDER','MARK X']},
   'SUV':      {emoji:'🏔️',color:'#15803D',models:['X-TRAIL','PAJERO','OUTLANDER','HARRIER','VANGUARD','FORESTER','CX-5','CX-3','CR-V','LAND CRUISER','LAND CRUISER PRADO','ROCKY','XV','FORTUNER','ECLIPSE CROSS','RUSH','ASX','VEZEL','KLUGER','HILUX SURF']},
-  'Van':      {emoji:'🚐',color:'#6D28A9',models:['AD VAN','HIACE','HIACE VAN','HIACE WAGON','SUCCEED','SUCCEED VAN','DELICA','EVERY','PROBOX','STREAM','ATRAI','TOWNACE VAN','SUPER CUSTOM','VANETTE VAN','HIJET VAN','PIXIS VAN','SAMBAR VAN']},
-  'Truck':    {emoji:'🛻',color:'#B45309',models:['HIJET','HIJET TRUCK','SAMBAR','SAMBAR TRUCK','BONGO','VANETTE TRUCK','TRITON','HILUX','MINICAB TRUCK','BIG THUMB','CANTER','CANTER GUTS','FUSO','FUSO FIGHTER','SUPER GREAT','DUTRO','RANGER','QUON','CONDOR','UD','PIXIS TRUCK','CARRY','CARRY TRUCK','SCRUM TRUCK']},
+  'Van':      {emoji:'🚐',color:'#6D28A9',models:['AD VAN','HIACE','SUCCEED','SUCCEED VAN','DELICA','EVERY','PROBOX','STREAM','ATRAI','TOWNACE VAN','LITEACE','SUPER CUSTOM','VANETTE VAN','HIJET','SAMBAR VAN']},
+  'Truck':    {emoji:'🛻',color:'#B45309',models:['HIJET','SAMBAR','SAMBAR TRUCK','BONGO','VANETTE TRUCK','TRITON','HILUX','MINICAB TRUCK','BIG THUMB','CANTER','CANTER GUTS','FUSO','FUSO FIGHTER','SUPER GREAT','DUTRO','RANGER','QUON','CONDOR','UD','PIXIS TRUCK','LITEACE','CARRY','CARRY TRUCK','SCRUM TRUCK']},
   'Minivan':  {emoji:'👨‍👩‍👧',color:'#C8102E',models:['ALPHARD','VELLFIRE','VOXY','VOXY HYBRID','SERENA','STEPWGN','FREED','ELGRAND','ODYSSEY','JADE','WISH','NOAH','NOAH HYBRID','ESQUIRE','SIENTA','ESTIMA','EXIGA','BIANTE','PREMACY']},
   'Wagon':    {emoji:'🚙',color:'#B45309',models:['FIT SHUTTLE HYBRID','SUCCEED WAGON']},
   'Hatchback':{emoji:'🚙',color:'#0E7490',models:['FIT','FIT HYBRID','INSIGHT','JUKE','NOTE','LEAF','AQUA','YARIS','DEMIO','ALTO','BOON','SWIFT','MARCH','MOVE','TANTO','MIRA','N-BOX','WAKE','CAST','DAYZ','SPACIA','WAGON R','HUSTLER','IGNIS','THOR','IQ','VITZ','PASSO','BLADE','RACTIS','NEW BEETLE']},
@@ -1808,7 +1819,7 @@ const PH_MODELS={
     {label:'INSIGHT',                 modelKey:['INSIGHT']},
   ],
   Toyota:[
-    {label:'Hiace (All)',             modelKey:['HIACE','HIACE VAN','HIACE WAGON']},
+    {label:'Hiace',                    modelKey:['HIACE']},
     {label:'Super Custom',            modelKey:['SUPER CUSTOM']},
     {label:'Probox',                  modelKey:['PROBOX']},
     {label:'Succeed (All)',           modelKey:['SUCCEED','SUCCEED VAN','SUCCEED WAGON']},
@@ -1837,6 +1848,8 @@ const PH_MODELS={
     {label:'Corolla Fielder',         modelKey:['COROLLA FIELDER']},
     {label:'Camry',                   modelKey:['CAMRY']},
     {label:'Townace Van',             modelKey:['TOWNACE VAN']},
+    {label:'Liteace',                  modelKey:['LITEACE']},
+    {label:'PIXIS Truck',              modelKey:['PIXIS TRUCK']},
     {label:'Blade',                   modelKey:['BLADE']},
     {label:'Ractis',                  modelKey:['RACTIS']},
     {label:'Kluger',                  modelKey:['KLUGER']},
@@ -1861,8 +1874,7 @@ const PH_MODELS={
     {label:'Leaf',                    modelKey:['LEAF']},
   ],
   Daihatsu:[
-    {label:'Hijet Truck',             modelKey:['HIJET','HIJET TRUCK']},
-    {label:'Hijet Van',               modelKey:['HIJET VAN']},
+    {label:'Hijet',                    modelKey:['HIJET']},
     {label:'Move',                    modelKey:['MOVE']},
     {label:'Tanto',                   modelKey:['TANTO']},
     {label:'Mira',                    modelKey:['MIRA']},
