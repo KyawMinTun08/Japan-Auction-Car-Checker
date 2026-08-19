@@ -20,6 +20,8 @@ def test_saved_password_is_encrypted_and_not_written_to_local_storage() -> None:
     assert "localStorage.setItem(REMEMBER_LOGIN_KEY,'1')" in INDEX
     assert "localStorage.setItem(REMEMBER_LOGIN_KEY,password" not in INDEX
     assert "const REMEMBER_LOGIN_KEY = 'jacc_remember_login_v1';" in INDEX
+    assert "nativeRememberLoginBridge" in INDEX
+    assert "JACCRememberLogin" in INDEX
 
 
 def test_invalid_session_can_fall_back_to_saved_login() -> None:
@@ -27,6 +29,7 @@ def test_invalid_session_can_fall_back_to_saved_login() -> None:
     assert "const remembered=await restoreRememberedLogin();" in INDEX
     assert "if(remembered.ok)return true;" in INDEX
     assert "await clearRememberedLogin();" in INDEX
+    assert "secure Save Login မရနိုင်ပါ" in INDEX
 
 
 def test_explicit_logout_and_account_control_remove_saved_login() -> None:
