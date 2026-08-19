@@ -99,6 +99,14 @@ def test_payment_approval_uses_stable_two_step_flow() -> None:
     assert "pending_payment.pop(member_id, None)" in bot
 
 
+def test_yes_approve_restores_durable_payment_draft() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    approval = bot[bot.index('elif data.startswith("slip_ok_")'):bot.index('elif data.startswith("slip_no_")')]
+    assert "pay_data = await ensure_payment_session(member_id)" in approval
+    assert 'pay_data = pending_payment.get(member_id, {})' not in approval
+    assert "Payment draft မတွေ့ပါ" in approval
+
+
 def test_approval_callback_does_not_block_on_sheet_password_lookup() -> None:
     patch = PATCH.read_text(encoding="utf-8")
     save_block = patch[patch.index("async def save_member_to_sheet"):patch.index("async def send_approval_dm")]

@@ -3876,9 +3876,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         member_id = int(data.replace("slip_ok_", ""))
-        pay_data = pending_payment.get(member_id, {})
+        # The admin may press Yes — Approve after a Railway restart or worker
+        # recycle. Restore the durable Payment_Drafts row before declaring the
+        # approval data missing; slip_confirm_ already uses this same helper.
+        pay_data = await ensure_payment_session(member_id)
         if not pay_data:
-            await query.message.reply_text("❌ Data ကုန်သွားပြီ")
+            await query.message.reply_text(
+                "❌ Payment draft မတွေ့ပါ။ Member ကို slip ပြန်ပို့ခိုင်းပါ။"
+            )
             return
         expected_amount = int(pay_data.get("amount", 0) or 0)
         slips = pay_data.get("slips", []) or []
