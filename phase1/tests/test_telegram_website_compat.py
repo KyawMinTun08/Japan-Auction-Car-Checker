@@ -99,6 +99,17 @@ def test_payment_approval_uses_stable_two_step_flow() -> None:
     assert "pending_payment.pop(member_id, None)" in bot
 
 
+def test_payment_callback_acknowledges_before_durable_restore() -> None:
+    patch = PATCH.read_text(encoding="utf-8")
+    callback = patch[patch.index("async def button_callback"):patch.index("# The legacy main function")]
+    legacy = LEGACY.read_text(encoding="utf-8")
+    legacy_callback = legacy[legacy.index("async def button_callback"):legacy.index("# ── 🚗 Buying Car 10 Day Promo ──")]
+
+    assert callback.index("await query.answer()") < callback.index("asyncio.wait_for(")
+    assert "_jacc_callback_answered" in callback
+    assert "_jacc_callback_answered" in legacy_callback
+
+
 def test_yes_approve_restores_durable_payment_draft() -> None:
     bot = LEGACY.read_text(encoding="utf-8")
     approval = bot[bot.index('elif data.startswith("slip_ok_")'):bot.index('elif data.startswith("slip_no_")')]

@@ -299,6 +299,18 @@ async def button_callback(update, context):
         (prefix for prefix in ("slip_confirm_", "slip_ok_", "slip_no_") if callback_data.startswith(prefix)),
         "",
     )
+
+    # Answer Telegram immediately. Durable draft restoration may take seconds;
+    # it must never happen before answerCallbackQuery or the callback can expire.
+    if not getattr(query, "_jacc_callback_answered", False):
+        try:
+            await query.answer()
+        finally:
+            try:
+                setattr(query, "_jacc_callback_answered", True)
+            except Exception:
+                pass
+
     member_id_text = callback_data.replace(callback_prefix, "", 1).strip()
     try:
         member_id = int(member_id_text)
