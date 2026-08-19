@@ -91,5 +91,5 @@ def test_railway_adapters_forward_device_context():
 
 
 def test_pwa_cache_version_matches_frontend_app_version():
-    assert "APP_VERSION     = '2026.08.19-ai-console-v1';" in WEB
-    assert "jacc-2026.08.19-ai-console-v1" in SW
+    assert "APP_VERSION     = '2026.08.19-ai-console-v2';" in WEB
+    assert "jacc-2026.08.19-ai-console-v2" in SW
