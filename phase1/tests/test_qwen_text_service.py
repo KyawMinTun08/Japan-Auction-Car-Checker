@@ -205,3 +205,37 @@ def test_qwen_service_and_http_route_use_verified_session_and_atomic_quota():
                 assert state["quota_calls"] == 1
 
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_code"),
+    [
+        (400, "AI_PROVIDER_BAD_REQUEST"),
+        (401, "AI_PROVIDER_AUTH"),
+        (403, "AI_PROVIDER_FORBIDDEN"),
+        (404, "AI_PROVIDER_NOT_FOUND"),
+        (408, "AI_PROVIDER_TIMEOUT"),
+        (409, "AI_PROVIDER_CONFLICT"),
+        (429, "AI_PROVIDER_QUOTA"),
+        (500, "AI_PROVIDER_UNAVAILABLE"),
+    ],
+)
+def test_provider_http_status_maps_to_safe_error_code(status_code, expected_code):
+    async def exercise():
+        app = web.Application()
+
+        async def qwen(_request):
+            return web.json_response(
+                {"error": {"message": "provider detail must not reach the client"}},
+                status=status_code,
+            )
+
+        app.router.add_post("/compatible-mode/v1/chat/completions", qwen)
+        service = _service()
+        async with _server(app) as base:
+            service.base_url = f"{base}/compatible-mode/v1"
+            with pytest.raises(QwenTextError) as error:
+                await service._call_provider("Toyota Crown 2020")
+            assert error.value.code == expected_code
+
+    asyncio.run(exercise())

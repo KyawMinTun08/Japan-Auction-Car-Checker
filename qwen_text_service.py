@@ -359,8 +359,20 @@ class QwenTextService:
             logger.exception("Qwen provider request failed")
             raise QwenTextError("AI_PROVIDER_UNAVAILABLE") from None
         if response.is_error:
-            logger.warning("Qwen provider returned status=%s", response.status_code)
-            raise QwenTextError("AI_PROVIDER_UNAVAILABLE")
+            status_code = response.status_code
+            provider_error_codes = {
+                400: "AI_PROVIDER_BAD_REQUEST",
+                401: "AI_PROVIDER_AUTH",
+                403: "AI_PROVIDER_FORBIDDEN",
+                404: "AI_PROVIDER_NOT_FOUND",
+                408: "AI_PROVIDER_TIMEOUT",
+                409: "AI_PROVIDER_CONFLICT",
+                429: "AI_PROVIDER_QUOTA",
+            }
+            error_code = provider_error_codes.get(status_code, "AI_PROVIDER_UNAVAILABLE")
+            # Log only the HTTP status and safe internal code; never log provider bodies or keys.
+            logger.warning("Qwen provider returned status=%s code=%s", status_code, error_code)
+            raise QwenTextError(error_code)
         try:
             data = response.json()
             content = data["choices"][0]["message"]["content"]
