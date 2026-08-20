@@ -438,6 +438,25 @@ async def validate_payment_flow(user_id: int | str, action: str) -> dict:
         return {"ok": False, "record": None, "reason": "new_member_must_join"}
     return {"ok": True, "record": record, "reason": ""}
 
+
+async def resolve_payment_action(user_id: int | str, payment: dict | None) -> tuple[str, str]:
+    """Recover action for drafts created before New/Renew was persisted.
+
+    Explicit action always wins. For legacy drafts, current ACTIVE means renew;
+    no row or an inactive row means new-member/reactivation. Lookup failures stay
+    fail-closed rather than guessing.
+    """
+    payment = payment or {}
+    explicit = str(payment.get("action") or "").strip().lower()
+    if explicit in ("join", "renew", "upgrade"):
+        return explicit, "explicit"
+    record = await get_member_record(user_id)
+    if record and record.get("__lookup_error__"):
+        return "", "member_lookup_unavailable"
+    if is_current_member_record(record):
+        return "renew", "legacy_active_record"
+    return "join", "legacy_new_or_inactive_record"
+
 # ── 10 Day Promo Helpers ──────────────────────────────
 async def get_cancel_count(str_uid: str) -> int:
     try:
@@ -2637,13 +2656,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_payment[user_id] = restored_payment
     if user_id in pending_payment:
         pay_data = pending_payment[user_id]
-        pay_action = str(pay_data.get("action") or "").strip().lower()
-        if pay_action not in ("join", "renew", "upgrade"):
+        pay_action, action_source = await resolve_payment_action(user_id, pay_data)
+        if not pay_action:
             await update.message.reply_text(
                 "⚠️ ဒီ payment session မှာ Member အသစ်/Renew အမျိုးအစား မသတ်မှတ်နိုင်သေးပါ။\n"
-                "Payment မမှားစေရန် ဒီ slip ကို Admin ထံ မပို့သေးပါ။ `/newmember` သို့မဟုတ် `/renew` မှ flow မှန်ကို ပြန်စပါ။",
+                "Payment မမှားစေရန် ဒီ slip ကို Admin ထံ မပို့သေးပါ။ Member record ကို စစ်ပြီးမှ ဆက်လုပ်ပါ။",
                 parse_mode="Markdown")
             return
+        if not pay_data.get("action"):
+            pay_data["action"] = pay_action
+            pay_data["action_source"] = action_source
+            pending_payment[user_id] = pay_data
         flow = await validate_payment_flow(user_id, pay_action)
         if not flow.get("ok"):
             if flow.get("reason") == "existing_member_must_renew":
@@ -4027,13 +4050,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not pay_data:
             await query.answer("❌ Data ကုန်သွားပြီ", show_alert=True)
             return
-        payment_action = str(pay_data.get("action") or "").strip().lower()
-        if payment_action not in ("join", "renew", "upgrade"):
+        payment_action, action_source = await resolve_payment_action(member_id, pay_data)
+        if not payment_action:
             await query.message.reply_text(
-                "❌ Approve မလုပ်နိုင်ပါ — payment flow မှာ New Member/Renew အမျိုးအစား မရှိသေးပါ။\n"
-                "Member type ကို အတည်ပြုပြီး flow မှန်နဲ့ payment ပြန်စပါ။ Payment မှားပို့မိပါက repayment ကြာနိုင်ပါတယ်။",
+                "❌ Approve မလုပ်နိုင်ပါ — legacy payment draft ၏ flow ကို စစ်မရသေးပါ။\n"
+                "Member record lookup မအောင်မြင်သေးသောကြောင့် payment မပြောင်းလဲထားပါ။",
                 parse_mode="Markdown")
             return
+        if not pay_data.get("action"):
+            pay_data["action"] = payment_action
+            pay_data["action_source"] = action_source
+            pending_payment[member_id] = pay_data
         flow = await validate_payment_flow(member_id, payment_action)
         if not flow.get("ok"):
             await query.message.reply_text(
@@ -4105,12 +4132,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "❌ Payment draft မတွေ့ပါ။ Member ကို slip ပြန်ပို့ခိုင်းပါ။"
             )
             return
-        payment_action = str(pay_data.get("action") or "").strip().lower()
-        if payment_action not in ("join", "renew", "upgrade"):
+        payment_action, action_source = await resolve_payment_action(member_id, pay_data)
+        if not payment_action:
             await query.message.reply_text(
-                "❌ Final Approve မလုပ်နိုင်ပါ — New Member/Renew flow မသတ်မှတ်နိုင်သေးပါ။ Payment ကို မသိမ်းဆည်းသေးပါ။",
+                "❌ Final Approve မလုပ်နိုင်ပါ — legacy payment draft ၏ flow ကို စစ်မရသေးပါ။\n"
+                "Member record lookup မအောင်မြင်သေးသောကြောင့် payment မသိမ်းဆည်းသေးပါ။",
                 parse_mode="Markdown")
             return
+        if not pay_data.get("action"):
+            pay_data["action"] = payment_action
+            pay_data["action_source"] = action_source
+            pending_payment[member_id] = pay_data
         flow = await validate_payment_flow(member_id, payment_action)
         if not flow.get("ok"):
             await query.message.reply_text(
