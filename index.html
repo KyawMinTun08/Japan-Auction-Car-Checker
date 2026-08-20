@@ -758,8 +758,18 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.20-startup-recovery-v4';
+const APP_VERSION     = '2026.08.20-startup-recovery-v5';
 const REQUEST_TIMEOUT_MS = 12000;
+let startupWatchdogTimer = null;
+function clearStartupWatchdog(){if(startupWatchdogTimer){clearTimeout(startupWatchdogTimer);startupWatchdogTimer=null;}}
+function showStartupRecoveryError(){
+  startupWatchdogTimer=null;
+  const loading=document.getElementById('loadingOverlay');
+  const login=document.getElementById('loginOverlay');
+  if(!loading||loading.style.display==='none'||(login&&login.style.display==='flex'))return;
+  loading.innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">Data ဆွဲယူချိန်ကြာနေပါတယ်</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:14px">Internet သို့မဟုတ် Google Sheets response ကို စစ်ပြီး ပြန်ကြိုးစားပါ။</div><button onclick="location.reload()" class="btn btn-primary">🔄 Retry</button></div>';
+}
+function armStartupWatchdog(timeoutMs=20000){clearStartupWatchdog();startupWatchdogTimer=setTimeout(showStartupRecoveryError,Math.max(10000,timeoutMs));}
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
 const DATA_CACHE_SCHEMA_VERSION = 'jacc-cars-v2';
 const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1060,6 +1070,7 @@ async function logVisitor(){
 }
 
 window.addEventListener('DOMContentLoaded',async function(){
+  armStartupWatchdog();
   updateNetworkStatus();registerServiceWorker();
   const rememberCheckbox=document.getElementById('rememberLogin');
   if(rememberCheckbox){rememberCheckbox.checked=rememberLoginStatus()||isMobileDevice();rememberCheckbox.addEventListener('change',function(){if(!this.checked)clearRememberedLogin().finally(updateRememberLoginUi);updateRememberLoginUi();});}
@@ -1128,12 +1139,14 @@ const BODY_TYPE_MAP={
 function fixImgUrl(url){if(!url||url.trim()==='')return '';const m=url.match(/\/d\/([a-zA-Z0-9_-]+)/);if(m)return 'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w400';if(url.startsWith('http'))return url;return '';}
 
 async function init(){
+  armStartupWatchdog();
   const cached=readCarsCache();
   let allowCacheFallback=true;
   if(cached){
     renderCarsData(cached.cars);
     document.getElementById('loadingOverlay').style.display='none';
     showToast('Cached data ပြထားပါတယ် — Live data update လုပ်နေသည်','warn');
+    clearStartupWatchdog();
   }
   try{
     const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))});
@@ -1219,14 +1232,17 @@ async function init(){
 
     renderCarsData(allCars);
     writeCarsCache(allCars);
+    clearStartupWatchdog();
     document.getElementById('loadingOverlay').style.display='none';
     if(cached)showToast('Live data update ပြီးပါပြီ','ok');
   }catch(e){
     if(allowCacheFallback&&cached){
+      clearStartupWatchdog();
       document.getElementById('loadingOverlay').style.display='none';
       showToast('Live data မရသေးပါ — Cached data ဖြင့် ဆက်သုံးနိုင်ပါတယ်','warn');
       return;
     }
+    clearStartupWatchdog();
     const code=String(e&&e.code||'').trim();
     const message=code==='REQUEST_TIMEOUT'?'Google Sheets response ကြာနေပါတယ်':'Connection မအောင်မြင်ပါ';
     const detail=code&&code!=='REQUEST_TIMEOUT'?'<div style="font-size:11px;color:var(--ink-4);margin-bottom:14px">Error: '+esc(code)+'</div>':'';

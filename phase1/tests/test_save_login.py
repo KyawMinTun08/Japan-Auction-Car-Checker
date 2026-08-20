@@ -39,10 +39,13 @@ def test_explicit_logout_and_account_control_remove_saved_login() -> None:
 
 
 def test_pwa_cache_and_android_webview_keep_the_new_flow() -> None:
-    assert "jacc-2026.08.20-startup-recovery-v4" in SW
+    assert "jacc-2026.08.20-startup-recovery-v5" in SW
     assert "domStorageEnabled = true" in ANDROID
     assert "databaseEnabled = true" in ANDROID
-    assert "clearCache" not in ANDROID
+    assert "clearCache(true)" in ANDROID
+    assert "WebSettings.LOAD_NO_CACHE" in ANDROID
+    assert "startupRecoveryAttempted" in ANDROID
+    assert "recovery=2026.08.20.5" in ANDROID
     assert "clearFormData" not in ANDROID
     assert "clearHistory" in ANDROID
 
