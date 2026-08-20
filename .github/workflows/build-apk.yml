@@ -31,9 +31,9 @@ jobs:
       - name: Build signed release APK
         run: gradle assembleRelease --stacktrace
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk JACC-Android-v1.03.apk
+        run: cp app/build/outputs/apk/release/app-release.apk JACC-Android-v1.05.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: JACC-Android-v1.03
-          path: android-app/JACC-Android-v1.03.apk
+          name: JACC-Android-v1.05
+          path: android-app/JACC-Android-v1.05.apk
           retention-days: 90
