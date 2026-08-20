@@ -1,4 +1,4 @@
-"""Verified JACC car-domain knowledge used to ground the Qwen text planner.
+"""Verified JACC car-domain knowledge used to ground the JACC AI text planner.
 
 This module contains no secrets and is safe to import from Railway code only. It
 is intentionally conservative: it supplies vocabulary and known data boundaries,
@@ -26,7 +26,7 @@ JACC_MODEL_VOCABULARY: dict[str, tuple[str, ...]] = {
     ),
     "Lexus": ("LEXUS LS",),
     "Nissan": (
-        "AD VAN", "X-TRAIL", "JUKE", "NOTE", "SERENA", "ELGRAND", "TEANA",
+        "AD VAN", "X-TRAIL", "JUKE", "NOTE", "SERENA", "CARAVAN", "CARAVANS", "ELGRAND", "TEANA",
         "VANETTE VAN", "VANETTE TRUCK", "LEAF", "GT-R", "MARCH", "DAYZ",
         "LAFESTA", "FUGA", "MINICAB TRUCK",
     ),

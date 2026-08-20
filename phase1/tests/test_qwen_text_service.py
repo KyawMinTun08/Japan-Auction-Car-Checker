@@ -93,6 +93,11 @@ def test_topic_gate_and_normalization():
     assert QwenTextService.is_car_topic("Hijet 2019 S510P-0279271")
     assert QwenTextService.is_car_topic("S510P-0279271 အကြောင်းပြပါ")
     assert QwenTextService.is_car_topic("GRS210-6007724")
+    assert QwenTextService.is_car_topic("ACM21-005323B")
+    assert QwenTextService.is_vehicle_spec_query("Caravans 2012 VR2E26-004976")
+    assert QwenTextService.is_vehicle_spec_query("Toyota Alphard 2015 AGH35-0007624 information")
+    assert QwenTextService.is_vehicle_spec_query("Crown 2012 engine spec")
+    assert not QwenTextService.is_vehicle_spec_query("ဒီနေ့မိုးရွာမလား")
     assert QwenTextService.is_grade_topic("Toyota Crown auction grade ဘယ်လောက်လဲ")
     assert not QwenTextService.is_grade_topic("ဒီနေ့မိုးရွာမလား")
     assert not QwenTextService.is_car_topic("price and model")
@@ -115,6 +120,23 @@ def test_grade_plan_is_validated_without_inventing_grade_values():
     assert "grade_code" not in plan
 
 
+def test_vehicle_spec_text_is_whitelisted_and_missing_fields_are_omitted():
+    spec = QwenTextService._parse_vehicle_spec_text(
+        "SUMMARY: Toyota Alphard 2015 configuration\n"
+        "ENGINE_CODE: 2AR-FE\n"
+        "ENGINE_SIZE: 2,493cc (2.5L Petrol)\n"
+        "DRIVE: 4WD\n"
+        "UNKNOWN_FIELD: should not appear\n"
+        "POWER: Not available\n"
+    )
+    assert spec["summary"].startswith("Toyota Alphard")
+    assert spec["engine_code"] == "2AR-FE"
+    assert spec["engine_size"] == "2,493cc (2.5L Petrol)"
+    assert spec["drive"] == "4WD"
+    assert "power" not in spec
+    assert "unknown_field" not in spec
+
+
 def test_filters_reject_unknown_or_invalid_fields():
     with pytest.raises(QwenTextError) as unknown:
         QwenTextService._validate_filters({"sql": "drop table"})
@@ -123,6 +145,45 @@ def test_filters_reject_unknown_or_invalid_fields():
     with pytest.raises(QwenTextError) as invalid:
         QwenTextService._validate_filters({"year_min": "not-a-year"})
     assert invalid.value.code == "AI_INVALID_FILTERS"
+
+
+def test_vehicle_spec_provider_uses_search_grounding_without_json_tool_mode():
+    async def exercise():
+        app = web.Application()
+
+        async def gemini(request):
+            payload = await request.json()
+            assert payload["tools"] == [{"google_search": {}}]
+            assert "responseMimeType" not in payload["generationConfig"]
+            return web.json_response(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {"text": "SUMMARY: Nissan Caravan E26\nENGINE_CODE: QR20DE\nENGINE_SIZE: 1,998cc (2.0L Petrol)\nDRIVE: 2WD / FR"}
+                                ]
+                            },
+                            "groundingMetadata": {
+                                "groundingChunks": [
+                                    {"web": {"uri": "https://example.com/caravan", "title": "Vehicle source"}}
+                                ]
+                            },
+                        }
+                    ]
+                }
+            )
+
+        app.router.add_post("/models/gemini-2.5-flash:generateContent", gemini)
+        service = _service()
+        async with _server(app) as base:
+            service.base_url = base
+            spec = await service._call_vehicle_spec_provider("Caravans 2012 VR2E26-004976")
+        assert spec["grounded"] is True
+        assert spec["engine_code"] == "QR20DE"
+        assert spec["sources"][0]["uri"] == "https://example.com/caravan"
+
+    asyncio.run(exercise())
 
 
 def test_disabled_mode_does_not_consume_quota():

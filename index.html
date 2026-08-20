@@ -314,7 +314,27 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
 </style>
 <style id="jacc-console-polish">
 .jacc-home-ai-ask{margin-top:15px;padding:15px 16px 13px;border:1px solid rgba(255,255,255,.2);border-radius:20px;background:linear-gradient(145deg,rgba(10,19,42,.82),rgba(24,31,67,.72) 58%,rgba(200,16,46,.25));box-shadow:0 14px 34px rgba(5,12,30,.25);backdrop-filter:blur(8px)}.jacc-home-ai-topline{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.jacc-home-ai-brand{display:flex;align-items:center;gap:9px;min-width:0}.jacc-home-ai-spark{display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border:1px solid rgba(255,255,255,.3);border-radius:10px;background:linear-gradient(145deg,#fff,#FDE7EC);color:var(--brand);font:900 10px var(--font-mono);letter-spacing:-.5px;box-shadow:0 4px 12px rgba(0,0,0,.2)}.jacc-home-ai-title{color:#fff;font:800 11px var(--font-sans);letter-spacing:1px;text-transform:uppercase}.jacc-home-ai-subtitle{margin-top:2px;color:rgba(255,255,255,.58);font-size:9.5px;line-height:1.35}.jacc-home-ai-quota{flex:0 0 auto;padding:5px 8px;border:1px solid rgba(255,255,255,.2);border-radius:999px;color:rgba(255,255,255,.82);font:700 9px var(--font-mono);white-space:nowrap}.jacc-home-ai-label{margin-bottom:7px;color:rgba(255,255,255,.88);font-size:10px;letter-spacing:.3px;text-transform:none}.jacc-home-ai-row{gap:8px}.jacc-home-ai-input{min-height:76px;border-color:rgba(255,255,255,.28);border-radius:14px;background:rgba(255,255,255,.97);font:600 12px/1.55 var(--font-sans);letter-spacing:0;padding:11px 12px}.jacc-home-ai-input:focus{border-color:#fff;box-shadow:0 0 0 4px rgba(255,255,255,.12)}.jacc-home-ai-btn{min-width:112px;border:1px solid rgba(255,255,255,.25);border-radius:14px;background:linear-gradient(135deg,var(--brand),#E63950);font-size:11px;box-shadow:0 9px 20px rgba(200,16,46,.28);transition:transform .18s,box-shadow .18s}.jacc-home-ai-btn:hover{background:linear-gradient(135deg,var(--brand-2),#E63950);box-shadow:0 12px 24px rgba(200,16,46,.38);transform:translateY(-1px)}.jacc-home-ai-suggestions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.jacc-home-ai-suggestion{min-height:28px;padding:6px 9px;border:1px solid rgba(255,255,255,.2);border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.82);font:600 9.5px var(--font-sans);cursor:pointer;white-space:nowrap;transition:background .18s,border-color .18s,transform .18s}.jacc-home-ai-suggestion:hover{border-color:rgba(255,255,255,.48);background:rgba(255,255,255,.16);transform:translateY(-1px)}.jacc-home-ai-note{display:flex;align-items:center;gap:5px;margin-top:9px;color:rgba(255,255,255,.52);font-size:9.5px}.jacc-home-ai-note::before{content:'✓';display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:rgba(91,220,157,.16);color:#8BE6B2;font-weight:800}.jacc-home-ai-result{margin-top:10px}.jacc-home-ai-result:empty{display:none}.jacc-home-ai-result .card{border-color:rgba(255,255,255,.24)!important;box-shadow:0 8px 22px rgba(0,0,0,.12)}@media(max-width:800px){.dashboard-hero-form{min-width:0;width:100%;max-width:none}}@media(max-width:520px){.jacc-home-ai-ask{padding:13px 12px 12px;border-radius:17px}.jacc-home-ai-topline{align-items:flex-start}.jacc-home-ai-quota{font-size:8px}.jacc-home-ai-row{flex-direction:column}.jacc-home-ai-input{min-height:88px}.jacc-home-ai-btn{width:100%;min-height:43px}.jacc-home-ai-suggestions{flex-wrap:nowrap;overflow-x:auto;padding-bottom:3px;scrollbar-width:none}.jacc-home-ai-suggestions::-webkit-scrollbar{display:none}.jacc-home-ai-suggestion{flex:0 0 auto}}
-</style>
+  </style>
+  <style id="jacc-vehicle-spec-answer">
+    .ai-vehicle-spec-card{margin-bottom:12px;border:1px solid rgba(29,78,216,.18);border-radius:var(--r-lg);background:linear-gradient(135deg,#F7F9FF,#fff 62%,#F0FDFA);overflow:hidden}
+    .ai-vehicle-spec-head{padding:15px 16px 12px;border-bottom:1px solid rgba(29,78,216,.10)}
+    .ai-vehicle-spec-kicker{font-size:9px;letter-spacing:1.25px;text-transform:uppercase;color:#1D4ED8;font-weight:850}
+    .ai-vehicle-spec-title{font-size:17px;line-height:1.25;font-weight:850;color:var(--ink-1);margin-top:5px}
+    .ai-vehicle-spec-subtitle{font-size:10.5px;line-height:1.55;color:var(--ink-4);margin-top:5px}
+    .ai-vehicle-spec-body{padding:13px 16px}
+    .ai-vehicle-spec-summary{font-size:12px;line-height:1.7;color:var(--ink-2);margin-bottom:11px}
+    .ai-vehicle-spec-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+    .ai-vehicle-spec-fact{min-width:0;padding:9px 10px;border:1px solid var(--line-soft);border-radius:var(--r-sm);background:rgba(255,255,255,.82)}
+    .ai-vehicle-spec-label{font-size:8.5px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.65px;font-weight:850}
+    .ai-vehicle-spec-value{font-size:11.5px;line-height:1.45;color:var(--ink-1);font-weight:750;margin-top:4px;overflow-wrap:anywhere}
+    .ai-vehicle-spec-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+    .ai-vehicle-spec-actions .btn{font-size:10.5px;min-height:35px}
+    .ai-vehicle-spec-sources{padding:10px 16px;border-top:1px solid rgba(29,78,216,.10);font-size:9.5px;line-height:1.5;color:var(--ink-4)}
+    .ai-vehicle-spec-sources strong{color:var(--ink-2)}
+    .ai-vehicle-spec-sources a{color:#1D4ED8;text-decoration:none;margin-left:6px}
+    .ai-vehicle-spec-unavailable{padding:11px 12px;border:1px solid #FDE68A;border-radius:var(--r-md);background:#FFFBEB;color:var(--warn);font-size:10.5px;line-height:1.55;margin-bottom:10px}
+    @media(max-width:520px){.ai-vehicle-spec-head,.ai-vehicle-spec-body{padding-left:13px;padding-right:13px}.ai-vehicle-spec-grid{grid-template-columns:1fr}.ai-vehicle-spec-actions{flex-direction:column}.ai-vehicle-spec-actions .btn{width:100%}.ai-vehicle-spec-sources{padding-left:13px;padding-right:13px}}
+  </style>
 </head>
 <body>
 <div class="login-bg" id="loginOverlay">
@@ -1584,16 +1604,31 @@ function aiCarFilterRows(filters,exactChassis=''){
     return true;
   });
 }
+function renderAiVehicleSpec(spec,exactChassis='',matchedCar=null){
+  if(!spec)return '';
+  const grounded=spec.grounded===true;
+  if(!grounded)return '<div class="ai-vehicle-spec-unavailable">Vehicle specification source ကို ယခုအတည်မပြုနိုင်သေးပါ။ JACC historical price/data record ကိုသာ အတည်ပြုပြထားပါတယ်။</div>';
+  const labels={series:'Series',chassis_prefix:'Chassis',engine_code:'Engine',engine_size:'Engine Size',engine_type:'Engine Type',drive:'Drive',gearbox:'Gearbox',power:'Power',torque:'Torque',fuel:'Fuel',fuel_tank:'Fuel Tank',seats:'Seats',hybrid:'Hybrid'};
+  const title=matchedCar?.model||spec.series||exactChassis||'Vehicle specification';
+  const facts=Object.entries(labels).filter(([key])=>spec[key]!==undefined&&spec[key]!==null&&String(spec[key]).trim()!=='').map(([key,label])=>'<div class="ai-vehicle-spec-fact"><div class="ai-vehicle-spec-label">'+label+'</div><div class="ai-vehicle-spec-value">'+esc(spec[key])+'</div></div>').join('');
+  const sources=Array.isArray(spec.sources)?spec.sources.filter(source=>source&&/^https?:\\/\\//.test(String(source.uri||''))).slice(0,5):[];
+  const sourceLinks=sources.length?sources.map(source=>'<a href="'+escAttr(source.uri)+'" target="_blank" rel="noopener">'+esc(source.title||source.uri)+'</a>').join(''):'';
+  const actionChassis=matchedCar?.chassis||exactChassis;
+  const actions=(actionChassis?'<button type="button" class="btn btn-primary btn-sm" onclick="goLookup(\''+escAttr(actionChassis)+'\')">JACC detail ကြည့်ရန် ↗</button>':'')+'<a class="btn btn-outline btn-sm" href="https://t.me/JapanAuctionCar_Bot" target="_blank" rel="noopener">Telegram Request ↗</a><button type="button" class="btn btn-outline btn-sm" onclick="copyRequestCommand()">/carrequest Copy</button>';
+  return '<section class="ai-vehicle-spec-card" aria-label="Source-backed vehicle specification"><header class="ai-vehicle-spec-head"><div class="ai-vehicle-spec-kicker">Source-backed vehicle information</div><div class="ai-vehicle-spec-title">'+esc(title)+(exactChassis?' · '+esc(exactChassis):'')+'</div><div class="ai-vehicle-spec-subtitle">JACC AI က public vehicle specification sources ကို စစ်ပြီး အတည်ပြုနိုင်သော field များကိုသာ ပြထားပါတယ်။</div></header><div class="ai-vehicle-spec-body">'+(spec.summary?'<div class="ai-vehicle-spec-summary">'+esc(spec.summary)+'</div>':'')+'<div class="ai-vehicle-spec-grid">'+(facts||'<div class="ai-vehicle-spec-unavailable">Verified source ထဲမှာ field data မတွေ့သေးပါ။</div>')+'</div><div class="ai-vehicle-spec-actions">'+actions+'</div></div>'+(sourceLinks?'<div class="ai-vehicle-spec-sources"><strong>Sources:</strong>'+sourceLinks+'</div>':'')+'</section>';
+}
 function renderAiCarResults(filters,targetId='aiCarSearchResult',meta={}){
   const el=document.getElementById(targetId);if(!el)return;
   const exactChassis=String(meta.chassis||'').trim().toUpperCase();
   const rows=aiCarFilterRows(filters,exactChassis);
   const filterText=[exactChassis?'Chassis: '+exactChassis:'',aiCarFiltersText(filters)].filter(Boolean).join(' · ');
   const knowledge=meta.knowledge||{};
+  const matchedCar=rows[0]||null;
+  const vehicleSpecHtml=renderAiVehicleSpec(meta.vehicle_spec,exactChassis,matchedCar);
   const gradeNote=meta.grade_requested?'<div style="padding:10px 12px;margin-bottom:10px;border:1px solid #FDE68A;border-radius:var(--r-md);background:#FFFBEB;color:var(--ink-2);font-size:11px;line-height:1.55"><strong>Grade reference:</strong> '+esc(knowledge.grade_notice||'Exact auction grade ကို verified auction sheet/provider record မရှိဘဲ မခန့်မှန်းပါ။')+'</div>':'';
-  if(!rows.length){el.innerHTML=gradeNote+'<div class="request-status-error">JACC data ထဲမှာ ကိုက်ညီတဲ့ကား မတွေ့သေးပါ။<br><small>AI filter: '+esc(filterText||'မသတ်မှတ်နိုင်သေးပါ')+'</small></div>';return;}
+  if(!rows.length){el.innerHTML=gradeNote+vehicleSpecHtml+'<div class="request-status-error">JACC data ထဲမှာ ကိုက်ညီတဲ့ကား မတွေ့သေးပါ။<br><small>AI filter: '+esc(filterText||'မသတ်မှတ်နိုင်သေးပါ')+'</small></div>';return;}
   const resultRows=rows.slice(0,20).map(car=>'<tr data-ai-chassis="'+escAttr(car.chassis||'')+'" style="cursor:pointer"><td class="t-brand mono">'+esc(car.chassis||'-')+'</td><td class="t-brand">'+esc(car.model||'-')+'</td><td>'+(car.year?esc(car.year):'-')+'</td><td class="t-brand mono">'+(car.price?'฿'+Number(car.price).toLocaleString():'-')+'</td><td>'+esc(car.location||'-')+'</td><td>'+esc(car.date||'-')+'</td></tr>').join('');
-  el.innerHTML=gradeNote+'<div class="card" style="border:1px solid var(--line);background:var(--surface-2)"><div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">Verified JACC records · '+rows.length+' found · '+esc(filterText||'Car query')+'</div><div class="table-wrap"><table><thead><tr><th>Chassis</th><th>Model</th><th>Year</th><th>Price</th><th>Location</th><th>Date</th></tr></thead><tbody>'+resultRows+'</tbody></table></div>'+(rows.length>20?'<div style="margin-top:8px;color:var(--ink-4);font-size:12px">ပထမ ၂၀ စီးကိုသာ ပြထားပါတယ်။</div>':'')+'</div>';
+  el.innerHTML=gradeNote+vehicleSpecHtml+'<div class="card" style="border:1px solid var(--line);background:var(--surface-2)"><div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">Verified JACC records · '+rows.length+' found · '+esc(filterText||'Car query')+'</div><div class="table-wrap"><table><thead><tr><th>Chassis</th><th>Model</th><th>Year</th><th>Price</th><th>Location</th><th>Date</th></tr></thead><tbody>'+resultRows+'</tbody></table></div>'+(rows.length>20?'<div style="margin-top:8px;color:var(--ink-4);font-size:12px">ပထမ ၂၀ စီးကိုသာ ပြထားပါတယ်။</div>':'')+'</div>';
   el.querySelectorAll('[data-ai-chassis]').forEach(row=>row.addEventListener('click',()=>goLookup(row.getAttribute('data-ai-chassis'))));
 }
 function setHomeAiSuggestion(value){
@@ -1617,7 +1652,7 @@ async function askAiCarQuery(inputId='aiCarQueryInput',targetId='aiCarSearchResu
       const messages={AI_DISABLED:'AI text search ကို Admin က မဖွင့်သေးပါ။',CAR_TOPIC_ONLY:'ကားအကြောင်း query ပဲ မေးနိုင်ပါတယ်။',DAILY_LIMIT_REACHED:'ဒီနေ့ AI မေးခွန်း ၁၀ ခေါက် ပြည့်သွားပါပြီ။',WEB_PREMIUM_REQUIRED:'Premium Web membership လိုအပ်ပါတယ်။',AI_PROVIDER_UNAVAILABLE:'AI provider ခဏမရသေးပါ။ နောက်မှပြန်စမ်းပါ။'};
       el.innerHTML='<div class="request-status-error">'+esc(messages[code]||'AI search မအောင်မြင်ပါ။')+'<br><small>'+esc(code)+'</small></div>';return;
     }
-    renderAiCarResults(data.filters||{},targetId,{chassis:data.chassis||'',grade_requested:data.grade_requested||data.intent==='grade_info',knowledge:data.knowledge||{}});
+    renderAiCarResults(data.filters||{},targetId,{chassis:data.chassis||'',grade_requested:data.grade_requested||data.intent==='grade_info',knowledge:data.knowledge||{},vehicle_spec:data.vehicle_spec||null});
     if(data.remaining!==undefined){el.insertAdjacentHTML('afterbegin','<div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">ဒီနေ့ AI လက်ကျန်: '+esc(data.remaining)+'</div>');}
   }catch(error){el.innerHTML='<div class="request-status-error">AI backend ကို ဆက်သွယ်မရပါ။<br><small>'+esc(error&&error.message||'AI_QUERY_FAILED')+'</small></div>';}
 }
