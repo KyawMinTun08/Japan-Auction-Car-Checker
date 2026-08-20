@@ -251,6 +251,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL =
-            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/"
+            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.20.4"
     }
 }
