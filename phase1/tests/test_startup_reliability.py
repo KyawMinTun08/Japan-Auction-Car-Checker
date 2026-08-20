@@ -24,6 +24,10 @@ def test_frontend_uses_bounded_data_fetch_and_cache_fallback() -> None:
     assert "async function fetchJsonWithTimeout" in source
     assert "function armStartupWatchdog" in source
     assert "function showStartupRecoveryError" in source
+    assert "async function retryStartupData()" in source
+    assert "if(!SESSION||!SESSION.token||!SESSION.userId){location.reload();return;}" in source
+    assert "try{await init();}finally{startupRetryInFlight=false;}" in source
+    assert "onclick=\"retryStartupData()\"" in source
     assert "init().finally(()=>{loadMyRequests();syncSavedSearchAlerts();});" in source
     assert "await Promise.race([result.text(),timeout])" in source
     assert "Live data မရသေးပါ — Cached data ဖြင့် ဆက်သုံးနိုင်ပါတယ်" in source
