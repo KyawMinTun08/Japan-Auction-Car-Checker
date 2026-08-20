@@ -7,6 +7,8 @@ import android.util.Base64
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -14,6 +16,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebSettings
 import android.webkit.ValueCallback
 import android.webkit.JavascriptInterface
 import android.security.keystore.KeyGenParameterSpec
@@ -104,6 +107,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var errorPanel: View
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var startupRecoveryAttempted = false
+    private var startupPageFinished = false
+    private val startupHandler = Handler(Looper.getMainLooper())
+    private val startupRecoveryRunnable = Runnable {
+        if (!startupPageFinished && !startupRecoveryAttempted && !isFinishing) {
+            startupRecoveryAttempted = true
+            webView.stopLoading()
+            webView.clearCache(true)
+            webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+            webView.loadUrl(APP_URL)
+        }
+    }
 
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
@@ -183,6 +198,12 @@ class MainActivity : AppCompatActivity() {
                 webView.visibility = View.VISIBLE
             }
 
+            override fun onPageFinished(view: WebView?, url: String?) {
+                startupPageFinished = true
+                startupHandler.removeCallbacks(startupRecoveryRunnable)
+                webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
+            }
+
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
                 request: WebResourceRequest?
@@ -211,7 +232,10 @@ class MainActivity : AppCompatActivity() {
         })
 
         if (savedInstanceState == null) {
+            webView.clearCache(true)
+            webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
             webView.loadUrl(APP_URL)
+            startupHandler.postDelayed(startupRecoveryRunnable, 20000L)
         } else {
             webView.restoreState(savedInstanceState)
         }
@@ -235,6 +259,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         filePathCallback?.onReceiveValue(null)
         filePathCallback = null
+        startupHandler.removeCallbacks(startupRecoveryRunnable)
         webView.apply {
             stopLoading()
             clearHistory()
@@ -251,6 +276,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL =
-            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.20.4"
+            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.20.4&recovery=2026.08.20.5"
     }
 }

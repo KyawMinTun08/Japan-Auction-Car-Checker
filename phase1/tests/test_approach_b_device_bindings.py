@@ -92,7 +92,7 @@ def test_railway_adapters_forward_device_context():
 
 
 def test_pwa_cache_version_matches_frontend_app_version():
-    assert "APP_VERSION     = '2026.08.20-startup-recovery-v4';" in WEB
+    assert "APP_VERSION     = '2026.08.20-startup-recovery-v5';" in WEB
     assert "params.get('app')==='flutter'" in WEB
     assert "params.set('build','2026.08.20.4')" in WEB
-    assert "jacc-2026.08.20-startup-recovery-v4" in SW
+    assert "jacc-2026.08.20-startup-recovery-v5" in SW
