@@ -1552,8 +1552,9 @@ function aiCarFieldLabel(key){
 function aiCarFiltersText(filters){
   return Object.entries(filters||{}).filter(([,value])=>value!==null&&value!==''&&value!==undefined).map(([key,value])=>aiCarFieldLabel(key)+': '+String(value)).join(' · ');
 }
-function aiCarFilterRows(filters){
+function aiCarFilterRows(filters,exactChassis=''){
   const f=filters||{};
+  const normalizedExactChassis=String(exactChassis||'').trim().toUpperCase().replace(/[\s\-/]/g,'');
   const make=String(f.make||'').trim().toUpperCase();
   const model=String(f.model||'').trim().toUpperCase();
   const location=String(f.location||'').trim().toUpperCase();
@@ -1568,11 +1569,13 @@ function aiCarFilterRows(filters){
     const carModel=String(car.model||'').toUpperCase();
     const carLocation=String(car.location||'').toUpperCase();
     const carChassis=String(car.chassis||'').toUpperCase();
+    const normalizedCarChassis=carChassis.replace(/[\s\-/]/g,'');
     const carBody=String(car.body_type||'').toUpperCase();
     if(make&&carMake&& !carMake.includes(make)&&!carModel.includes(make))return false;
     if(model&&!carModel.includes(model))return false;
     if(location&&!carLocation.includes(location))return false;
     if(chassisPrefix&&!carChassis.startsWith(chassisPrefix))return false;
+    if(normalizedExactChassis&&!normalizedCarChassis.startsWith(normalizedExactChassis))return false;
     if(bodyType&&carBody&&!carBody.includes(bodyType))return false;
     if(yearMin!==null&&(!car.year||car.year<yearMin))return false;
     if(yearMax!==null&&(!car.year||car.year>yearMax))return false;
@@ -1583,13 +1586,14 @@ function aiCarFilterRows(filters){
 }
 function renderAiCarResults(filters,targetId='aiCarSearchResult',meta={}){
   const el=document.getElementById(targetId);if(!el)return;
-  const rows=aiCarFilterRows(filters);
-  const filterText=aiCarFiltersText(filters);
+  const exactChassis=String(meta.chassis||'').trim().toUpperCase();
+  const rows=aiCarFilterRows(filters,exactChassis);
+  const filterText=[exactChassis?'Chassis: '+exactChassis:'',aiCarFiltersText(filters)].filter(Boolean).join(' · ');
   const knowledge=meta.knowledge||{};
   const gradeNote=meta.grade_requested?'<div style="padding:10px 12px;margin-bottom:10px;border:1px solid #FDE68A;border-radius:var(--r-md);background:#FFFBEB;color:var(--ink-2);font-size:11px;line-height:1.55"><strong>Grade reference:</strong> '+esc(knowledge.grade_notice||'Exact auction grade ကို verified auction sheet/provider record မရှိဘဲ မခန့်မှန်းပါ။')+'</div>':'';
   if(!rows.length){el.innerHTML=gradeNote+'<div class="request-status-error">JACC data ထဲမှာ ကိုက်ညီတဲ့ကား မတွေ့သေးပါ။<br><small>AI filter: '+esc(filterText||'မသတ်မှတ်နိုင်သေးပါ')+'</small></div>';return;}
-  const resultRows=rows.slice(0,20).map(car=>'<tr data-ai-chassis="'+escAttr(car.chassis||'')+'" style="cursor:pointer"><td class="t-brand">'+esc(car.model||'-')+'</td><td>'+(car.year?esc(car.year):'-')+'</td><td class="t-brand mono">'+(car.price?'฿'+Number(car.price).toLocaleString():'-')+'</td><td>'+esc(car.location||'-')+'</td></tr>').join('');
-  el.innerHTML=gradeNote+'<div class="card" style="border:1px solid var(--line);background:var(--surface-2)"><div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">Verified JACC records · '+rows.length+' found · '+esc(filterText||'Car query')+'</div><div class="table-wrap"><table><thead><tr><th>Model</th><th>Year</th><th>Price</th><th>Location</th></tr></thead><tbody>'+resultRows+'</tbody></table></div>'+(rows.length>20?'<div style="margin-top:8px;color:var(--ink-4);font-size:12px">ပထမ ၂၀ စီးကိုသာ ပြထားပါတယ်။</div>':'')+'</div>';
+  const resultRows=rows.slice(0,20).map(car=>'<tr data-ai-chassis="'+escAttr(car.chassis||'')+'" style="cursor:pointer"><td class="t-brand mono">'+esc(car.chassis||'-')+'</td><td class="t-brand">'+esc(car.model||'-')+'</td><td>'+(car.year?esc(car.year):'-')+'</td><td class="t-brand mono">'+(car.price?'฿'+Number(car.price).toLocaleString():'-')+'</td><td>'+esc(car.location||'-')+'</td><td>'+esc(car.date||'-')+'</td></tr>').join('');
+  el.innerHTML=gradeNote+'<div class="card" style="border:1px solid var(--line);background:var(--surface-2)"><div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">Verified JACC records · '+rows.length+' found · '+esc(filterText||'Car query')+'</div><div class="table-wrap"><table><thead><tr><th>Chassis</th><th>Model</th><th>Year</th><th>Price</th><th>Location</th><th>Date</th></tr></thead><tbody>'+resultRows+'</tbody></table></div>'+(rows.length>20?'<div style="margin-top:8px;color:var(--ink-4);font-size:12px">ပထမ ၂၀ စီးကိုသာ ပြထားပါတယ်။</div>':'')+'</div>';
   el.querySelectorAll('[data-ai-chassis]').forEach(row=>row.addEventListener('click',()=>goLookup(row.getAttribute('data-ai-chassis'))));
 }
 function setHomeAiSuggestion(value){
@@ -1613,7 +1617,7 @@ async function askAiCarQuery(inputId='aiCarQueryInput',targetId='aiCarSearchResu
       const messages={AI_DISABLED:'AI text search ကို Admin က မဖွင့်သေးပါ။',CAR_TOPIC_ONLY:'ကားအကြောင်း query ပဲ မေးနိုင်ပါတယ်။',DAILY_LIMIT_REACHED:'ဒီနေ့ AI မေးခွန်း ၁၀ ခေါက် ပြည့်သွားပါပြီ။',WEB_PREMIUM_REQUIRED:'Premium Web membership လိုအပ်ပါတယ်။',AI_PROVIDER_UNAVAILABLE:'AI provider ခဏမရသေးပါ။ နောက်မှပြန်စမ်းပါ။'};
       el.innerHTML='<div class="request-status-error">'+esc(messages[code]||'AI search မအောင်မြင်ပါ။')+'<br><small>'+esc(code)+'</small></div>';return;
     }
-    renderAiCarResults(data.filters||{},targetId,{grade_requested:data.grade_requested||data.intent==='grade_info',knowledge:data.knowledge||{}});
+    renderAiCarResults(data.filters||{},targetId,{chassis:data.chassis||'',grade_requested:data.grade_requested||data.intent==='grade_info',knowledge:data.knowledge||{}});
     if(data.remaining!==undefined){el.insertAdjacentHTML('afterbegin','<div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">ဒီနေ့ AI လက်ကျန်: '+esc(data.remaining)+'</div>');}
   }catch(error){el.innerHTML='<div class="request-status-error">AI backend ကို ဆက်သွယ်မရပါ။<br><small>'+esc(error&&error.message||'AI_QUERY_FAILED')+'</small></div>';}
 }

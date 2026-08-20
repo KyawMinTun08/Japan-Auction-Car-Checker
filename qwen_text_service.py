@@ -35,6 +35,12 @@ _GRADE_TERMS = (
     "အဆင့်",
     "အော်ကရှင်းအဆင့်",
 )
+# Common chassis formats: GRS210-6007724, S510P-0279271, AGH30.
+# The pattern is intentionally narrow so arbitrary alphanumeric text does not
+# bypass the car-only topic gate.
+_CHASSIS_QUERY_RE = re.compile(
+    r"\b[A-Z]{1,6}\d{2,4}[A-Z]{0,4}(?:[-/ ]\d{3,8})?\b", re.IGNORECASE
+)
 _CAR_ANCHOR_TERMS = (
     "ကား",
     "မော်တော်",
@@ -53,6 +59,7 @@ _CAR_ANCHOR_TERMS = (
     "mitsubishi",
     "suzuki",
     "daihatsu",
+    "hijet",
     "subaru",
     "isuzu",
     "hino",
@@ -193,8 +200,10 @@ class QwenTextService:
 
     @classmethod
     def is_car_topic(cls, query: str) -> bool:
-        value = query.casefold()
-        return any(term.casefold() in value for term in _CAR_ANCHOR_TERMS)
+        value = cls.normalize_query(query).casefold()
+        return bool(_CHASSIS_QUERY_RE.search(value)) or any(
+            term.casefold() in value for term in _CAR_ANCHOR_TERMS
+        )
 
     @classmethod
     def is_grade_topic(cls, query: str) -> bool:
@@ -356,6 +365,8 @@ class QwenTextService:
             "You are the JACC car-query parser. Return ONLY one JSON object with exactly these keys: "
             "intent, grade_requested, chassis, filters. intent must be search or grade_info; "
             "grade_requested must be a boolean; chassis is a normalized chassis string or null; "
+            "If the query contains a chassis-like identifier such as GRS210-6007724 or S510P-0279271, "
+            "copy that identifier into chassis exactly after normalizing case; do not omit it. "
             "filters is an object containing only optional keys make, model, year_min, year_max, "
             "price_min, price_max, location, chassis_prefix, body_type. Use null for unknown values. "
             "A grade_info intent is for Factory Grade/Trim or Auction Condition Grade questions. "
