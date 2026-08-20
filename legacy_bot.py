@@ -1437,7 +1437,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "*Member Commands:*\n"
             "🆕 `/newmember` → Member အသစ်ဝင်ရန်\n"
             "🔄 `/renew` → ရှိပြီးသား Member သက်တမ်းတိုးရန်\n"
-            "📋 `/history NT32-504837` → ဈေးမှတ်တမ်း\n"
+            "⬆️ `/upgrade` → Premium Package ပြောင်းရန်\n"
             "🌐 `/web` → Web Link\n"
             "📱 `/app` → Android App Download\n"
             "🔑 `/mypassword` → Password ပြန်ယူ\n\n"
@@ -1460,6 +1460,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "*Commands:*\n"
             "🆕 `/newmember` → Member အသစ်ဝင်ရန်\n"
             "🔄 `/renew` → ရှိပြီးသား Member သက်တမ်းတိုးရန်\n"
+            "⬆️ `/upgrade` → Premium Package ပြောင်းရန်\n"
             "🌐 `/web` → Web Link\n"
             "📱 `/app` → Android App Download\n"
             "🔑 `/mypassword` → Password ပြန်ယူ\n"
@@ -6916,7 +6917,7 @@ async def main():
         BotCommand("newmember",     "🆕 Member အသစ်ဝင်ရန်"),
         BotCommand("carrequest",    "🚙 ကားလိုအပ်ပါက ဒီနေရာနှိပ်ပါ"),
         BotCommand("mystatus",      "📋 Request Status စစ်ရန်"),
-        BotCommand("history",       "📈 ဈေးနှုန်း မှတ်တမ်းကြည့်ရန်"),
+        BotCommand("upgrade",       "⬆️ Premium Package ပြောင်းရန်"),
         BotCommand("web",           "🌐 Web App link ကြည့်ရန်"),
         BotCommand("app",           "📱 Android App download link"),
         BotCommand("renew",         "🔄 ရှိပြီးသား Member သက်တမ်းတိုး"),
