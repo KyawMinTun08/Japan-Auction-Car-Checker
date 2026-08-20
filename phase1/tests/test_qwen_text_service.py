@@ -120,6 +120,15 @@ def test_grade_plan_is_validated_without_inventing_grade_values():
     assert "grade_code" not in plan
 
 
+def test_filter_json_extraction_accepts_wrapped_trailing_and_single_object_array():
+    object_value = QwenTextService._extract_json(
+        'Here is the result:\n```json\n{"filters":{"model":"Hijet"}}\n```\nDone.'
+    )
+    assert object_value["filters"]["model"] == "Hijet"
+    array_value = QwenTextService._extract_json('[{"intent":"search","filters":{"model":"Hijet"}}]')
+    assert array_value["filters"]["model"] == "Hijet"
+
+
 def test_vehicle_spec_text_is_whitelisted_and_missing_fields_are_omitted():
     spec = QwenTextService._parse_vehicle_spec_text(
         "SUMMARY: Toyota Alphard 2015 configuration\n"
