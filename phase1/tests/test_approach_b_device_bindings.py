@@ -69,7 +69,7 @@ def test_frontend_propagates_device_context_to_secondary_authenticated_calls():
 
 def test_flutter_uses_contract_compatible_installation_id_and_client_marker():
     assert "?app=flutter&jacc_app=1" in FLUTTER
-    assert "build=2026.08.20.4" in FLUTTER
+    assert "build=2026.08.20.5" in FLUTTER
     assert "Random.secure()" in FLUTTER
     assert "return 'JACC-$hex';" in FLUTTER
     assert "body.action === 'getData'" in FLUTTER
@@ -92,7 +92,7 @@ def test_railway_adapters_forward_device_context():
 
 
 def test_pwa_cache_version_matches_frontend_app_version():
-    assert "APP_VERSION     = '2026.08.20-startup-diagnostics-v6';" in WEB
+    assert "APP_VERSION     = '2026.08.20-startup-diagnostics-v8';" in WEB
     assert "params.get('app')==='flutter'" in WEB
-    assert "params.set('build','2026.08.20.4')" in WEB
-    assert "jacc-2026.08.20-startup-diagnostics-v6" in SW
+    assert "params.set('build','2026.08.20.5')" in WEB
+    assert "jacc-2026.08.20-startup-diagnostics-v8" in SW

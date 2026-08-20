@@ -8,8 +8,8 @@
 (function(){
   try{
     var params=new URLSearchParams(location.search);
-    if(params.get('app')==='flutter'&&params.get('jacc_app')==='1'&&params.get('build')!=='2026.08.20.4'){
-      params.set('build','2026.08.20.4');
+    if(params.get('app')==='flutter'&&params.get('jacc_app')==='1'&&params.get('build')!=='2026.08.20.5'){
+      params.set('build','2026.08.20.5');
       location.replace(location.pathname+'?'+params.toString()+location.hash);
     }
   }catch(ignore){}
@@ -758,10 +758,11 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.20-startup-diagnostics-v7';
+const APP_VERSION     = '2026.08.20-startup-diagnostics-v8';
 const REQUEST_TIMEOUT_MS = 12000;
-const DATA_REQUEST_TIMEOUT_MS = 45000;
-const STARTUP_WATCHDOG_TIMEOUT_MS = 60000;
+// Google Apps Script may need extra time for a large Sheet1 response on mobile networks.
+const DATA_REQUEST_TIMEOUT_MS = 90000;
+const STARTUP_WATCHDOG_TIMEOUT_MS = 120000;
 let startupWatchdogTimer = null;
 let startupRetryInFlight = false;
 let startupDiagnostic = {stage:'BOOT', code:'', startedAt:Date.now()};
