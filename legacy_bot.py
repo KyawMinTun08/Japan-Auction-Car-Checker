@@ -375,6 +375,55 @@ async def is_active_member(user_id: int) -> bool:
         pass
     return False
 
+
+async def get_member_record(user_id: int | str) -> dict | None:
+    """Return the current Members row for one Telegram user without mutating it."""
+    try:
+        is_admin_record = int(user_id) in ADMIN_IDS
+    except (TypeError, ValueError):
+        is_admin_record = False
+    if is_admin_record:
+        return {"userId": str(user_id), "status": "ACTIVE", "package": "WEB", "isAdmin": True}
+    if not SHEET_WEBHOOK:
+        return {"__lookup_error__": "sheet_webhook_missing"}
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.post(
+                SHEET_WEBHOOK,
+                json={"action": "getMembers"},
+                timeout=10,
+            )
+        resp.raise_for_status()
+        members = resp.json().get("members", [])
+        target_id = str(user_id).strip()
+        for member in members:
+            member_id = (
+                member.get("userId")
+                or member.get("userID")
+                or member.get("UserID")
+                or member.get("telegramId")
+            )
+            if str(member_id or "").replace(".0", "").strip() == target_id:
+                return member
+    except Exception as exc:
+        logger.warning("get_member_record failed for %s: %s", user_id, exc)
+        return {"__lookup_error__": "member_lookup_failed"}
+    return None
+
+
+async def validate_payment_flow(user_id: int | str, action: str) -> dict:
+    """Fail closed when a payment starts in the wrong new/renew flow."""
+    normalized_action = str(action or "renew").strip().lower()
+    record = await get_member_record(user_id)
+    if record and record.get("__lookup_error__"):
+        return {"ok": False, "record": None, "reason": "member_lookup_unavailable"}
+    has_record = record is not None
+    if normalized_action == "join" and has_record:
+        return {"ok": False, "record": record, "reason": "existing_member_must_renew"}
+    if normalized_action in ("renew", "upgrade") and not has_record:
+        return {"ok": False, "record": None, "reason": "new_member_must_join"}
+    return {"ok": True, "record": record, "reason": ""}
+
 # ── 10 Day Promo Helpers ──────────────────────────────
 async def get_cancel_count(str_uid: str) -> int:
     try:
@@ -1108,6 +1157,8 @@ async def save_payment_draft(payment: dict) -> dict:
     draft = {
         "userId": str(payload.get("userId") or ""),
         "username": str(payload.get("username") or ""),
+        "name": str(payload.get("name") or "Unknown"),
+        "action": str(payload.get("action") or ""),
         "package": str(payload.get("package") or "CH"),
         "months": int(payload.get("months", 1) or 1),
         "amount": int(payload.get("amount", 0) or 0),
@@ -1373,7 +1424,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = user_id in ADMIN_IDS
 
     kb = []
-    kb.append([InlineKeyboardButton("🆕 Membership ဝယ်ရန်", callback_data="join_start")])
+    kb.append([InlineKeyboardButton("🆕 New Member ဝင်ရန်", callback_data="newmember_start")])
     if ADMIN_USERNAME:
         kb.append([InlineKeyboardButton("💬 Admin ကို ဆက်သွယ်", url=f"https://t.me/{ADMIN_USERNAME}")])
     kb.append([InlineKeyboardButton("🌐 Web App ကြည့်",
@@ -1384,13 +1435,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin:
         cmd_text = (
             "*Member Commands:*\n"
-            "🔍 `/find NT32-504837` → Chassis ရှာ\n"
-            "🔎 `/model xtrail` → Model ရှာ\n"
+            "🆕 `/newmember` → Member အသစ်ဝင်ရန်\n"
+            "🔄 `/renew` → ရှိပြီးသား Member သက်တမ်းတိုးရန်\n"
             "📋 `/history NT32-504837` → ဈေးမှတ်တမ်း\n"
-            "📊 `/list` → ကားအားလုံး\n"
             "🌐 `/web` → Web Link\n"
             "📱 `/app` → Android App Download\n"
-            "🔄 `/renew` → Membership သက်တမ်းတိုး\n"
             "🔑 `/mypassword` → Password ပြန်ယူ\n\n"
             "*Admin Commands:*\n"
             "📸 ကားပုံ တင် → Chassis auto ဖတ်\n"
@@ -1409,13 +1458,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         cmd_text = (
             "*Commands:*\n"
-            "🔍 `/find NT32-504837` → Chassis ရှာ\n"
-            "🔎 `/model xtrail` → Model ရှာ\n"
-            "📋 `/history NT32-504837` → ဈေးမှတ်တမ်း\n"
-            "📊 `/list` → ကားအားလုံး\n"
+            "🆕 `/newmember` → Member အသစ်ဝင်ရန်\n"
+            "🔄 `/renew` → ရှိပြီးသား Member သက်တမ်းတိုးရန်\n"
             "🌐 `/web` → Web Link\n"
             "📱 `/app` → Android App Download\n"
-            "🔄 `/renew` → Membership သက်တမ်းတိုး\n"
             "🔑 `/mypassword` → Password ပြန်ယူ\n"
         )
 
@@ -1425,6 +1471,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         + cmd_text,
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(kb))
+
+async def show_new_member_flow(message, user_id: int):
+    """Start the new-member payment flow; /start itself only shows the bot menu."""
+    flow = await validate_payment_flow(user_id, "join")
+    if not flow.get("ok"):
+        if flow.get("reason") == "existing_member_must_renew":
+            await message.reply_text(
+                "🔄 ဒီ Telegram account မှာ Member record ရှိပြီးသားပါ။\n\n"
+                "Member အသစ် payment မလုပ်ပါနဲ့။ ရှိပြီးသား Member အတွက် `/renew` ကိုသာ အသုံးပြုပါ။\n\n"
+                "⚠️ Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။",
+                parse_mode="Markdown")
+        else:
+            await message.reply_text(
+                "⚠️ Member record ကို စစ်မရသေးပါ။ Payment မလွှဲသေးဘဲ ခဏနေရန် အကြံပြုပါသည်။",
+                parse_mode="Markdown")
+        return
+    await message.reply_text(
+        "🆕 *New Member — Member အသစ်ဝင်ရန်*\n\n"
+        "ဒီ payment flow ကို Member record မရှိသေးသူများအတွက်သာ အသုံးပြုပါ။\n"
+        "ရှိပြီးသား Member ဖြစ်ပါက `/renew` ကို သုံးပါ။\n\n"
+        "Package ရွေးချယ်ပါ 👇\n\n"
+        "⚠️ Member အသစ် payment နဲ့ Renew payment ကို မရောပါနဲ့။ Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။",
+        parse_mode="Markdown",
+        reply_markup=build_package_keyboard(user_id, "join"))
+
+
+async def newmember_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_new_member_flow(update.message, update.effective_user.id)
+
 
 async def find_car(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_rate_limit(update.effective_user.id):
@@ -1440,7 +1515,7 @@ async def find_car(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif not promo_info.get("eligible"):
             await update.message.reply_text(
                 f"❌ *ဝင်ခွင့်မရပါ*\n\n{promo_info['reason']}\n\n"
-                f"Membership ရယူရန် /start နှိပ်ပါ",
+                f"Membership ရယူရန် /newmember နှိပ်ပါ",
                 parse_mode='Markdown')
             return
         else:
@@ -1495,7 +1570,7 @@ async def find_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id  = update.effective_user.id
     if not await is_active_member(user_id):
         await update.message.reply_text(
-            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
+            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /newmember နှိပ်ပါ",
             parse_mode='Markdown')
         return
     if not context.args:
@@ -1639,7 +1714,7 @@ async def list_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not await is_active_member(user_id):
         await update.message.reply_text(
-            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
+            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /newmember နှိပ်ပါ",
             parse_mode='Markdown')
         return
     priced = {p['chassis'] for p in PRICE_HISTORY}
@@ -1691,7 +1766,7 @@ def build_package_keyboard(user_id: int, action: str = "renew"):
         [InlineKeyboardButton("❌ Cancel",          callback_data=f"pkg_cancel_{user_id}")],
     ])
 
-def build_period_keyboard(user_id: int, package: str):
+def build_period_keyboard(user_id: int, package: str, action: str = "renew"):
     prices = PLAN_PRICES[package]
     if package == "CH":
         return InlineKeyboardMarkup([
@@ -1699,14 +1774,14 @@ def build_period_keyboard(user_id: int, package: str):
              InlineKeyboardButton(f"2 လ — {prices[2]:,} ks",  callback_data=f"period_{package}_2_{user_id}")],
             [InlineKeyboardButton(f"3 လ — {prices[3]:,} ks",  callback_data=f"period_{package}_3_{user_id}"),
              InlineKeyboardButton(f"5 လ — {prices[5]:,} ks",  callback_data=f"period_{package}_5_{user_id}")],
-            [InlineKeyboardButton("◀️ နောက်သို့",             callback_data=f"pkg_back_{user_id}")],
+            [InlineKeyboardButton("◀️ နောက်သို့",             callback_data=f"pkg_back_{user_id}_{action}")],
         ])
     else:
         return InlineKeyboardMarkup([
             [InlineKeyboardButton(f"1 လ — {prices[1]:,} ks",  callback_data=f"period_{package}_1_{user_id}"),
              InlineKeyboardButton(f"2 လ — {prices[2]:,} ks",  callback_data=f"period_{package}_2_{user_id}"),
              InlineKeyboardButton(f"3 လ — {prices[3]:,} ks",  callback_data=f"period_{package}_3_{user_id}")],
-            [InlineKeyboardButton("◀️ နောက်သို့",             callback_data=f"pkg_back_{user_id}")],
+            [InlineKeyboardButton("◀️ နောက်သို့",             callback_data=f"pkg_back_{user_id}_{action}")],
         ])
 
 def build_paymethod_keyboard(user_id: int):
@@ -1720,9 +1795,30 @@ def build_paymethod_keyboard(user_id: int):
 async def renew_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
     user_id = user.id
+    flow = await validate_payment_flow(user_id, "renew")
+    if not flow.get("ok"):
+        reason = flow.get("reason")
+        if reason == "new_member_must_join":
+            await update.message.reply_text(
+                "🆕 ဒီ Telegram account မှာ Member record မရှိသေးပါ။\n\n"
+                "Member အသစ်ဝင်ရန် `/newmember` ကိုနှိပ်ပြီး New Member payment flow ကိုသာ အသုံးပြုပါ။\n\n"
+                "⚠️ Member အသစ် payment နဲ့ Renew payment ကို မရောပါနဲ့။ Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။",
+                parse_mode="Markdown")
+        else:
+            await update.message.reply_text(
+                "⚠️ Member record ကို စစ်မရသေးပါ။ Payment မလွှဲသေးဘဲ ခဏနေရန်နှင့် Admin ကို ဆက်သွယ်ရန် အကြံပြုပါသည်.",
+                parse_mode="Markdown")
+        return
+    record = flow.get("record") or {}
+    current_pkg = str(record.get("package") or "").upper().strip()
+    current_status = str(record.get("status") or "").upper().strip()
     await update.message.reply_text(
-        "🔄 *Membership သက်တမ်းတိုး*\n\n"
-        "Package ရွေးချယ်ပါ 👇",
+        "🔄 *Renew Member — သက်တမ်းတိုးရန်*\n\n"
+        f"လက်ရှိ Status: `{current_status or 'UNKNOWN'}`\n"
+        f"လက်ရှိ Package: `{current_pkg or 'UNKNOWN'}`\n\n"
+        "Package ရွေးချယ်ပါ 👇\n\n"
+        "⚠️ ဒီ flow သည် ရှိပြီးသား Member အတွက် Renew/Upgrade payment သီးသန့်ဖြစ်ပါတယ်။\n"
+        "⚠️ Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်သောကြောင့် မလွှဲမီ Member type၊ Package၊ Amount နှင့် Receiver ကို စစ်ပါ။",
         parse_mode='Markdown',
         reply_markup=build_package_keyboard(user_id, "renew"))
 
@@ -1731,7 +1827,7 @@ async def mypassword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     if not await is_active_member(user_id):
         await update.message.reply_text(
-            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
+            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /newmember နှိပ်ပါ",
             parse_mode='Markdown')
         return
     pkg = await get_member_package(user_id)
@@ -2115,10 +2211,27 @@ async def finance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def upgrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
     user_id = user.id
+    flow = await validate_payment_flow(user_id, "upgrade")
+    if not flow.get("ok"):
+        if flow.get("reason") == "new_member_must_join":
+            await update.message.reply_text(
+                "🆕 Member record မရှိသေးပါ။ `/upgrade` မဟုတ်ဘဲ `/newmember` မှ New Member flow ကို သုံးပါ။\n\n"
+                "⚠️ Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။",
+                parse_mode="Markdown")
+        else:
+            await update.message.reply_text(
+                "⚠️ Member record ကို စစ်မရသေးပါ။ Payment မလွှဲသေးဘဲ Admin ကို ဆက်သွယ်ပါ။",
+                parse_mode="Markdown")
+        return
+    record = flow.get("record") or {}
+    current_pkg = str(record.get("package") or "").upper().strip()
     await update.message.reply_text(
-        "⬆️ *Package Upgrade*\n\n"
+        "⬆️ *Package Upgrade — ရှိပြီးသား Member သီးသန့်*\n\n"
+        f"လက်ရှိ Package: `{current_pkg or 'UNKNOWN'}`\n"
         "📱 Standard → 💎 Web Premium\n\n"
-        "Web ဝင်ခွင့် ထပ်ထည့်ချင်ရင် Package ရွေးပါ 👇",
+        "Web ဝင်ခွင့် ထပ်ထည့်ချင်ရင် Package ရွေးပါ 👇\n\n"
+        "⚠️ New Member payment မသုံးပါနဲ့။ Flow၊ Package၊ Amount နှင့် Receiver မှန်ကြောင်း စစ်ပါ။\n"
+        "Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။",
         parse_mode='Markdown',
         reply_markup=build_package_keyboard(user_id, "upgrade"))
 
@@ -2509,6 +2622,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_payment[user_id] = restored_payment
     if user_id in pending_payment:
         pay_data = pending_payment[user_id]
+        pay_action = str(pay_data.get("action") or "").strip().lower()
+        if pay_action not in ("join", "renew", "upgrade"):
+            await update.message.reply_text(
+                "⚠️ ဒီ payment session မှာ Member အသစ်/Renew အမျိုးအစား မသတ်မှတ်နိုင်သေးပါ။\n"
+                "Payment မမှားစေရန် ဒီ slip ကို Admin ထံ မပို့သေးပါ။ `/newmember` သို့မဟုတ် `/renew` မှ flow မှန်ကို ပြန်စပါ။",
+                parse_mode="Markdown")
+            return
+        flow = await validate_payment_flow(user_id, pay_action)
+        if not flow.get("ok"):
+            if flow.get("reason") == "existing_member_must_renew":
+                msg = "🔄 Member record ရှိပြီးသားဖြစ်သောကြောင့် ဒီ slip ကို New Member အဖြစ် မလက်ခံနိုင်ပါ။ `/renew` ကိုသာ သုံးပါ။"
+            elif flow.get("reason") == "new_member_must_join":
+                msg = "🆕 Member record မရှိသေးသောကြောင့် ဒီ slip ကို Renew အဖြစ် မလက်ခံနိုင်ပါ။ `/newmember` မှ New Member flow ကို သုံးပါ။"
+            else:
+                msg = "⚠️ Member record ကို စစ်မရသေးသောကြောင့် ဒီ slip ကို Admin ထံ မပို့သေးပါ။"
+            await update.message.reply_text(
+                msg + "\n\nPayment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။",
+                parse_mode="Markdown")
+            return
         if pay_data.get("waiting_slip"):
             await update.message.reply_text("🔍 Payment Slip ဖတ်နေတယ်... ⏳")
             try:
@@ -2586,6 +2718,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             pkg_name = PLAN_NAMES.get(pay_data.get("package", "CH"), "Unknown")
             months = pay_data.get("months", 1)
+            flow_label = "New Member" if pay_action == "join" else ("Renew/Upgrade Member" if pay_action == "upgrade" else "Renew Member")
             name = pay_data.get("name", "Unknown")
             username = pay_data.get("username", str(user_id))
             chosen_method = pay_data.get("method", "")
@@ -2607,15 +2740,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_status = "✅ ပြည့်ပြီ" if remaining == 0 else f"⚠️ {abs(remaining):,} ks ပိုနေသည် — Admin စစ်ဆေးရန်"
             slip_block = "\n".join(slip_lines)
             admin_text = (
-                f"💰 *Payment Slip အသစ် — စုစုပေါင်းစစ်ရန်*\n\n"
+                f"💰 *{flow_label} Payment Slip — စုစုပေါင်းစစ်ရန်*\n\n"
                 f"👤 {name} ({username})\n"
                 f"🆔 ID: `{user_id}`\n"
+                f"🧭 Flow: *{flow_label}*\n"
                 f"📦 Package: {pkg_name} — {months} လ\n"
                 f"🎯 ရွေးခဲ့သော method: {method_label}\n"
                 f"💵 Expected: {expected:,} ks\n"
                 f"💵 Total received: {total_paid:,} ks — {total_status}\n\n"
                 f"📋 *Slip အားလုံး:*\n{slip_block}\n"
-                f"\n⚠️ Payment app ထဲမှာ Transaction No. တစ်ခုချင်းစီကို စစ်ပြီးမှ Confirm လုပ်ပါ"
+                f"\n⚠️ Payment app ထဲမှာ Transaction No. တစ်ခုချင်းစီကို စစ်ပြီးမှ Confirm လုပ်ပါ\n"
+                f"⚠️ New Member နှင့် Renew payment မရောကြောင်း၊ Amount/Package/Receiver မှန်ကြောင်း စစ်ပါ။ မှားပါက repayment ကြာနိုင်ပါတယ်။"
             )
             admin_kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"💬 {name} ကို Message ပို့", url=f"tg://user?id={user_id}")],
@@ -3696,40 +3831,57 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             f"💰 `{chassis}` ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`", parse_mode='Markdown')
 
-    elif data.startswith("join_start"):
-        user_id = query.from_user.id
-        await query.message.reply_text(
-            "🆕 *Membership ဝယ်ရန်*\n\n"
-            "Package ရွေးချယ်ပါ 👇",
-            parse_mode='Markdown',
-            reply_markup=build_package_keyboard(user_id, "join"))
+    elif data in ("join_start", "newmember_start"):
+        await query.answer()
+        await show_new_member_flow(query.message, query.from_user.id)
 
     elif data.startswith("pkg_cancel_"):
         pending_payment.pop(query.from_user.id, None)
         await query.message.reply_text("❌ Cancel လုပ်ပြီး")
 
     elif data.startswith("pkg_back_"):
+        parts = data.split("_")
         user_id = query.from_user.id
+        action = parts[3] if len(parts) > 3 and parts[3] in ("join", "renew", "upgrade") else "renew"
         await query.message.reply_text(
-            "Package ပြန်ရွေးပါ 👇",
-            reply_markup=build_package_keyboard(user_id, "renew"))
+            ("New Member package ပြန်ရွေးပါ 👇" if action == "join" else "Renew Member package ပြန်ရွေးပါ 👇"),
+            reply_markup=build_package_keyboard(user_id, action))
 
     elif data.startswith("pkg_"):
         parts   = data.split("_")
         package = parts[1]
         user_id = int(parts[2])
         action  = parts[3] if len(parts) > 3 else "renew"
-        prices  = PLAN_PRICES.get(package, PLAN_PRICES["CH"])
+        if query.from_user.id != user_id:
+            await query.answer("❌ သင့် payment button မဟုတ်ဘူး", show_alert=True)
+            return
+        flow = await validate_payment_flow(user_id, action)
+        if not flow.get("ok"):
+            if flow.get("reason") == "existing_member_must_renew":
+                msg = "🔄 Member record ရှိပြီးသားပါ။ Member အသစ် payment မလုပ်ပါနဲ့ — `/renew` ကိုသာ သုံးပါ။"
+            elif flow.get("reason") == "new_member_must_join":
+                msg = "🆕 Member record မရှိသေးပါ။ Renew payment မလုပ်ပါနဲ့ — `/newmember` မှ New Member flow ကိုသာ သုံးပါ။"
+            else:
+                msg = "⚠️ Member record ကို စစ်မရသေးပါ။ Payment မလွှဲသေးဘဲ Admin ကို ဆက်သွယ်ပါ။"
+            await query.message.reply_text(
+                msg + "\n\nPayment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်.",
+                parse_mode="Markdown")
+            return
         pending_payment[user_id] = {
             "package": package, "action": action,
             "name":    query.from_user.first_name or "Unknown",
             "username": f"@{query.from_user.username}" if query.from_user.username else str(user_id),
         }
         pkg_name = PLAN_NAMES.get(package,"")
+        flow_label = "New Member" if action == "join" else "Renew Member"
         await query.message.reply_text(
-            f"✅ Package: *{pkg_name}*\n\nPeriod ရွေးပါ 👇",
+            f"✅ *{flow_label}*\n"
+            f"📦 Package: *{pkg_name}*\n\n"
+            "ဒီ package/flow မှန်မမှန် စစ်ပြီးမှ Period ရွေးပါ။\n"
+            "⚠️ Member အသစ်နှင့် Renew payment ကို မရောပါနဲ့။ Payment မှားပို့မိပါက refund/repayment ကြာနိုင်ပါတယ်။\n\n"
+            "Period ရွေးပါ 👇",
             parse_mode='Markdown',
-            reply_markup=build_period_keyboard(user_id, package))
+            reply_markup=build_period_keyboard(user_id, package, action))
 
     # ── 🆕 Period → Method ရွေးခိုင်း ──
     elif data.startswith("period_"):
@@ -3737,21 +3889,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         package = parts[1]
         months  = int(parts[2])
         user_id = int(parts[3])
+        if query.from_user.id != user_id:
+            await query.answer("❌ သင့် payment button မဟုတ်ဘူး", show_alert=True)
+            return
+        pay_data = pending_payment.get(user_id, {})
+        action = str(pay_data.get("action") or "renew")
+        flow = await validate_payment_flow(user_id, action)
+        if not flow.get("ok"):
+            await query.message.reply_text(
+                "⚠️ ဒီ payment flow ကို ဆက်မလုပ်နိုင်သေးပါ။ Member အသစ်ဆို `/newmember`၊ ရှိပြီးသား Member ဆို `/renew` ကို မှန်ကန်စွာ အသုံးပြုပါ။\n\n"
+                "Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။",
+                parse_mode="Markdown")
+            pending_payment.pop(user_id, None)
+            return
         amount  = PLAN_PRICES.get(package, {}).get(months, 0)
         pkg_name = PLAN_NAMES.get(package,"")
 
         if user_id not in pending_payment:
-            pending_payment[user_id] = {}
+            pending_payment[user_id] = {"action": action}
         pending_payment[user_id].update({
             "package": package,
             "months":  months,
             "amount":  amount,
         })
 
+        flow_label = "New Member" if action == "join" else "Renew Member"
         await query.message.reply_text(
-            f"✅ Package: *{pkg_name}*\n"
+            f"✅ *{flow_label}*\n"
+            f"📦 Package: *{pkg_name}*\n"
             f"📅 Period: *{months} လ*\n"
             f"💵 ပေးရမည်: *{amount:,} ks*\n\n"
+            "⚠️ Amount၊ Package နှင့် Payment receiver ကို သေချာစစ်ပြီးမှ လွှဲပါ။\n"
+            "Member အသစ် payment ကို Renew အဖြစ် မလွှဲပါနဲ့။ မှားယွင်းပါက refund/repayment ကြာနိုင်ပါတယ်။\n\n"
             f"💳 *Payment Method ရွေးပါ* 👇",
             parse_mode='Markdown',
             reply_markup=build_paymethod_keyboard(user_id))
@@ -3764,12 +3933,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if query.from_user.id != user_id:
             await query.answer("❌ သင့် button မဟုတ်ဘူး", show_alert=True); return
         if user_id not in pending_payment:
-            await query.answer("❌ Session ကုန်ပြီ — /renew ပြန်စပါ", show_alert=True); return
+            await query.answer("❌ Session ကုန်ပြီ — New Member အတွက် /newmember၊ Renew အတွက် /renew ပြန်စပါ", show_alert=True); return
 
+        pay_data = pending_payment[user_id]
         info     = PAYMENT_METHOD_INFO.get(method, {})
-        amount   = pending_payment[user_id].get("amount", 0)
-        package  = pending_payment[user_id].get("package", "CH")
-        months   = pending_payment[user_id].get("months", 1)
+        amount   = pay_data.get("amount", 0)
+        package  = pay_data.get("package", "CH")
+        months   = pay_data.get("months", 1)
+        action   = str(pay_data.get("action") or "renew")
+        flow_label = "New Member" if action == "join" else "Renew Member"
         pkg_name = PLAN_NAMES.get(package, "")
         file_id  = await get_payment_qr(method)
 
@@ -3777,11 +3949,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_payment[user_id]["waiting_slip"] = True
 
         caption = (
-            f"{info.get('label','')} *Payment*\n\n"
+            f"{info.get('label','')} *Payment* — *{flow_label}*\n\n"
             f"💵 *Amount:* {amount:,} ks\n"
             f"📦 {pkg_name} — {months} လ\n"
             f"📱 *Number:* {info.get('number','')}\n"
             f"👤 *Name:* {info.get('owner','')}\n\n"
+            f"⚠️ ဒီ payment သည် *{flow_label}* အတွက်သာ ဖြစ်ပါတယ်။\n"
+            f"Member အသစ် payment ကို Renew အဖြစ် မပို့ပါနဲ့၊ Renew payment ကို Member အသစ်အဖြစ် မပို့ပါနဲ့။\n"
+            f"❗ Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။\n\n"
             f"⬇️ QR ကို *long-press* → Save Photo\n"
             f"📲 ဒါမှမဟုတ် App နဲ့ Scan\n\n"
             f"💸 ပြီးရင် *Payment Slip* ဒီနေရာမှာ ပို့ပါ"
@@ -3835,6 +4010,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not pay_data:
             await query.answer("❌ Data ကုန်သွားပြီ", show_alert=True)
             return
+        payment_action = str(pay_data.get("action") or "").strip().lower()
+        if payment_action not in ("join", "renew", "upgrade"):
+            await query.message.reply_text(
+                "❌ Approve မလုပ်နိုင်ပါ — payment flow မှာ New Member/Renew အမျိုးအစား မရှိသေးပါ။\n"
+                "Member type ကို အတည်ပြုပြီး flow မှန်နဲ့ payment ပြန်စပါ။ Payment မှားပို့မိပါက repayment ကြာနိုင်ပါတယ်။",
+                parse_mode="Markdown")
+            return
+        flow = await validate_payment_flow(member_id, payment_action)
+        if not flow.get("ok"):
+            await query.message.reply_text(
+                "❌ Approve မလုပ်နိုင်ပါ — Member အသစ်/Renew flow မကိုက်ညီပါ။\n"
+                "Payment ကို Member အသစ်အဖြစ်ပို့ထားသော်လည်း record ရှိပြီးသား သို့မဟုတ် Renew အဖြစ်ပို့ထားသော်လည်း record မရှိသေးနိုင်ပါတယ်။\n\n"
+                "Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်သောကြောင့် မအတည်ပြုသေးပါ။",
+                parse_mode="Markdown")
+            return
+        flow_label = "New Member" if payment_action == "join" else ("Renew/Upgrade Member" if payment_action == "upgrade" else "Renew Member")
         name        = pay_data.get("name", "Unknown")
         _pkg_code   = pay_data.get("package","CH")
         pkg         = PLAN_NAMES.get(_pkg_code, "Unknown")
@@ -3865,8 +4056,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             f"⚠️ *Approve အတည်ပြုချက်*\n\n"
             f"👤 {name}\n"
+            f"🧭 Flow: *{flow_label}*\n"
             f"📦 {pkg} — {months} လ\n"
             f"💵 {amount:,} ks\n\n"
+            f"⚠️ Flow၊ Package၊ Amount၊ Receiver မှန်ကြောင်း စစ်ပြီးမှ Approve လုပ်ပါ။\n"
+            f"Payment မှားပို့မိပါက repayment ကြာနိုင်ပါတယ်။\n\n"
             f"{_give_txt} — သေချာပါသလား?",
             parse_mode='Markdown',
             reply_markup=confirm_kb)
@@ -3891,6 +4085,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(
                 "❌ Payment draft မတွေ့ပါ။ Member ကို slip ပြန်ပို့ခိုင်းပါ။"
             )
+            return
+        payment_action = str(pay_data.get("action") or "").strip().lower()
+        if payment_action not in ("join", "renew", "upgrade"):
+            await query.message.reply_text(
+                "❌ Final Approve မလုပ်နိုင်ပါ — New Member/Renew flow မသတ်မှတ်နိုင်သေးပါ။ Payment ကို မသိမ်းဆည်းသေးပါ။",
+                parse_mode="Markdown")
+            return
+        flow = await validate_payment_flow(member_id, payment_action)
+        if not flow.get("ok"):
+            await query.message.reply_text(
+                "❌ Final Approve မလုပ်နိုင်ပါ — Member record နှင့် payment flow မကိုက်ညီပါ။\n"
+                "Payment မှားပို့မိပါက repayment ကြာနိုင်သောကြောင့် မသိမ်းဆည်းသေးပါ။",
+                parse_mode="Markdown")
             return
         expected_amount = int(pay_data.get("amount", 0) or 0)
         slips = pay_data.get("slips", []) or []
@@ -5241,7 +5448,7 @@ async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not await is_active_member(user_id):
         await update.message.reply_text(
-            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /start နှိပ်ပါ",
+            "🔒 *Member များသာ သုံးနိုင်ပါသည်*\n\nMembership ရယူရန် /newmember နှိပ်ပါ",
             parse_mode='Markdown')
         return
 
@@ -5252,7 +5459,7 @@ async def carrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "❌ *10 Day Promo — Request ကုန်သွားပြီ*\n\n"
                 "Cancel ၂ ကြိမ် ပြည့်သောကြောင့် ထပ်မတင်နိုင်ပါ\n"
-                "Membership ဝယ်ရန်: /start",
+                "Member အသစ်ဝင်ရန်: /newmember",
                 parse_mode='Markdown')
             return
 
@@ -6460,7 +6667,7 @@ async def check_expired_members(context):
                             chat_id=int(uid),
                             text=("⏰ *10 Day Promo ကုန်ဆုံးပြီ*\n\n"
                                   + ("Order တင်ခဲ့သောကြောင့် ကျေးဇူးတင်ပါသည် 🙏\n"
-                                     "Membership ဝယ်ရန် /start" if has_order else
+                                     "Member အသစ်ဝင်ရန် /newmember" if has_order else
                                      "❌ Order မတင်ဘဲ ကုန်ဆုံးသောကြောင့် Kick ခံရပြီ\n"
                                      "နောက်ထပ် Promo မရနိုင်ပါ")),
                             parse_mode='Markdown')
@@ -6656,6 +6863,7 @@ async def main():
                           params={"drop_pending_updates":True})
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start",       start))
+    app.add_handler(CommandHandler("newmember",   newmember_cmd))
     app.add_handler(CommandHandler("find",        find_car))
     app.add_handler(CommandHandler("model",       find_model))
     app.add_handler(CommandHandler("price",       add_price))
@@ -6705,15 +6913,13 @@ async def main():
 
     member_commands = [
         BotCommand("start",         "🚗 Bot စတင်ရန်"),
+        BotCommand("newmember",     "🆕 Member အသစ်ဝင်ရန်"),
         BotCommand("carrequest",    "🚙 ကားလိုအပ်ပါက ဒီနေရာနှိပ်ပါ"),
         BotCommand("mystatus",      "📋 Request Status စစ်ရန်"),
-        BotCommand("find",          "🔍 Chassis ဖြင့်ရှာရန်"),
-        BotCommand("model",         "🔎 Model အမည်ဖြင့်ရှာရန်"),
         BotCommand("history",       "📈 ဈေးနှုန်း မှတ်တမ်းကြည့်ရန်"),
-        BotCommand("list",          "📊 ကားစာရင်း အားလုံးကြည့်ရန်"),
         BotCommand("web",           "🌐 Web App link ကြည့်ရန်"),
         BotCommand("app",           "📱 Android App download link"),
-        BotCommand("renew",         "🔄 Membership သက်တမ်းတိုး"),
+        BotCommand("renew",         "🔄 ရှိပြီးသား Member သက်တမ်းတိုး"),
         BotCommand("channel",       "📢 Channel link အသစ်ယူရန်"),
         BotCommand("mypassword",    "🔑 Password ပြန်ယူရန်"),
         BotCommand("redeem",        "🎁 Promo Code သုံးရန်"),
