@@ -20,6 +20,7 @@ def test_gemini_payment_slip_flow_remains_unchanged_and_separate():
 def test_qwen_contract_is_server_side_and_feature_flagged():
     source = QWEN.read_text(encoding="utf-8")
     assert 'JACC_AI_ENABLED' in source
+    assert 'JACC_AI_SPEC_ENABLED' in source
     assert 'GEMINI_API_KEY' in source
     assert '"x-goog-api-key": self.api_key' in source
     assert 'https://generativelanguage.googleapis.com/v1beta' in source
@@ -27,6 +28,8 @@ def test_qwen_contract_is_server_side_and_feature_flagged():
     assert 'systemInstruction' in source
     assert 'responseMimeType' in source
     assert 'candidates' in source
+    assert 'google_search' in source
+    assert '_parse_vehicle_spec_text' in source
     assert 'JACC_AI_API_KEY' not in source
     assert 'CAR_TOPIC_ONLY' in source
     assert '_CHASSIS_QUERY_RE' in source
@@ -61,6 +64,8 @@ def test_frontend_ai_search_uses_existing_authenticated_railway_contract():
     assert 'ai-price-results-mobile-fix' in source
     assert '#tab-dashboard .jacc-home-ai-result .table-wrap' in source
     assert 'grade_requested' in source
+    assert 'vehicle_spec' in source
+    assert 'ai-vehicle-spec-card' in source
     assert "base+'/api/ai/query'" in source
     assert "X-JACC-Device-ID" in source
     assert "X-JACC-App" in source
