@@ -4048,7 +4048,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         member_id = int(data.replace("slip_confirm_",""))
         pay_data  = await ensure_payment_session(member_id)
         if not pay_data:
-            await query.answer("❌ Data ကုန်သွားပြီ", show_alert=True)
+            await query.answer(
+                "❌ Payment draft မတွေ့ပါ — Customer ကို payment/slip ပြန်မတောင်းပါနှင့်။ Admin က original slip/Payment_Drafts ကို စစ်ပါ။",
+                show_alert=True)
             return
         payment_action, action_source = await resolve_payment_action(member_id, pay_data)
         if not payment_action:
@@ -4129,8 +4131,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pay_data = await ensure_payment_session(member_id)
         if not pay_data:
             await query.message.reply_text(
-                "❌ Payment draft မတွေ့ပါ။ Member ကို slip ပြန်ပို့ခိုင်းပါ။"
-            )
+                "❌ Final Approve ကို ဆက်မလုပ်နိုင်သေးပါ — Payment draft မတွေ့ပါ။\n"
+                "Customer ကို payment သို့မဟုတ် slip ပြန်မတောင်းပါနှင့်။\n"
+                "Admin က မူရင်း payment message၊ Payment_Drafts နှင့် Finance record ကို စစ်ပြီးမှသာ ဆက်လုပ်ပါ။",
+                parse_mode="Markdown")
             return
         payment_action, action_source = await resolve_payment_action(member_id, pay_data)
         if not payment_action:
@@ -4303,7 +4307,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if query.from_user.id not in ADMIN_IDS:
             await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
             return
-        member_id = int(data.replace("slip_no_",""))
+        member_id = int(data.replace("slip_no_", ""))
+        pay_data = await ensure_payment_session(member_id)
+        payment_action = str((pay_data or {}).get("action") or "").strip().lower()
+        retry_command = "/newmember" if payment_action == "join" else (
+            "/upgrade" if payment_action == "upgrade" else "/renew"
+        )
         await clear_payment_draft(member_id)
         pending_payment.pop(member_id, None)
         try:
@@ -4312,7 +4321,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=member_id,
                 text=f"❌ *Payment မအတည်မပြုနိုင်ပါ*\n\n"
                      f"Slip မှားနိုင်သည် သို့မဟုတ် ငွေပမာဏ မပြည့်မှီပါ\n\n"
-                     f"ပြန်လည် ကြိုးစားရန် /renew{admin_link}",
+                     f"ပြန်လည် ကြိုးစားရန် {retry_command}{admin_link}",
                 parse_mode='Markdown')
         except Exception as e:
             logger.error(f"Reject DM: {e}")
