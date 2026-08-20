@@ -457,6 +457,20 @@ async def resolve_payment_action(user_id: int | str, payment: dict | None) -> tu
         return "renew", "legacy_active_record"
     return "join", "legacy_new_or_inactive_record"
 
+
+def payment_retry_command(action: str | None) -> str:
+    """Return the correct customer retry command without guessing unknown flows."""
+    normalized = str(action or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return {
+        "join": "/newmember",
+        "new": "/newmember",
+        "newmember": "/newmember",
+        "new_member": "/newmember",
+        "renew": "/renew",
+        "upgrade": "/upgrade",
+    }.get(normalized, "")
+
+
 # ── 10 Day Promo Helpers ──────────────────────────────
 async def get_cancel_count(str_uid: str) -> int:
     try:
@@ -4129,8 +4143,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pay_data = await ensure_payment_session(member_id)
         if not pay_data:
             await query.message.reply_text(
-                "❌ Payment draft မတွေ့ပါ။ Member ကို slip ပြန်ပို့ခိုင်းပါ။"
-            )
+                f"❌ Payment draft မတွေ့ပါ။ User ID `{member_id}` ၏ Payment_Drafts/Finance record ကို "
+                "Admin မှ စစ်ဆေးပြီးမှ recovery လုပ်ပါ။\n"
+                "Member ကို slip ထပ်မပို့ခိုင်းသေးပါနှင့်။",
+                parse_mode="Markdown")
             return
         payment_action, action_source = await resolve_payment_action(member_id, pay_data)
         if not payment_action:
@@ -4291,17 +4307,31 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if query.from_user.id not in ADMIN_IDS:
             await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
             return
-        member_id = int(data.replace("slip_no_",""))
+        member_id = int(data.replace("slip_no_", ""))
+        # Restore the draft before clearing it so the retry command follows the
+        # original flow. Unknown/missing actions fail closed instead of guessing.
+        pay_data = await ensure_payment_session(member_id)
+        retry_action = ""
+        if pay_data:
+            retry_action, _ = await resolve_payment_action(member_id, pay_data)
+        retry_command = payment_retry_command(retry_action)
         await clear_payment_draft(member_id)
         pending_payment.pop(member_id, None)
         try:
             admin_link = f"\n💬 [Admin ကို ဆက်သွယ်](https://t.me/{ADMIN_USERNAME})" if ADMIN_USERNAME else ""
+            if retry_command:
+                retry_instruction = f"ပြန်လည် ကြိုးစားရန် {retry_command}"
+            else:
+                retry_instruction = (
+                    "ဒီ payment ၏ flow ကို မသတ်မှတ်နိုင်သေးပါ။ "
+                    "Admin ကို ဆက်သွယ်ပြီးမှ ပြန်စတင်ပါ။"
+                )
             await context.bot.send_message(
                 chat_id=member_id,
                 text=f"❌ *Payment မအတည်မပြုနိုင်ပါ*\n\n"
                      f"Slip မှားနိုင်သည် သို့မဟုတ် ငွေပမာဏ မပြည့်မှီပါ\n\n"
-                     f"ပြန်လည် ကြိုးစားရန် /renew{admin_link}",
-                parse_mode='Markdown')
+                     f"{retry_instruction}{admin_link}",
+                parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Reject DM: {e}")
         await query.message.reply_text(f"❌ Rejected — Member ကို notify ပြီးပြီ")
