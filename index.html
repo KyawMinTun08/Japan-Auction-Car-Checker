@@ -747,7 +747,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.19-ai-console-v2';
+const APP_VERSION     = '2026.08.20-startup-recovery-v3';
 const REQUEST_TIMEOUT_MS = 12000;
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
 const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -810,6 +810,17 @@ async function fetchWithTimeout(url,options={},timeoutMs=REQUEST_TIMEOUT_MS){
   const request=fetch(url,requestOptions);
   const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{if(controller)controller.abort();const e=new Error('request_timeout');e.code='REQUEST_TIMEOUT';reject(e);},Math.max(1000,timeoutMs));});
   try{return await Promise.race([request,timeout]);}finally{clearTimeout(timer);}
+}
+async function fetchJsonWithTimeout(url,options={},timeoutMs=REQUEST_TIMEOUT_MS){
+  const controller=typeof AbortController==='function'?new AbortController():null;
+  const requestOptions=Object.assign({},options);if(controller)requestOptions.signal=controller.signal;
+  let timer;
+  const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{if(controller)controller.abort();const e=new Error('request_timeout');e.code='REQUEST_TIMEOUT';reject(e);},Math.max(1000,timeoutMs));});
+  try{
+    const result=await Promise.race([fetch(url,requestOptions),timeout]);
+    const text=await Promise.race([result.text(),timeout]);
+    return {response:result,data:JSON.parse(text)};
+  }finally{clearTimeout(timer);}
 }
 function sessionDeviceFields(){return {deviceId:String(SESSION&&SESSION.installationId||''),app:String(SESSION&&SESSION.clientApp||'web')};}
 function dataCacheKey(){return DATA_CACHE_KEY+'_'+String(SESSION&&SESSION.userId||'guest');}
@@ -1110,9 +1121,10 @@ async function init(){
     showToast('Cached data ပြထားပါတယ် — Live data update လုပ်နေသည်','warn');
   }
   try{
-    const res=await fetchWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))});
+    const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))});
+    const res=loaded.response;
     if(!res.ok)throw new Error('http_'+res.status);
-    const result=await res.json();
+    const result=loaded.data;
     if(result.status!=='ok'){
       const reason=String(result.msg||result.message||result.error||'').toLowerCase();
       const authFailure=JACCDeviceBinding.isDeviceError(result)||/expired|invalid.?token|unauthori[sz]ed|session|device/.test(reason);
