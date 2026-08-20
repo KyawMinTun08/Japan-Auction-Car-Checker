@@ -185,6 +185,30 @@ function payment(overrides = {}) {
   assert.equal(env.finance.rows.length, 2);
 }
 
+// Manual approval is atomic and idempotent: repeated command does not extend twice.
+{
+  const env = makeContext([memberHeader], [financeHeader]);
+  const manual = {
+    userId: "4004", username: "manual", package: "CH", months: 1, days: 30,
+    approvedBy: "admin", operationId: "MANUAL-4004-CH-30-BUCKET-1",
+  };
+  const first = env.context.approveManualMemberTransaction_(manual);
+  const second = env.context.approveManualMemberTransaction_(manual);
+  assert.equal(first.status, "ok");
+  assert.equal(first.result, "approved");
+  assert.equal(first.entryType, "NEW");
+  const expireAfterFirstApproval = env.members.rows[1][3];
+  assert.equal(second.status, "ok");
+  assert.equal(second.duplicate, true);
+  assert.equal(env.members.rows.length, 2);
+  assert.equal(env.members.rows[1][3], expireAfterFirstApproval);
+  assert.equal(env.finance.rows.length, 2);
+  assert.equal(env.finance.rows[1][11], "APPROVED");
+  assert.equal(env.finance.rows[1][12], "NEW");
+  assert.equal(env.finance.rows[1][13], "MANUAL");
+  assert.equal(env.finance.rows[1][14], manual.operationId);
+}
+
 // Standard -> Premium is an upgrade and does not create a duplicate member row.
 {
   const env = makeContext([
