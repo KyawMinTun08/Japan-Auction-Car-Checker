@@ -231,14 +231,15 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        if (savedInstanceState == null) {
-            webView.clearCache(true)
-            webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
-            webView.loadUrl(APP_URL)
-            startupHandler.postDelayed(startupRecoveryRunnable, 20000L)
-        } else {
-            webView.restoreState(savedInstanceState)
-        }
+        // Always navigate to the current web shell. Restoring a saved WebView
+        // state can revive an older service-worker-controlled document and keep
+        // the app on the pre-paging startup path. Cookies, localStorage,
+        // encrypted remember-login data, and device/session storage are not
+        // cleared by this fresh navigation.
+        webView.clearCache(true)
+        webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+        webView.loadUrl(APP_URL)
+        startupHandler.postDelayed(startupRecoveryRunnable, 20000L)
     }
 
     private fun openExternalIfNeeded(uri: Uri): Boolean {
@@ -276,6 +277,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL =
-            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.20.4&recovery=2026.08.20.5"
+            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.20.7&recovery=2026.08.20.6&native=1.07&shell=faststart-v9"
     }
 }
