@@ -24,9 +24,9 @@ async def _server(app: web.Application):
 def _service(**overrides):
     env = {
         "JACC_AI_ENABLED": "true",
-        "JACC_AI_PROVIDER": "qwencloud",
-        "JACC_AI_MODEL": "qwen3.7-flash",
-        "JACC_AI_API_KEY": "qwen-test-key",
+        "JACC_AI_PROVIDER": "deepseek",
+        "JACC_AI_MODEL": "deepseek-v4-flash",
+        "JACC_AI_API_KEY": "deepseek-test-key",
         "JACC_AI_DAILY_LIMIT": "10",
         "JACC_AI_TOPIC_ONLY": "true",
     }
@@ -54,9 +54,9 @@ def test_url_configuration_removes_only_accidental_url_wrapping():
     assert service.supabase_url == "https://supabase.example"
     assert service.sheet_webhook == "https://script.example/exec"
 
-    configured = _service(JACC_AI_BASE_URL='"\u200bhttps://dashscope.example/v1/\ufeff"')
-    assert configured.base_url == "https://dashscope.example/v1"
-    assert configured.api_key == "qwen-test-key"
+    configured = _service(JACC_AI_BASE_URL='"\u200bhttps://deepseek.example/v1/\ufeff"')
+    assert configured.base_url == "https://deepseek.example/v1"
+    assert configured.api_key == "deepseek-test-key"
 
 
 def test_session_timeout_is_bounded_and_configurable(monkeypatch):
@@ -164,9 +164,11 @@ def test_qwen_service_and_http_route_use_verified_session_and_atomic_quota():
             )
 
         async def qwen(request):
-            assert request.headers["Authorization"] == "Bearer qwen-test-key"
+            assert request.headers["Authorization"] == "Bearer deepseek-test-key"
             payload = await request.json()
-            assert payload["model"] == "qwen3.7-flash"
+            assert payload["model"] == "deepseek-v4-flash"
+            assert payload["response_format"] == {"type": "json_object"}
+            assert payload["thinking"] == {"type": "disabled"}
             return web.json_response(
                 {
                     "choices": [
@@ -181,7 +183,7 @@ def test_qwen_service_and_http_route_use_verified_session_and_atomic_quota():
 
         app.router.add_post("/verify", verify)
         app.router.add_post("/rest/v1/rpc/jacc_consume_ai_quota", quota)
-        app.router.add_post("/compatible-mode/v1/chat/completions", qwen)
+        app.router.add_post("/chat/completions", qwen)
         service = _service()
         http_service = QwenTextHttp(service)
         app.router.add_options("/api/ai/query", http_service.options)
@@ -190,7 +192,7 @@ def test_qwen_service_and_http_route_use_verified_session_and_atomic_quota():
         async with _server(app) as base:
             service.sheet_webhook = f"{base}/verify"
             service.supabase_url = base
-            service.base_url = f"{base}/compatible-mode/v1"
+            service.base_url = base
 
             from aiohttp import ClientSession
 
@@ -252,6 +254,7 @@ def test_qwen_service_and_http_route_use_verified_session_and_atomic_quota():
     [
         (400, "AI_PROVIDER_BAD_REQUEST"),
         (401, "AI_PROVIDER_AUTH"),
+        (402, "AI_PROVIDER_PAYMENT_REQUIRED"),
         (403, "AI_PROVIDER_FORBIDDEN"),
         (404, "AI_PROVIDER_NOT_FOUND"),
         (408, "AI_PROVIDER_TIMEOUT"),
@@ -270,10 +273,10 @@ def test_provider_http_status_maps_to_safe_error_code(status_code, expected_code
                 status=status_code,
             )
 
-        app.router.add_post("/compatible-mode/v1/chat/completions", qwen)
+        app.router.add_post("/chat/completions", qwen)
         service = _service()
         async with _server(app) as base:
-            service.base_url = f"{base}/compatible-mode/v1"
+            service.base_url = base
             with pytest.raises(QwenTextError) as error:
                 await service._call_provider("Toyota Crown 2020")
             assert error.value.code == expected_code
