@@ -19,8 +19,8 @@ android {
         applicationId = "com.kyawmintun.jacc"
         minSdk = 24
         targetSdk = 35
-        versionCode = 105
-        versionName = "1.05"
+        versionCode = 106
+        versionName = "1.06"
     }
 
     signingConfigs {

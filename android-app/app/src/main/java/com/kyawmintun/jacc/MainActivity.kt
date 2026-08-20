@@ -156,7 +156,7 @@ class MainActivity : AppCompatActivity() {
             displayZoomControls = false
             allowFileAccess = false
             allowContentAccess = true
-            userAgentString = "$userAgentString JACC-Android/1.05"
+            userAgentString = "$userAgentString JACC-Android/1.06"
         }
 
         webView.addJavascriptInterface(RememberLoginBridge(this), "JACCRememberLogin")
