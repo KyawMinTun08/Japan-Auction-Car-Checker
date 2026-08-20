@@ -162,8 +162,9 @@ function _findMemberRowByUserId_(sheet, userId) {
   return 0;
 }
 
-function _verifyAndBindDevice_(userId, deviceId, app) {
+function _verifyAndBindDevice_(userId, deviceId, app, options) {
   var mode = _deviceBindingMode_();
+  var readOnly = !!(options && options.readOnly);
   var normalizedUserId = _normalizeBindingUserId_(userId);
   var normalizedDeviceId = _normalizeDeviceId_(deviceId);
   var clientApp = _normalizeClientApp_(app);
@@ -195,6 +196,7 @@ function _verifyAndBindDevice_(userId, deviceId, app) {
   var now = new Date();
 
   if (!row) {
+    if (readOnly) return {ok: false, status: 'error', message: 'device_binding_not_ready'};
     sheet.appendRow([
       normalizedUserId, deviceHash, clientApp, now, now,
       'ACTIVE', 0, ''
@@ -214,6 +216,7 @@ function _verifyAndBindDevice_(userId, deviceId, app) {
   var resetState = status === 'RESET' || !currentHash;
 
   if (resetState) {
+    if (readOnly) return {ok: false, status: 'error', message: 'device_binding_not_ready'};
     sheet.getRange(row, 2, 1, 6).setValues([[
       deviceHash, clientApp, values[3] || now, now, 'ACTIVE',
       Number(values[6] || 0)
@@ -229,7 +232,7 @@ function _verifyAndBindDevice_(userId, deviceId, app) {
 
   if (currentHash !== deviceHash) {
     if (mode === 'log') {
-      sheet.getRange(row, 5).setValue(now);
+      if (!readOnly) sheet.getRange(row, 5).setValue(now);
       return {
         ok: true,
         deviceBound: true,
@@ -241,7 +244,7 @@ function _verifyAndBindDevice_(userId, deviceId, app) {
     return {ok: false, status: 'error', message: 'device_mismatch'};
   }
 
-  sheet.getRange(row, 3, 1, 2).setValues([[clientApp, now]]);
+  if (!readOnly) sheet.getRange(row, 3, 1, 2).setValues([[clientApp, now]]);
   return {
     ok: true,
     deviceBound: true,
@@ -295,7 +298,8 @@ function _createAuthSession_(token, userId, deviceCheck, expireDate) {
   return {status: 'ok'};
 }
 
-function _verifyAuthSession_(token, userId, deviceCheck, expireDate) {
+function _verifyAuthSession_(token, userId, deviceCheck, expireDate, options) {
+  var readOnly = !!(options && options.readOnly);
   var sessionHash = _hashSessionToken_(token);
   if (!sessionHash) return {status: 'error', message: 'device_binding_not_configured'};
   var sheet = _authSessionsSheet_();
@@ -304,6 +308,7 @@ function _verifyAuthSession_(token, userId, deviceCheck, expireDate) {
 
   // A token issued before Approach B is migrated on its first valid request.
   if (!row) {
+    if (readOnly) return {status: 'error', message: 'auth_session_not_ready'};
     var created = _createAuthSession_(token, userId, deviceCheck, expireDate);
     if (created.status !== 'ok') return created;
     return {status: 'ok', migrated: true};
@@ -317,7 +322,7 @@ function _verifyAuthSession_(token, userId, deviceCheck, expireDate) {
 
   var sessionExpire = values[5] instanceof Date ? values[5] : _parseMemberDate(values[5]);
   if (sessionExpire && sessionExpire < now) {
-    sheet.getRange(row, 7, 1, 2).setValues([['EXPIRED', now]]);
+    if (!readOnly) sheet.getRange(row, 7, 1, 2).setValues([['EXPIRED', now]]);
     return {status: 'error', message: 'expired'};
   }
 
@@ -329,13 +334,13 @@ function _verifyAuthSession_(token, userId, deviceCheck, expireDate) {
   var storedDeviceHash = String(values[2] || '').trim();
   if (storedDeviceHash !== String(deviceCheck.deviceHash || '')) {
     if (_deviceBindingMode_() === 'log') {
-      sheet.getRange(row, 9).setValue(now);
+      if (!readOnly) sheet.getRange(row, 9).setValue(now);
       return {status: 'ok', deviceMismatch: true};
     }
     return {status: 'error', message: 'device_mismatch'};
   }
 
-  sheet.getRange(row, 9).setValue(now);
+  if (!readOnly) sheet.getRange(row, 9).setValue(now);
   return {status: 'ok'};
 }
 

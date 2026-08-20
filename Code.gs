@@ -713,7 +713,7 @@ case 'banCustomer': {
   return _json({ status: 'error', msg: 'user_not_found' });
 }
  case 'getData': {
-  var tokenResult = verifyToken(data.token, data.deviceId, data.app, data.userId);
+  var tokenResult = _verifyTokenForReadOnlyGetData_(data.token, data.deviceId, data.app, data.userId);
   if (tokenResult.status !== 'ok') {
     return _json({status:'error', msg:tokenResult.message || tokenResult.msg || 'invalid_token'});
   }
@@ -3053,3 +3053,53 @@ function testPaymentQR_() {
 
 
   
+
+
+// ── Read-only getData authentication ────────────────────────
+// Startup data loading must validate the existing session without refreshing
+// LastSeenAt, rebinding a device, revoking sessions, or migrating a legacy
+// token. Login and the normal verifyToken action keep the original behavior.
+function _verifyTokenForReadOnlyGetData_(token, deviceId, app, userId) {
+  var safeToken = String(token || '').trim();
+  if (!safeToken) return {status:'error', message:'No token'};
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName(MEMBERS);
+  var rows  = sheet.getDataRange().getValues();
+  var now   = new Date();
+
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][C_TOKEN] || '').trim() !== safeToken) continue;
+    var memberId = String(rows[i][C_USERID] || '').trim();
+    if (userId && _normalizeBindingUserId_(userId) !== _normalizeBindingUserId_(memberId)) {
+      return {status:'error', message:'member_mismatch'};
+    }
+    var memberPackage = _normalizePackage(rows[i][C_PACKAGE]);
+    if (memberPackage !== 'WEB') return {status:'error', message:'web_access_required'};
+
+    var memberStatus = String(rows[i][C_STATUS] || '').trim().toUpperCase();
+    if (memberStatus === 'KICKED' || memberStatus === 'BANNED' || memberStatus === 'EXPIRED') {
+      return {status:'error', message:memberStatus.toLowerCase()};
+    }
+
+    var rawDate = rows[i][C_EXPIRE];
+    var expireDate = _parseMemberDate(rawDate);
+    if (!expireDate || expireDate < now) return {status:'error', message:'expired'};
+
+    var deviceCheck = _verifyAndBindDevice_(memberId, deviceId, app, {readOnly:true});
+    if (!deviceCheck.ok) return deviceCheck;
+    var sessionCheck = _verifyAuthSession_(safeToken, memberId, deviceCheck, expireDate, {readOnly:true});
+    if (sessionCheck.status !== 'ok') return sessionCheck;
+
+    return {
+      status: 'ok',
+      userId: memberId,
+      username: String(rows[i][C_USERNAME]),
+      package: memberPackage,
+      expireDate: Utilities.formatDate(expireDate, 'Asia/Bangkok', 'dd/MM/yyyy'),
+      deviceBound: !!deviceCheck.deviceBound,
+      clientApp: deviceCheck.clientApp || 'web'
+    };
+  }
+
+  return {status:'error', message:'invalid_token'};
+}
