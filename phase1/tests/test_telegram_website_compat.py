@@ -67,7 +67,8 @@ def test_payment_slip_approval_is_strict_and_fail_closed() -> None:
     assert "validate_payment_batch(" in bot
     assert "expected_receiver=ADMIN_REAL_NAME" in bot
     assert "strict=True" in bot
-    assert "Duplicate renewal မဖြစ်စေရန် Approve ကို ထပ်မနှိပ်ပါနဲ့" in bot
+    assert "transaction_already_used" in bot
+    assert "Approve ကို ထပ်မနှိပ်ပါနှင့်" in bot
     assert '"source": "PAYMENT_SLIP"' in bot
     assert "for attempt in range(1, 4)" in bot
 
@@ -89,12 +90,11 @@ def test_member_integrity_verification_includes_start_and_expire_dates() -> None
     assert 'reason": "web_password_missing"' in audit
 
 
-def test_payment_approval_uses_stable_two_step_flow() -> None:
+def test_payment_approval_uses_atomic_idempotent_flow() -> None:
     bot = LEGACY.read_text(encoding="utf-8")
-    assert "async def save_member_to_sheet" in bot
-    assert "async def log_finance_entry" in bot
-    assert "saved = await save_member_to_sheet(" in bot
-    assert "finance_logged = await log_finance_entry({" in bot
+    assert "async def approve_payment_transaction" in bot
+    assert "atomic_result = await approve_payment_transaction(atomic_payment)" in bot
+    assert "await clear_payment_draft(member_id, transaction_no)" in bot
     assert "transaction_result = await approve_payment_transaction(transaction_payload)" not in bot
     assert "pending_payment.pop(member_id, None)" in bot
 
