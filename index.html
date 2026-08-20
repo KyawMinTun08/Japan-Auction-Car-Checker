@@ -761,13 +761,22 @@ const LOCKOUT_MINUTES = 15;
 const APP_VERSION     = '2026.08.20-startup-recovery-v5';
 const REQUEST_TIMEOUT_MS = 12000;
 let startupWatchdogTimer = null;
+let startupRetryInFlight = false;
 function clearStartupWatchdog(){if(startupWatchdogTimer){clearTimeout(startupWatchdogTimer);startupWatchdogTimer=null;}}
+async function retryStartupData(){
+  if(startupRetryInFlight)return;
+  if(!SESSION||!SESSION.token||!SESSION.userId){location.reload();return;}
+  startupRetryInFlight=true;
+  const loading=document.getElementById('loadingOverlay');
+  if(loading){loading.style.display='flex';loading.innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⏳</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">Data ကို ပြန်စမ်းနေပါတယ်</div><div style="font-size:13px;color:var(--ink-4)">Login session မဖျက်ဘဲ Google Sheets ကို ပြန်တောင်းနေသည်။</div></div>';}
+  try{await init();}finally{startupRetryInFlight=false;}
+}
 function showStartupRecoveryError(){
   startupWatchdogTimer=null;
   const loading=document.getElementById('loadingOverlay');
   const login=document.getElementById('loginOverlay');
   if(!loading||loading.style.display==='none'||(login&&login.style.display==='flex'))return;
-  loading.innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">Data ဆွဲယူချိန်ကြာနေပါတယ်</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:14px">Internet သို့မဟုတ် Google Sheets response ကို စစ်ပြီး ပြန်ကြိုးစားပါ။</div><button onclick="location.reload()" class="btn btn-primary">🔄 Retry</button></div>';
+  loading.innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">Data ဆွဲယူချိန်ကြာနေပါတယ်</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:14px">Internet သို့မဟုတ် Google Sheets response ကို စစ်ပြီး ပြန်ကြိုးစားပါ။</div><button onclick="retryStartupData()" class="btn btn-primary">🔄 Retry</button></div>';
 }
 function armStartupWatchdog(timeoutMs=20000){clearStartupWatchdog();startupWatchdogTimer=setTimeout(showStartupRecoveryError,Math.max(10000,timeoutMs));}
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
