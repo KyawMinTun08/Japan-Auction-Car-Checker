@@ -430,6 +430,9 @@ async def validate_payment_flow(user_id: int | str, action: str) -> dict:
         return {"ok": False, "record": None, "reason": "member_lookup_unavailable"}
     has_record = record is not None
     is_current = is_current_member_record(record)
+    normalized_package = str((record or {}).get("package") or "").upper().replace("-", "")
+    if normalized_action == "upgrade" and normalized_package in ("WEB", "WEBPROMO"):
+        return {"ok": False, "record": record, "reason": "already_premium"}
     if normalized_action == "join" and is_current:
         return {"ok": False, "record": record, "reason": "existing_member_must_renew"}
     if normalized_action == "join" and has_record:
@@ -2261,15 +2264,20 @@ async def upgrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     flow = await validate_payment_flow(user_id, "upgrade")
     if not flow.get("ok"):
-        if flow.get("reason") == "new_member_must_join":
-            await update.message.reply_text(
+        reason = flow.get("reason")
+        if reason == "new_member_must_join":
+            message = (
                 "🆕 Member record မရှိသေးပါ။ `/upgrade` မဟုတ်ဘဲ `/newmember` မှ New Member flow ကို သုံးပါ။\n\n"
-                "⚠️ Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။",
-                parse_mode="Markdown")
+                "⚠️ Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။"
+            )
+        elif reason == "already_premium":
+            message = (
+                "💎 ဒီ account သည် Web Premium ဖြစ်ပြီးသားပါ။ `/upgrade` ထပ်မသုံးပါနှင့်။\n\n"
+                "သက်တမ်းတိုးလိုပါက `/renew` ကို အသုံးပြုပါ။ Payment မှားပို့မိပါက refund/repayment စစ်ဆေးမှုကြာနိုင်ပါတယ်။"
+            )
         else:
-            await update.message.reply_text(
-                "⚠️ Member record ကို စစ်မရသေးပါ။ Payment မလွှဲသေးဘဲ Admin ကို ဆက်သွယ်ပါ။",
-                parse_mode="Markdown")
+            message = "⚠️ Member record ကို စစ်မရသေးပါ။ Payment မလွှဲသေးဘဲ Admin ကို ဆက်သွယ်ပါ။"
+        await update.message.reply_text(message, parse_mode="Markdown")
         return
     record = flow.get("record") or {}
     current_pkg = str(record.get("package") or "").upper().strip()
@@ -3915,6 +3923,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg = "🔄 Member record ရှိပြီးသားပါ။ Member အသစ် payment မလုပ်ပါနဲ့ — `/renew` ကိုသာ သုံးပါ။"
             elif flow.get("reason") == "new_member_must_join":
                 msg = "🆕 Member record မရှိသေးပါ။ Renew payment မလုပ်ပါနဲ့ — `/newmember` မှ New Member flow ကိုသာ သုံးပါ။"
+            elif flow.get("reason") == "already_premium":
+                msg = "💎 ဒီ account သည် Web Premium ဖြစ်ပြီးသားပါ။ `/upgrade` ထပ်မသုံးပါနှင့် — သက်တမ်းတိုးရန် `/renew` ကိုသာ သုံးပါ။"
             else:
                 msg = "⚠️ Member record ကို စစ်မရသေးပါ။ Payment မလွှဲသေးဘဲ Admin ကို ဆက်သွယ်ပါ။"
             await query.message.reply_text(
