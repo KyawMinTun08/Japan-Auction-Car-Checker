@@ -118,6 +118,30 @@ def test_yes_approve_restores_durable_payment_draft() -> None:
     assert "Payment draft မတွေ့ပါ" in approval
 
 
+def test_payment_rejection_retries_the_original_flow() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    helper = bot[bot.index("def payment_retry_command"):bot.index("# ── 10 Day Promo Helpers")]
+    reject = bot[bot.index('elif data.startswith("slip_no_")'):bot.index('elif data.startswith("uid_ok_")')]
+
+    assert '"join": "/newmember"' in helper
+    assert '"renew": "/renew"' in helper
+    assert '"upgrade": "/upgrade"' in helper
+    assert "pay_data = await ensure_payment_session(member_id)" in reject
+    assert "retry_action, _ = await resolve_payment_action(member_id, pay_data)" in reject
+    assert "retry_command = payment_retry_command(retry_action)" in reject
+    assert "ပြန်လည် ကြိုးစားရန် /renew" not in reject
+    assert "ဒီ payment ၏ flow ကို မသတ်မှတ်နိုင်သေးပါ" in reject
+
+
+def test_missing_payment_draft_fails_closed_without_resend_request() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    approval = bot[bot.index('elif data.startswith("slip_ok_")'):bot.index('elif data.startswith("slip_no_")')]
+
+    assert "Payment_Drafts/Finance record" in approval
+    assert "Member ကို slip ထပ်မပို့ခိုင်းသေးပါနှင့်" in approval
+    assert "Member ကို slip ပြန်ပို့ခိုင်းပါ" not in approval
+
+
 def test_approval_callback_does_not_block_on_sheet_password_lookup() -> None:
     patch = PATCH.read_text(encoding="utf-8")
     save_block = patch[patch.index("async def save_member_to_sheet"):patch.index("async def send_approval_dm")]
