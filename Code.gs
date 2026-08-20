@@ -729,7 +729,13 @@ case 'banCustomer': {
   var gdSheet = ss.getSheetByName('Sheet1');
   if (!gdSheet) return _json({status:'error', msg:'no_sheet'});
   var gdRows = gdSheet.getDataRange().getValues();
-  if (gdRows.length < 2) return _json({status:'ok', cars:[]});
+  var gdTotal = Math.max(0, gdRows.length - 1);
+  var gdOffset = Math.max(0, parseInt(data.offset, 10) || 0);
+  var gdLimit = Math.max(0, parseInt(data.limit, 10) || 0);
+  if (gdLimit > 500) gdLimit = 500;
+  var gdStart = 1 + Math.min(gdOffset, gdTotal);
+  var gdEnd = gdLimit > 0 ? Math.min(gdRows.length, gdStart + gdLimit) : gdRows.length;
+  if (gdRows.length < 2) return _json({status:'ok', cars:[], page:{offset:0,limit:gdLimit,total:0,hasMore:false}});
   var gdHeaders = gdRows[0].map(function(value){ return String(value || '').trim().toLowerCase(); });
   var gdIndex = function(names, fallback){ for (var hi = 0; hi < names.length; hi++) { var found = gdHeaders.indexOf(String(names[hi]).toLowerCase()); if (found >= 0) return found; } return fallback; };
   var gdEvidence = {
@@ -742,7 +748,7 @@ case 'banCustomer': {
     sourceDate: gdIndex(['sourcedate','source date','verifiedat'], -1)
   };
   var gdCars = [];
-  for (var gdi = 1; gdi < gdRows.length; gdi++) {
+  for (var gdi = gdStart; gdi < gdEnd; gdi++) {
     var r = gdRows[gdi];
     if (!r[0] && !r[1]) continue;
     gdCars.push({
@@ -764,7 +770,7 @@ case 'banCustomer': {
       sourceDate: gdEvidence.sourceDate >= 0 ? String(r[gdEvidence.sourceDate] || '') : ''
     });
   }
-  return _json({status:'ok', cars:gdCars});
+  return _json({status:'ok', cars:gdCars, page:{offset:gdOffset,limit:gdLimit,total:gdTotal,hasMore:gdEnd < gdRows.length}});
 }
 case 'removeBroker': {
   const telegramId = String(payload.telegramId || '').trim();

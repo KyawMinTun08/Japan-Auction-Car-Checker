@@ -753,16 +753,18 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
 <script src="jdm-config.js?v=2026.08.19-ai-console-v2"></script>
 <script>
 const SHEET_ID    = '1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHD06K3zG1mpY';
-const WEBHOOK     = 'https://script.google.com/macros/s/AKfycby5jh2fxeMWaN94FqmPPKIon40ddRHoaOG1Rg8a9TydLWuPjH4EfrpQzee3ojC-gVi1/exec';
+const WEBHOOK     = 'https://script.google.com/macros/s/AKfycbwgy2-GFMdXYgJIP2Y_9fXpI77gqPIxvEL0SsQva4P9nSQzLIbkB687DGL5zLUDcyUX/exec';
 const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.20-startup-diagnostics-v8';
+const APP_VERSION     = '2026.08.20-startup-faststart-v9';
 const REQUEST_TIMEOUT_MS = 12000;
 // Google Apps Script may need extra time for a large Sheet1 response on mobile networks.
 const DATA_REQUEST_TIMEOUT_MS = 90000;
 const STARTUP_WATCHDOG_TIMEOUT_MS = 120000;
+const STARTUP_DATA_PAGE_SIZE = 500;
+const STARTUP_DATA_PAGE_MAX = 20;
 let startupWatchdogTimer = null;
 let startupRetryInFlight = false;
 let startupDiagnostic = {stage:'BOOT', code:'', startedAt:Date.now()};
@@ -916,6 +918,34 @@ function renderCarsData(cars){
   document.getElementById('liveCount').textContent=allCars.length;
   populateFilters();renderDashboard();renderExplorer();renderPrice();renderChassisTbl();renderTrends();renderSavedSearches();
   if(pendingSharedChassis){const shared=pendingSharedChassis;pendingSharedChassis='';setTimeout(()=>{switchTab('chassis',false);const input=document.getElementById('chassisInput');if(input){input.value=shared;lookupChassis();}},0);}
+}
+function appendCarsData(cars){
+  const merged=allCars.slice();
+  const seen=new Set(merged.map(car=>String(car.chassis||'')+'|'+String(car.date||'')+'|'+String(car.model||'')));
+  (Array.isArray(cars)?cars:[]).forEach(car=>{
+    const key=String(car.chassis||'')+'|'+String(car.date||'')+'|'+String(car.model||'');
+    if(!seen.has(key)){seen.add(key);merged.push(car);}
+  });
+  renderCarsData(merged);
+}
+async function loadRemainingCarPages(firstPage){
+  if(!firstPage||!firstPage.hasMore)return;
+  let offset=Math.max(0,Number(firstPage.offset||0)+Number(firstPage.limit||STARTUP_DATA_PAGE_SIZE));
+  const total=Math.max(0,Number(firstPage.total||0));
+  const limit=Number(firstPage.limit||STARTUP_DATA_PAGE_SIZE)||STARTUP_DATA_PAGE_SIZE;
+  let guard=0;
+  while(offset<total&&guard++<STARTUP_DATA_PAGE_MAX){
+    const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId,offset:offset,limit:limit}))},DATA_REQUEST_TIMEOUT_MS);
+    const result=loaded.data;
+    if(!result||result.status!=='ok')throw new Error('DATA_PAGE_'+String(result&& (result.msg||result.message)||'FAILED').replace(/[^a-z0-9]+/gi,'_').toUpperCase().slice(0,48));
+    appendCarsData(mapCarRows(result.cars));
+    writeCarsCache(allCars);
+    const page=result.page||{};
+    const step=Math.max(1,Number(page.limit||limit));
+    offset+=step;
+    if(!page.hasMore)break;
+  }
+  showToast('Live data အားလုံး sync ပြီးပါပြီ','ok');
 }
 async function shareApp(){
   const data={title:'JACC — Japan Auction Car Checker',text:'Japan auction car price, model and chassis checker',url:location.origin+location.pathname};
@@ -1161,36 +1191,8 @@ const BODY_TYPE_MAP={
 
 function fixImgUrl(url){if(!url||url.trim()==='')return '';const m=url.match(/\/d\/([a-zA-Z0-9_-]+)/);if(m)return 'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w400';if(url.startsWith('http'))return url;return '';}
 
-async function init(){
-  markStartupStage('GETDATA_START','');
-  armStartupWatchdog();
-  const cached=readCarsCache();
-  let allowCacheFallback=true;
-  if(cached){
-    renderCarsData(cached.cars);
-    document.getElementById('loadingOverlay').style.display='none';
-    showToast('Cached data ပြထားပါတယ် — Live data update လုပ်နေသည်','warn');
-    clearStartupWatchdog();
-  }
-  try{
-    const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))},DATA_REQUEST_TIMEOUT_MS);
-    markStartupStage('GETDATA_RESPONSE','');
-    const res=loaded.response;
-    if(!res.ok)throw new Error('http_'+res.status);
-    const result=loaded.data;
-    if(result.status!=='ok'){
-      const reason=String(result.msg||result.message||result.error||'').toLowerCase();
-      markStartupStage('GETDATA_ERROR','DATA_RESPONSE_'+reason.replace(/[^a-z0-9]+/g,'_').toUpperCase().slice(0,48));
-      const authFailure=JACCDeviceBinding.isDeviceError(result)||/expired|invalid.?token|unauthori[sz]ed|session|device/.test(reason);
-      if(authFailure)allowCacheFallback=false;
-      if(JACCDeviceBinding.isDeviceError(result)){
-        JACCDeviceBinding.clearSession();
-        throw new Error(JACCDeviceBinding.deviceErrorMessage(result));
-      }
-      throw new Error(result.msg||result.message||'Data fetch failed');
-    }
-
-    allCars=result.cars.map(r=>{
+function mapCarRows(rows){
+  return (Array.isArray(rows)?rows:[]).map(r=>{
       let model=String(r.model||'UNKNOWN').trim().toUpperCase();
       const chassis=String(r.chassis||'').trim().toUpperCase();
       const prefixes=['TOYOTA ','NISSAN ','HONDA ','DAIHATSU ','MITSUBISHI ','SUBARU ','MAZDA ','SUZUKI ','ISUZU ','HINO ','NISSIAN ','FUSO '];
@@ -1254,7 +1256,39 @@ async function init(){
       if(chassis.startsWith('SK82VN'))model='VANETTE VAN';
       if(!model||model==='UNKNOWN')return null;
       return{date:String(r.date||''),chassis:String(r.chassis||''),model,color:String(r.color||'-').trim(),year:parseInt(String(r.year||0))||0,price:parseInt(String(r.price||0).replace(/[^0-9]/g,''))||0,location:String(r.location||'-').trim(),drive:String(r.drive||r.drivetrain||r.driveType||r.wd||'').trim(),addedBy:String(r.addedBy||'-').trim(),imageUrl:fixImgUrl(String(r.imageUrl||'')),auctionSheetUrl:String(r.auctionSheetUrl||r.auctionSheet||r.sheetUrl||''),auctionGrade:String(r.auctionGrade||r.grade||''),mileage:String(r.mileage||''),condition:String(r.condition||''),inspectionStatus:String(r.inspectionStatus||r.inspection||''),source:String(r.source||''),sourceDate:String(r.sourceDate||'')};
-    }).filter(r=>r&&(r.chassis||r.model));
+  }).filter(r=>r&&(r.chassis||r.model));
+}
+
+async function init(){
+  markStartupStage('GETDATA_START','');
+  armStartupWatchdog();
+  const cached=readCarsCache();
+  let allowCacheFallback=true;
+  if(cached){
+    renderCarsData(cached.cars);
+    document.getElementById('loadingOverlay').style.display='none';
+    showToast('Cached data ပြထားပါတယ် — Live data update လုပ်နေသည်','warn');
+    clearStartupWatchdog();
+  }
+  try{
+    const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId,offset:0,limit:STARTUP_DATA_PAGE_SIZE}))},DATA_REQUEST_TIMEOUT_MS);
+    markStartupStage('GETDATA_RESPONSE','');
+    const res=loaded.response;
+    if(!res.ok)throw new Error('http_'+res.status);
+    const result=loaded.data;
+    if(result.status!=='ok'){
+      const reason=String(result.msg||result.message||result.error||'').toLowerCase();
+      markStartupStage('GETDATA_ERROR','DATA_RESPONSE_'+reason.replace(/[^a-z0-9]+/g,'_').toUpperCase().slice(0,48));
+      const authFailure=JACCDeviceBinding.isDeviceError(result)||/expired|invalid.?token|unauthori[sz]ed|session|device/.test(reason);
+      if(authFailure)allowCacheFallback=false;
+      if(JACCDeviceBinding.isDeviceError(result)){
+        JACCDeviceBinding.clearSession();
+        throw new Error(JACCDeviceBinding.deviceErrorMessage(result));
+      }
+      throw new Error(result.msg||result.message||'Data fetch failed');
+    }
+
+    allCars=mapCarRows(result.cars);
 
     renderCarsData(allCars);
     writeCarsCache(allCars);
@@ -1262,6 +1296,9 @@ async function init(){
     clearStartupWatchdog();
     document.getElementById('loadingOverlay').style.display='none';
     if(cached)showToast('Live data update ပြီးပါပြီ','ok');
+    if(result.page&&result.page.hasMore){
+      loadRemainingCarPages(result.page).catch(e=>{console.warn('[JACC] background data sync failed',e);showToast('ကား data အချို့သာ ရသေးပါတယ်','warn');});
+    }
   }catch(e){
     markStartupStage('GETDATA_FAILED',safeStartupCode(e,'DATA'));
     if(allowCacheFallback&&cached){
