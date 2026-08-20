@@ -3,11 +3,17 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 
 const code = fs.readFileSync("Code.gs", "utf8");
+const deviceBindingsCode = fs.readFileSync("apps-script/device-bindings.gs", "utf8");
+const appScriptSource = `${code}\n${deviceBindingsCode}`;
 const memberHeader = ["UserID", "Username", "Start", "Expire", "Status", "CancelCount", "Password", "Package", "Token"];
 const financeHeader = [
   "Date", "Time", "UserID", "Username", "Package", "Months",
   "Amount(Ks)", "PayType", "TransactionNo", "TransferTo", "Sender", "Status",
   "EntryType", "Source", "PaymentID", "ApprovedBy", "ExpireDate", "Note",
+];
+const authSessionHeader = [
+  "SessionHash", "UserID", "DeviceHash", "ClientApp", "IssuedAt",
+  "ExpiresAt", "Status", "RevokedAt", "LastSeenAt",
 ];
 
 function cloneRows(rows) {
@@ -59,6 +65,7 @@ FakeSheet.prototype.getRange = function (row, col, numRows = 1, numCols = 1) {
 FakeSheet.prototype.appendRow = function (row) {
   this.rows.push(row.slice());
 };
+FakeSheet.prototype.setFrozenRows = function () {};
 
 function makeUtilities() {
   return {
@@ -77,6 +84,13 @@ function makeContext(memberRows, financeRows, properties) {
   const members = new FakeSheet(memberRows, "Members");
   const finance = new FakeSheet(financeRows, "Finance");
   const sheets = { Members: members, Finance: finance };
+  // Use midday UTC so the Node test process cannot shift the Apps Script date across midnight.
+  const fixedNow = new Date("2026-08-20T12:00:00Z");
+  class FixedDate extends Date {
+    constructor(...args) {
+      super(...(args.length ? args : [fixedNow]));
+    }
+  }
   const props = properties || {};
   const context = {
     console,
@@ -97,9 +111,11 @@ function makeContext(memberRows, financeRows, properties) {
       }),
     },
     Utilities: makeUtilities(),
+    Date: FixedDate,
   };
-  vm.runInNewContext(code, context);
-  return { context, members, finance, props };
+  vm.runInNewContext(appScriptSource, context);
+  return { context, members, finance, props, sheets };
+
 }
 
 function payment(overrides = {}) {
@@ -135,7 +151,7 @@ function payment(overrides = {}) {
   assert.equal(env.members.rows[1][0], "1001");
   assert.equal(env.members.rows[1][7], "WEB");
   assert.equal(env.members.rows[1][6], "stable-pass");
-  assert.equal(env.members.rows[1][3], "18/09/2026");
+  assert.equal(env.members.rows[1][3], "20/09/2026");
   assert.equal(env.finance.rows[1][11], "APPROVED");
   assert.equal(env.finance.rows[1][12], "NEW");
   assert.equal(env.finance.rows[1][13], "PAYMENT_SLIP");
@@ -248,6 +264,10 @@ function payment(overrides = {}) {
     memberHeader,
     ["3003", "premium", "01/08/2026", "31/08/2026", "ACTIVE", 0, "old-pass", "WEB", ""],
   ], [financeHeader]);
+  env.sheets.AuthSessions = new FakeSheet([
+    authSessionHeader,
+    ["session-hash", "3003", "device-hash", "web", "19/08/2026", "19/09/2026", "ACTIVE", "", "19/08/2026"],
+  ], "AuthSessions");
   const result = env.context.approvePaymentTransaction_(payment({
     userId: "3003", username: "premium", transactionNo: "TXN-RENEW", paymentId: "TXN-RENEW", password: "new-requested-pass",
   }));
@@ -257,6 +277,8 @@ function payment(overrides = {}) {
   assert.equal(env.members.rows[1][6], "old-pass");
   assert.equal(env.members.rows[1][7], "WEB");
   assert.equal(env.finance.rows[1][12], "RENEW");
+  assert.equal(env.sheets.AuthSessions.rows[1][6], "REVOKED");
+  assert.ok(env.sheets.AuthSessions.rows[1][7], "renewal should record a session revocation timestamp");
 }
 
 // Exact amount is fail-closed before any Member or Finance mutation.
