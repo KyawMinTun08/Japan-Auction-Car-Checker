@@ -27,7 +27,7 @@ def test_saved_password_is_encrypted_and_not_written_to_local_storage() -> None:
 def test_invalid_session_can_fall_back_to_saved_login() -> None:
     assert "async function restoreRememberedLogin()" in INDEX
     assert "const remembered=await restoreRememberedLogin();" in INDEX
-    assert "if(remembered.ok)return true;" in INDEX
+    assert "if(remembered.ok){markStartupStage('LOGIN_RESTORE_OK','SESSION_OK');return true;}" in INDEX
     assert "await clearRememberedLogin();" in INDEX
     assert "secure Save Login မရနိုင်ပါ" in INDEX
 
@@ -39,7 +39,7 @@ def test_explicit_logout_and_account_control_remove_saved_login() -> None:
 
 
 def test_pwa_cache_and_android_webview_keep_the_new_flow() -> None:
-    assert "jacc-2026.08.20-startup-recovery-v5" in SW
+    assert "jacc-2026.08.20-startup-diagnostics-v6" in SW
     assert "domStorageEnabled = true" in ANDROID
     assert "databaseEnabled = true" in ANDROID
     assert "clearCache(true)" in ANDROID

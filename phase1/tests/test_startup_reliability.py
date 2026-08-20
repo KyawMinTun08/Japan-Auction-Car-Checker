@@ -23,11 +23,15 @@ def test_frontend_uses_bounded_data_fetch_and_cache_fallback() -> None:
     assert "fetchWithTimeout(WEBHOOK" in source
     assert "async function fetchJsonWithTimeout" in source
     assert "const DATA_REQUEST_TIMEOUT_MS = 45000;" in source
+    assert "const APP_VERSION     = '2026.08.20-startup-diagnostics-v6';" in source
     assert "const STARTUP_WATCHDOG_TIMEOUT_MS = 60000;" in source
     assert "armStartupWatchdog(timeoutMs=STARTUP_WATCHDOG_TIMEOUT_MS)" in source
     assert "},DATA_REQUEST_TIMEOUT_MS);" in source
     assert "function armStartupWatchdog" in source
     assert "function showStartupRecoveryError" in source
+    assert "function markStartupStage(stage, code='')" in source
+    assert "function safeStartupCode(error,prefix)" in source
+    assert "Error code: <strong>" in source
     assert "async function retryStartupData()" in source
     assert "if(!SESSION||!SESSION.token||!SESSION.userId){location.reload();return;}" in source
     assert "try{await init();}finally{startupRetryInFlight=false;}" in source
@@ -40,7 +44,7 @@ def test_frontend_uses_bounded_data_fetch_and_cache_fallback() -> None:
 
 def test_service_worker_delivers_startup_fix() -> None:
     source = SW.read_text(encoding="utf-8")
-    assert "jacc-2026.08.20-startup-recovery-v5" in source
+    assert "jacc-2026.08.20-startup-diagnostics-v6" in source
     assert "BASE_PATH + '/phase2/website_device_binding.js'" in source
 
 
