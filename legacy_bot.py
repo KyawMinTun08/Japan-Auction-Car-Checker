@@ -411,15 +411,29 @@ async def get_member_record(user_id: int | str) -> dict | None:
     return None
 
 
+def is_current_member_record(record: dict | None) -> bool:
+    """Match the Apps Script rule: only an ACTIVE row is a current member.
+
+    EXPIRED/KICKED/BANNED rows remain historical records and are safely reused by
+    saveMember instead of creating a duplicate row or blocking a new application.
+    """
+    if not record or record.get("__lookup_error__"):
+        return False
+    return str(record.get("status") or "").strip().upper() == "ACTIVE"
+
+
 async def validate_payment_flow(user_id: int | str, action: str) -> dict:
-    """Fail closed when a payment starts in the wrong new/renew flow."""
+    """Fail closed for current members, while allowing inactive-row reactivation."""
     normalized_action = str(action or "renew").strip().lower()
     record = await get_member_record(user_id)
     if record and record.get("__lookup_error__"):
         return {"ok": False, "record": None, "reason": "member_lookup_unavailable"}
     has_record = record is not None
-    if normalized_action == "join" and has_record:
+    is_current = is_current_member_record(record)
+    if normalized_action == "join" and is_current:
         return {"ok": False, "record": record, "reason": "existing_member_must_renew"}
+    if normalized_action == "join" and has_record:
+        return {"ok": True, "record": record, "reason": "inactive_record_reactivation"}
     if normalized_action in ("renew", "upgrade") and not has_record:
         return {"ok": False, "record": None, "reason": "new_member_must_join"}
     return {"ok": True, "record": record, "reason": ""}
@@ -2720,6 +2734,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pkg_name = PLAN_NAMES.get(pay_data.get("package", "CH"), "Unknown")
             months = pay_data.get("months", 1)
             flow_label = "New Member" if pay_action == "join" else ("Renew/Upgrade Member" if pay_action == "upgrade" else "Renew Member")
+            if pay_action == "join" and flow.get("reason") == "inactive_record_reactivation":
+                flow_label = "New Member / Inactive Record Reactivation"
             name = pay_data.get("name", "Unknown")
             username = pay_data.get("username", str(user_id))
             chosen_method = pay_data.get("method", "")
@@ -4027,6 +4043,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown")
             return
         flow_label = "New Member" if payment_action == "join" else ("Renew/Upgrade Member" if payment_action == "upgrade" else "Renew Member")
+        if payment_action == "join" and flow.get("reason") == "inactive_record_reactivation":
+            flow_label = "New Member / Inactive Record Reactivation"
         name        = pay_data.get("name", "Unknown")
         _pkg_code   = pay_data.get("package","CH")
         pkg         = PLAN_NAMES.get(_pkg_code, "Unknown")
