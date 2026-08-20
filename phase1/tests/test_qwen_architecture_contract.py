@@ -29,6 +29,8 @@ def test_qwen_contract_is_server_side_and_feature_flagged():
     assert 'candidates' in source
     assert 'JACC_AI_API_KEY' not in source
     assert 'CAR_TOPIC_ONLY' in source
+    assert '_CHASSIS_QUERY_RE' in source
+    assert '"hijet"' in source
     assert 'jacc_consume_ai_quota' in source
     assert 'JACC_AI_API_KEY' not in INDEX.read_text(encoding="utf-8")
     assert 'JACC_AI_API_KEY' not in JDM_CONFIG.read_text(encoding="utf-8")
@@ -52,6 +54,9 @@ def test_frontend_ai_search_uses_existing_authenticated_railway_contract():
     assert 'id="homeAiSearchResult"' in source
     assert 'askAiCarQuery' in source
     assert 'renderAiCarResults' in source
+    assert "data.chassis||''" in source
+    assert 'exactChassis' in source
+    assert '<th>Chassis</th>' in source
     assert "Number(car.price).toLocaleString()" in source
     assert 'ai-price-results-mobile-fix' in source
     assert '#tab-dashboard .jacc-home-ai-result .table-wrap' in source
