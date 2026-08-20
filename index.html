@@ -1015,7 +1015,7 @@ function showApp(){
     document.querySelector('.main').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;padding:24px;background:var(--bg)"><div style="text-align:center;max-width:440px"><div style="font-size:60px;margin-bottom:18px">📱</div><div style="font-size:24px;font-weight:800;color:var(--ink-1);margin-bottom:10px;letter-spacing:-0.5px">Channel Only Package</div><div style="font-size:14px;color:var(--ink-4);margin-bottom:26px;line-height:1.6">သင်၏ Package သည် <strong>Channel Only</strong> ဖြစ်သောကြောင့်<br>Web App ဝင်ခွင့် မရှိပါ</div><div style="background:var(--brand-soft);border:1px solid var(--line);border-radius:var(--r-md);padding:20px;margin-bottom:24px;text-align:left"><div style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:12px;text-align:center">⬆️ Upgrade to Channel + Web</div><div style="font-size:13px;color:var(--ink-2);line-height:1.9">✓ Web App အပြည့်အဝ ဝင်ရောက်နိုင်<br>✓ Chassis Lookup<br>✓ Price Analysis & Charts<br>✓ Export CSV</div></div><a href="https://t.me/JapanAuctionCar_Bot" target="_blank" rel="noopener" style="display:inline-block;background:var(--ink-1);color:#fff;border-radius:var(--r-md);padding:14px 28px;font-size:14px;font-weight:700;text-decoration:none">Bot ဆက်သွယ်ရန် →</a><div style="margin-top:16px"><button onclick="doLogout()" class="btn btn-outline btn-sm">🚪 Logout</button></div></div></div>';
     return;
   }
-  updateUserBar();renderMemberTab();init();loadMyRequests();syncSavedSearchAlerts();
+  updateUserBar();renderMemberTab();init().finally(()=>{loadMyRequests();syncSavedSearchAlerts();});
 }
 
 function updateUserBar(){
