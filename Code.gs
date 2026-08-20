@@ -62,9 +62,11 @@ function doGet(e) {
 
 // ── doPost — All Actions ───────────────────────────────────
 function doPost(e) {
-  try {
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  var lockHeld = false;
+  try {
+    lock.waitLock(30000);
+    lockHeld = true;
     var ss   = SpreadsheetApp.openById(SS_ID);
     var data = JSON.parse(e.postData.contents);
     var payload = data;
@@ -709,6 +711,15 @@ case 'banCustomer': {
   if (tokenResult.status !== 'ok') {
     return _json({status:'error', msg:tokenResult.message || tokenResult.msg || 'invalid_token'});
   }
+
+  // Authentication and device/session checks remain serialized under the
+  // global lock. Release it before the large read-only Sheet1 response so a
+  // slow 1.23 MB payload cannot block login, member, or other getData calls.
+  if (lockHeld) {
+    lock.releaseLock();
+    lockHeld = false;
+  }
+
   var gdSheet = ss.getSheetByName('Sheet1');
   if (!gdSheet) return _json({status:'error', msg:'no_sheet'});
   var gdRows = gdSheet.getDataRange().getValues();
@@ -1065,7 +1076,7 @@ case 'getMyRequests': {
       .createTextOutput(JSON.stringify({status:"error", message:err.toString()}))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
-    lock.releaseLock();
+    if (lockHeld) lock.releaseLock();
   }
   
 }
