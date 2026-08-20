@@ -20,12 +20,14 @@ def test_gemini_payment_slip_flow_remains_unchanged_and_separate():
 def test_qwen_contract_is_server_side_and_feature_flagged():
     source = QWEN.read_text(encoding="utf-8")
     assert 'JACC_AI_ENABLED' in source
-    assert 'JACC_AI_API_KEY' in source
-    assert 'Authorization": f"Bearer {self.api_key}"' in source
-    assert 'https://api.deepseek.com' in source
-    assert 'deepseek-v4-flash' in source
-    assert 'response_format' in source
-    assert 'thinking' in source
+    assert 'GEMINI_API_KEY' in source
+    assert '"x-goog-api-key": self.api_key' in source
+    assert 'https://generativelanguage.googleapis.com/v1beta' in source
+    assert 'gemini-2.5-flash' in source
+    assert 'systemInstruction' in source
+    assert 'responseMimeType' in source
+    assert 'candidates' in source
+    assert 'JACC_AI_API_KEY' not in source
     assert 'CAR_TOPIC_ONLY' in source
     assert 'jacc_consume_ai_quota' in source
     assert 'JACC_AI_API_KEY' not in INDEX.read_text(encoding="utf-8")
@@ -44,7 +46,7 @@ def test_quota_migration_is_additive_and_does_not_change_members_columns():
 def test_frontend_ai_search_uses_existing_authenticated_railway_contract():
     source = INDEX.read_text(encoding="utf-8")
     assert 'id="aiTextSearchCard"' in source
-    assert 'DeepSeek · ကားအကြောင်းအရာအတွက်သာ' in source
+    assert 'Gemini · ကားအကြောင်းအရာအတွက်သာ' in source
     assert 'id="aiCarQueryInput"' in source
     assert 'id="homeAiQueryInput"' in source
     assert 'id="homeAiSearchResult"' in source

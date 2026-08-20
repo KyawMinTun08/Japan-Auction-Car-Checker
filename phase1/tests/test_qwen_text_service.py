@@ -24,9 +24,9 @@ async def _server(app: web.Application):
 def _service(**overrides):
     env = {
         "JACC_AI_ENABLED": "true",
-        "JACC_AI_PROVIDER": "deepseek",
-        "JACC_AI_MODEL": "deepseek-v4-flash",
-        "JACC_AI_API_KEY": "deepseek-test-key",
+        "JACC_AI_PROVIDER": "gemini",
+        "JACC_AI_MODEL": "gemini-2.5-flash",
+        "GEMINI_API_KEY": "gemini-test-key",
         "JACC_AI_DAILY_LIMIT": "10",
         "JACC_AI_TOPIC_ONLY": "true",
     }
@@ -54,9 +54,9 @@ def test_url_configuration_removes_only_accidental_url_wrapping():
     assert service.supabase_url == "https://supabase.example"
     assert service.sheet_webhook == "https://script.example/exec"
 
-    configured = _service(JACC_AI_BASE_URL='"\u200bhttps://deepseek.example/v1/\ufeff"')
-    assert configured.base_url == "https://deepseek.example/v1"
-    assert configured.api_key == "deepseek-test-key"
+    configured = _service(JACC_AI_BASE_URL='"\u200bhttps://generativelanguage.googleapis.com/v1beta/\ufeff"')
+    assert configured.base_url == "https://generativelanguage.googleapis.com/v1beta"
+    assert configured.api_key == "gemini-test-key"
 
 
 def test_session_timeout_is_bounded_and_configurable(monkeypatch):
@@ -138,7 +138,7 @@ def test_disabled_mode_does_not_consume_quota():
     assert called is False
 
 
-def test_qwen_service_and_http_route_use_verified_session_and_atomic_quota():
+def test_gemini_service_and_http_route_use_verified_session_and_atomic_quota():
     async def exercise():
         app = web.Application()
         state = {"quota_calls": 0}
@@ -163,18 +163,22 @@ def test_qwen_service_and_http_route_use_verified_session_and_atomic_quota():
                 }
             )
 
-        async def qwen(request):
-            assert request.headers["Authorization"] == "Bearer deepseek-test-key"
+        async def gemini(request):
+            assert request.headers["x-goog-api-key"] == "gemini-test-key"
             payload = await request.json()
-            assert payload["model"] == "deepseek-v4-flash"
-            assert payload["response_format"] == {"type": "json_object"}
-            assert payload["thinking"] == {"type": "disabled"}
+            assert payload["systemInstruction"]["parts"][0]["text"]
+            assert payload["contents"][0]["role"] == "user"
+            assert payload["contents"][0]["parts"][0]["text"].startswith("<query>")
+            assert payload["generationConfig"]["responseMimeType"] == "application/json"
+            assert payload["generationConfig"]["maxOutputTokens"] == 350
             return web.json_response(
                 {
-                    "choices": [
+                    "candidates": [
                         {
-                            "message": {
-                                "content": '{"make":"Toyota","model":"Crown","year_min":2020}'
+                            "content": {
+                                "parts": [
+                                    {"text": '{"make":"Toyota","model":"Crown","year_min":2020}'},
+                                ]
                             }
                         }
                     ]
@@ -183,7 +187,7 @@ def test_qwen_service_and_http_route_use_verified_session_and_atomic_quota():
 
         app.router.add_post("/verify", verify)
         app.router.add_post("/rest/v1/rpc/jacc_consume_ai_quota", quota)
-        app.router.add_post("/chat/completions", qwen)
+        app.router.add_post("/models/gemini-2.5-flash:generateContent", gemini)
         service = _service()
         http_service = QwenTextHttp(service)
         app.router.add_options("/api/ai/query", http_service.options)
@@ -267,13 +271,13 @@ def test_provider_http_status_maps_to_safe_error_code(status_code, expected_code
     async def exercise():
         app = web.Application()
 
-        async def qwen(_request):
+        async def gemini(_request):
             return web.json_response(
                 {"error": {"message": "provider detail must not reach the client"}},
                 status=status_code,
             )
 
-        app.router.add_post("/chat/completions", qwen)
+        app.router.add_post("/models/gemini-2.5-flash:generateContent", gemini)
         service = _service()
         async with _server(app) as base:
             service.base_url = base
