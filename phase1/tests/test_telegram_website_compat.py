@@ -73,6 +73,21 @@ def test_payment_slip_approval_is_strict_and_fail_closed() -> None:
     assert "for attempt in range(1, 4)" in bot
 
 
+def test_upgrade_blocks_existing_web_premium_accounts() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    flow_guard = bot[bot.index("async def validate_payment_flow"):bot.index("async def resolve_payment_action")]
+    upgrade_cmd = bot[bot.index("async def upgrade_cmd"):bot.index("# ── NEW: Broker Session Selector")]
+    package_button = bot[bot.index('elif data.startswith("pkg_")'):bot.index('elif data.startswith("period_")')]
+
+    assert 'normalized_action == "upgrade"' in flow_guard
+    assert 'normalized_package in ("WEB", "WEBPROMO")' in flow_guard
+    assert '"reason": "already_premium"' in flow_guard
+    assert "Web Premium ဖြစ်ပြီးသားပါ" in upgrade_cmd
+    assert "သက်တမ်းတိုးလိုပါက `/renew`" in upgrade_cmd
+    assert 'flow.get("reason") == "already_premium"' in package_button
+    assert 'Package Upgrade — ရှိပြီးသား Member သီးသန့်' in upgrade_cmd
+
+
 def test_finance_slip_logging_requires_amount_and_transaction() -> None:
     bot = LEGACY.read_text(encoding="utf-8")
     helper = bot[bot.index("async def log_finance_entry"):bot.index("async def get_finance_report")]
