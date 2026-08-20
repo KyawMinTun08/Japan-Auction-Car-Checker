@@ -50,8 +50,12 @@ def test_frontend_ai_search_uses_existing_authenticated_railway_contract():
     assert 'id="aiCarQueryInput"' in source
     assert 'id="homeAiQueryInput"' in source
     assert 'id="homeAiSearchResult"' in source
-    assert "askAiCarQuery" in source
-    assert "grade_requested" in source
+    assert 'askAiCarQuery' in source
+    assert 'renderAiCarResults' in source
+    assert "Number(car.price).toLocaleString()" in source
+    assert 'ai-price-results-mobile-fix' in source
+    assert '#tab-dashboard .jacc-home-ai-result .table-wrap' in source
+    assert 'grade_requested' in source
     assert "base+'/api/ai/query'" in source
     assert "X-JACC-Device-ID" in source
     assert "X-JACC-App" in source
