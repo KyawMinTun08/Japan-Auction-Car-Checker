@@ -1187,7 +1187,7 @@ async function init(){
       if(chassis.startsWith('SK82TN'))model='VANETTE TRUCK';
       if(chassis.startsWith('SK82VN'))model='VANETTE VAN';
       if(!model||model==='UNKNOWN')return null;
-      return{date:String(r.date||''),chassis:String(r.chassis||''),model,color:String(r.color||'-').trim(),year:parseInt(String(r.year||0))||0,price:parseInt(String(r.price||0).replace(/[^0-9]/g,''))||0,location:String(r.location||'-').trim(),addedBy:String(r.addedBy||'-').trim(),imageUrl:fixImgUrl(String(r.imageUrl||'')),auctionSheetUrl:String(r.auctionSheetUrl||r.auctionSheet||r.sheetUrl||''),auctionGrade:String(r.auctionGrade||r.grade||''),mileage:String(r.mileage||''),condition:String(r.condition||''),inspectionStatus:String(r.inspectionStatus||r.inspection||''),source:String(r.source||''),sourceDate:String(r.sourceDate||'')};
+      return{date:String(r.date||''),chassis:String(r.chassis||''),model,color:String(r.color||'-').trim(),year:parseInt(String(r.year||0))||0,price:parseInt(String(r.price||0).replace(/[^0-9]/g,''))||0,location:String(r.location||'-').trim(),drive:String(r.drive||r.drivetrain||r.driveType||r.wd||'').trim(),addedBy:String(r.addedBy||'-').trim(),imageUrl:fixImgUrl(String(r.imageUrl||'')),auctionSheetUrl:String(r.auctionSheetUrl||r.auctionSheet||r.sheetUrl||''),auctionGrade:String(r.auctionGrade||r.grade||''),mileage:String(r.mileage||''),condition:String(r.condition||''),inspectionStatus:String(r.inspectionStatus||r.inspection||''),source:String(r.source||''),sourceDate:String(r.sourceDate||'')};
     }).filter(r=>r&&(r.chassis||r.model));
 
     renderCarsData(allCars);
@@ -1566,11 +1566,17 @@ async function explainCurrentCar(){
 }
 
 function aiCarFieldLabel(key){
-  const labels={make:'Make',model:'Model',year_min:'Year from',year_max:'Year to',price_min:'Price from',price_max:'Price to',location:'Location',chassis_prefix:'Chassis',body_type:'Body'};
+  const labels={make:'Make',model:'Model',year_min:'Year from',year_max:'Year to',price_min:'Price from',price_max:'Price to',location:'Location',chassis_prefix:'Chassis',body_type:'Body',drive:'Drive'};
   return labels[key]||key;
 }
 function aiCarFiltersText(filters){
   return Object.entries(filters||{}).filter(([,value])=>value!==null&&value!==''&&value!==undefined).map(([key,value])=>aiCarFieldLabel(key)+': '+String(value)).join(' · ');
+}
+function normalizeAiDrive(value){
+  const raw=String(value||'').toUpperCase();
+  const has2=/\b2WD\b|\b2X4\b|2-WHEEL/.test(raw);
+  const has4=/\b4WD\b|\bAWD\b|\b4X4\b|4-WHEEL/.test(raw);
+  return has2===has4?'':(has4?'4WD':'2WD');
 }
 function aiCarFilterRows(filters,exactChassis=''){
   const f=filters||{};
@@ -1580,6 +1586,7 @@ function aiCarFilterRows(filters,exactChassis=''){
   const location=String(f.location||'').trim().toUpperCase();
   const chassisPrefix=String(f.chassis_prefix||'').trim().toUpperCase();
   const bodyType=String(f.body_type||'').trim().toUpperCase();
+  const drive=normalizeAiDrive(f.drive);
   const yearMin=Number.isFinite(Number(f.year_min))?Number(f.year_min):null;
   const yearMax=Number.isFinite(Number(f.year_max))?Number(f.year_max):null;
   const priceMin=Number.isFinite(Number(f.price_min))?Number(f.price_min):null;
@@ -1591,12 +1598,14 @@ function aiCarFilterRows(filters,exactChassis=''){
     const carChassis=String(car.chassis||'').toUpperCase();
     const normalizedCarChassis=carChassis.replace(/[\s\-/]/g,'');
     const carBody=String(car.body_type||'').toUpperCase();
+    const carDrive=normalizeAiDrive(car.drive);
     if(make&&carMake&& !carMake.includes(make)&&!carModel.includes(make))return false;
     if(model&&!carModel.includes(model))return false;
     if(location&&!carLocation.includes(location))return false;
     if(chassisPrefix&&!carChassis.startsWith(chassisPrefix))return false;
     if(normalizedExactChassis&&!normalizedCarChassis.startsWith(normalizedExactChassis))return false;
     if(bodyType&&carBody&&!carBody.includes(bodyType))return false;
+    if(drive&&carDrive!==drive)return false;
     if(yearMin!==null&&(!car.year||car.year<yearMin))return false;
     if(yearMax!==null&&(!car.year||car.year>yearMax))return false;
     if(priceMin!==null&&(!car.price||car.price<priceMin))return false;
@@ -1608,7 +1617,7 @@ function renderAiVehicleSpec(spec,exactChassis='',matchedCar=null){
   if(!spec)return '';
   const grounded=spec.grounded===true;
   if(!grounded)return '<div class="ai-vehicle-spec-unavailable">Vehicle specification source ကို ယခုအတည်မပြုနိုင်သေးပါ။ JACC historical price/data record ကိုသာ အတည်ပြုပြထားပါတယ်။</div>';
-  const labels={series:'Series',chassis_prefix:'Chassis',engine_code:'Engine',engine_size:'Engine Size',engine_type:'Engine Type',drive:'Drive',gearbox:'Gearbox',power:'Power',torque:'Torque',fuel:'Fuel',fuel_tank:'Fuel Tank',seats:'Seats',hybrid:'Hybrid'};
+  const labels={series:'Series',chassis_prefix:'Chassis',engine_code:'Engine',engine_size:'Engine Size',engine_type:'Engine Type',drive:'Drive',gearbox:'Gearbox',fuel:'Fuel',fuel_tank:'Fuel Tank',seats:'Seats',hybrid:'Hybrid'};
   const title=matchedCar?.model||spec.series||exactChassis||'Vehicle specification';
   const facts=Object.entries(labels).filter(([key])=>spec[key]!==undefined&&spec[key]!==null&&String(spec[key]).trim()!=='').map(([key,label])=>'<div class="ai-vehicle-spec-fact"><div class="ai-vehicle-spec-label">'+label+'</div><div class="ai-vehicle-spec-value">'+esc(spec[key])+'</div></div>').join('');
   const sources=Array.isArray(spec.sources)?spec.sources.filter(source=>source&&/^https?:\\/\\//.test(String(source.uri||''))).slice(0,5):[];
@@ -1627,8 +1636,8 @@ function renderAiCarResults(filters,targetId='aiCarSearchResult',meta={}){
   const vehicleSpecHtml=renderAiVehicleSpec(meta.vehicle_spec,exactChassis,matchedCar);
   const gradeNote=meta.grade_requested?'<div style="padding:10px 12px;margin-bottom:10px;border:1px solid #FDE68A;border-radius:var(--r-md);background:#FFFBEB;color:var(--ink-2);font-size:11px;line-height:1.55"><strong>Grade reference:</strong> '+esc(knowledge.grade_notice||'Exact auction grade ကို verified auction sheet/provider record မရှိဘဲ မခန့်မှန်းပါ။')+'</div>':'';
   if(!rows.length){el.innerHTML=gradeNote+vehicleSpecHtml+'<div class="request-status-error">JACC data ထဲမှာ ကိုက်ညီတဲ့ကား မတွေ့သေးပါ။<br><small>AI filter: '+esc(filterText||'မသတ်မှတ်နိုင်သေးပါ')+'</small></div>';return;}
-  const resultRows=rows.slice(0,20).map(car=>'<tr data-ai-chassis="'+escAttr(car.chassis||'')+'" style="cursor:pointer"><td class="t-brand mono">'+esc(car.chassis||'-')+'</td><td class="t-brand">'+esc(car.model||'-')+'</td><td>'+(car.year?esc(car.year):'-')+'</td><td class="t-brand mono">'+(car.price?'฿'+Number(car.price).toLocaleString():'-')+'</td><td>'+esc(car.location||'-')+'</td><td>'+esc(car.date||'-')+'</td></tr>').join('');
-  el.innerHTML=gradeNote+vehicleSpecHtml+'<div class="card" style="border:1px solid var(--line);background:var(--surface-2)"><div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">Verified JACC records · '+rows.length+' found · '+esc(filterText||'Car query')+'</div><div class="table-wrap"><table><thead><tr><th>Chassis</th><th>Model</th><th>Year</th><th>Price</th><th>Location</th><th>Date</th></tr></thead><tbody>'+resultRows+'</tbody></table></div>'+(rows.length>20?'<div style="margin-top:8px;color:var(--ink-4);font-size:12px">ပထမ ၂၀ စီးကိုသာ ပြထားပါတယ်။</div>':'')+'</div>';
+  const resultRows=rows.slice(0,20).map(car=>'<tr data-ai-chassis="'+escAttr(car.chassis||'')+'" style="cursor:pointer"><td class="t-brand mono">'+esc(car.chassis||'-')+'</td><td class="t-brand">'+esc(car.model||'-')+'</td><td>'+(car.year?esc(car.year):'-')+'</td><td>'+esc(normalizeAiDrive(car.drive)||'-')+'</td><td class="t-brand mono">'+(car.price?'฿'+Number(car.price).toLocaleString():'-')+'</td><td>'+esc(car.location||'-')+'</td><td>'+esc(car.date||'-')+'</td></tr>').join('');
+  el.innerHTML=gradeNote+vehicleSpecHtml+'<div class="card" style="border:1px solid var(--line);background:var(--surface-2)"><div style="font-size:12px;color:var(--ink-4);margin-bottom:8px">Verified JACC records · '+rows.length+' found · '+esc(filterText||'Car query')+'</div><div class="table-wrap"><table><thead><tr><th>Chassis</th><th>Model</th><th>Year</th><th>Drive</th><th>Price</th><th>Location</th><th>Date</th></tr></thead><tbody>'+resultRows+'</tbody></table></div>'+(rows.length>20?'<div style="margin-top:8px;color:var(--ink-4);font-size:12px">ပထမ ၂၀ စီးကိုသာ ပြထားပါတယ်။</div>':'')+'</div>';
   el.querySelectorAll('[data-ai-chassis]').forEach(row=>row.addEventListener('click',()=>goLookup(row.getAttribute('data-ai-chassis'))));
 }
 function setHomeAiSuggestion(value){

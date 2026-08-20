@@ -97,6 +97,10 @@ def test_topic_gate_and_normalization():
     assert QwenTextService.is_vehicle_spec_query("Caravans 2012 VR2E26-004976")
     assert QwenTextService.is_vehicle_spec_query("Toyota Alphard 2015 AGH35-0007624 information")
     assert QwenTextService.is_vehicle_spec_query("Crown 2012 engine spec")
+    assert QwenTextService._validate_filters({"drive": "2wd"})["drive"] == "2WD"
+    assert QwenTextService._validate_filters({"drive": "AWD"})["drive"] == "4WD"
+    with pytest.raises(QwenTextError):
+        QwenTextService._validate_filters({"drive": "front wheel drive"})
     assert not QwenTextService.is_vehicle_spec_query("ဒီနေ့မိုးရွာမလား")
     assert QwenTextService.is_grade_topic("Toyota Crown auction grade ဘယ်လောက်လဲ")
     assert not QwenTextService.is_grade_topic("ဒီနေ့မိုးရွာမလား")
@@ -143,6 +147,7 @@ def test_vehicle_spec_text_is_whitelisted_and_missing_fields_are_omitted():
     assert spec["engine_size"] == "2,493cc (2.5L Petrol)"
     assert spec["drive"] == "4WD"
     assert "power" not in spec
+    assert "torque" not in spec
     assert "unknown_field" not in spec
 
 
