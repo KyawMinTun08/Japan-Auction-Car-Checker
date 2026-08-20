@@ -9,7 +9,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-const websiteUrl = 'https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1';
+const websiteUrl = 'https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.20.4';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
