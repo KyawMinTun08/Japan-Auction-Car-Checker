@@ -88,6 +88,18 @@ def test_upgrade_blocks_existing_web_premium_accounts() -> None:
     assert 'Package Upgrade — ရှိပြီးသား Member သီးသန့်' in upgrade_cmd
 
 
+def test_manual_approve_uses_atomic_idempotent_endpoint() -> None:
+    bot = LEGACY.read_text(encoding="utf-8")
+    approve_cmd = bot[bot.index("async def approve_member"):bot.index("async def members_list")]
+
+    assert '"action": "approveManualMember"' in bot
+    assert "approve_manual_member_transaction" in approve_cmd
+    assert "operation_bucket" in approve_cmd
+    assert "Finance row အသစ် မဖန်တီးထားပါ" in approve_cmd
+    assert "save_member_to_sheet(" not in approve_cmd
+    assert "log_finance_entry(" not in approve_cmd
+
+
 def test_finance_slip_logging_requires_amount_and_transaction() -> None:
     bot = LEGACY.read_text(encoding="utf-8")
     helper = bot[bot.index("async def log_finance_entry"):bot.index("async def get_finance_report")]

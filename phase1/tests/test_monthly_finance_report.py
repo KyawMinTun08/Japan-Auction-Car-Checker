@@ -75,10 +75,12 @@ def test_bot_records_activity_type_for_payment_manual_and_promo_paths() -> None:
     bot = BOT.read_text(encoding="utf-8")
     code = (ROOT / "Code.gs").read_text(encoding="utf-8")
     assert '"action": "approvePaymentTransaction"' in bot
+    assert '"action": "approveManualMember"' in bot
     assert '"source": "PAYMENT_SLIP"' in bot
-    assert '"status": "NO_PAYMENT"' in bot
-    assert '"source": "MANUAL"' in bot
+    assert 'source=MANUAL' in code
     assert '"status": "PROMO"' in bot
     assert '"source": "PROMO"' in bot
+    assert 'function approveManualMemberTransaction_(payment)' in code
+    assert 'Manual approval committed; canonical member verified' in code
     assert 'var entryType = !previous' in code
     assert 'entryType:entryType' in code

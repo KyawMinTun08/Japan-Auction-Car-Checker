@@ -274,6 +274,12 @@ function doPost(e) {
         if (approvalAuth) return _json(approvalAuth);
         return _json(approvePaymentTransaction_(data.payment || data));
 
+      // ── Locked manual member + Finance approval transaction ──
+      case "approveManualMember":
+        var manualApprovalAuth = _authorizeFinanceReport_(data.serverKey);
+        if (manualApprovalAuth) return _json(manualApprovalAuth);
+        return _json(approveManualMemberTransaction_(data.payment || data));
+
       // ── Inspect one protected payment transaction safely ──
       case "inspectPaymentTransaction":
         var inspectAuth = _authorizeFinanceReport_(data.serverKey);
@@ -1988,6 +1994,145 @@ function approvePaymentTransaction_(payment) {
     status:"ok", result:"approved", entryType:entryType,
     previousPackage:previous ? previous.package : "", package:after.package,
     member:after, financeRow:financeRow, password:after.password
+  };
+}
+
+function approveManualMemberTransaction_(payment) {
+  payment = payment || {};
+  var userId = String(payment.userId || "").trim();
+  var username = String(payment.username || "").trim();
+  var targetPackage = _normalizePackage(payment.package || "CH");
+  var approvedBy = String(payment.approvedBy || "").trim();
+  var operationId = String(payment.operationId || payment.paymentId || "").trim();
+  var calendarMonths = parseInt(payment.months, 10) || 0;
+  var days = parseInt(payment.days || (calendarMonths * 30), 10);
+
+  if (!userId) return {status:"error", message:"user_id_required"};
+  if (targetPackage !== "CH" && targetPackage !== "WEB") {
+    return {status:"error", message:"invalid_package"};
+  }
+  if (!approvedBy) return {status:"error", message:"approved_by_required"};
+  if (!isFinite(days) || days <= 0) return {status:"error", message:"invalid_expire_days"};
+  if (operationId.length < 5) return {status:"error", message:"manual_operation_id_required"};
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var membersSheet = ss.getSheetByName(MEMBERS);
+  if (!membersSheet) return {status:"error", message:"members_sheet_missing"};
+  var financeSheet = ss.getSheetByName(FINANCE_SHEET);
+  if (!financeSheet) financeSheet = ss.insertSheet(FINANCE_SHEET);
+  _ensureFinanceHeaders_(financeSheet);
+
+  var stateStore = PropertiesService.getScriptProperties();
+  var duplicate = _financeDuplicatePayment_(financeSheet, _transactionIdTokens_(operationId));
+  if (duplicate) {
+    if (String(duplicate.userId || "").trim() !== userId) {
+      return {status:"error", message:"transaction_already_used", financeRow:duplicate.row};
+    }
+    var duplicateStatus = String(duplicate.status || "").trim().toUpperCase();
+    if (duplicateStatus === "PENDING") {
+      var recovered = _recoverPendingTransaction_(
+        financeSheet, membersSheet, duplicate,
+        {userId:userId, paymentId:operationId, approvedBy:approvedBy}, stateStore
+      );
+      if (recovered) return recovered;
+      return {status:"error", message:"transaction_in_progress", financeRow:duplicate.row};
+    }
+    if (duplicateStatus !== "APPROVED") {
+      return {
+        status:"error", message:"transaction_review_required",
+        financeRow:duplicate.row, financeStatus:duplicateStatus
+      };
+    }
+    return {status:"ok", result:"duplicate", duplicate:true, financeRow:duplicate.row};
+  }
+
+  var memberLookup = _findMemberRecord_(membersSheet, userId);
+  if (memberLookup.count > 1) {
+    return {status:"error", message:"duplicate_member_rows", userId:userId};
+  }
+  var previous = memberLookup.record;
+  var previousExpire = previous ? _parseMemberDate(previous.expireDate) : null;
+  var previousIsActive = !!(previous
+    && previous.status === "ACTIVE"
+    && previousExpire
+    && previousExpire > new Date());
+  var entryType = !previous
+    ? "NEW"
+    : (previous.package === "CH" && targetPackage === "WEB" ? "UPGRADE" : "RENEW");
+  var stateKey = _transactionStateKey_(operationId);
+  var existingState = String(stateStore.getProperty(stateKey) || "").trim();
+  if (existingState) {
+    return {status:"error", message:"transaction_in_progress", state:existingState};
+  }
+
+  var now = new Date();
+  var financeDate = Utilities.formatDate(now, "Asia/Bangkok", "dd/MM/yyyy");
+  var financeTime = Utilities.formatDate(now, "Asia/Bangkok", "HH:mm");
+  var pendingNote = [
+    "PENDING manual member+finance transaction",
+    "source=MANUAL",
+    "userId=" + userId,
+    "package=" + targetPackage,
+    "days=" + days,
+    "months=" + calendarMonths,
+    "entryType=" + entryType,
+    "approvedBy=" + approvedBy,
+    "financeDate=" + financeDate,
+    "previousStatus=" + (previous ? previous.status : "NONE"),
+    "previousPackage=" + (previous ? previous.package : ""),
+    "previousStart=" + (previous ? previous.startDate : ""),
+    "previousExpire=" + (previous ? previous.expireDate : "")
+  ].join("; ");
+  financeSheet.appendRow([
+    financeDate, financeTime, userId, username,
+    targetPackage, calendarMonths || Math.max(1, Math.round(days / 30)), "",
+    "Manual", operationId, "", "", "PENDING",
+    entryType, "MANUAL", operationId, approvedBy, "", pendingNote
+  ]);
+  var financeRow = financeSheet.getLastRow();
+  stateStore.setProperty(stateKey, "PENDING|" + financeRow);
+
+  var saved;
+  try {
+    saved = saveMember(userId, username, days, String(payment.password || ""), targetPackage, calendarMonths);
+  } catch (saveError) {
+    _setFinanceTransactionState_(financeSheet, financeRow, "ERROR", entryType, "MANUAL",
+      operationId, approvedBy, "", "Member save exception; manual review required");
+    stateStore.deleteProperty(stateKey);
+    return {status:"error", message:"member_save_failed", detail:String(saveError)};
+  }
+  if (!saved || saved.status !== "ok") {
+    _setFinanceTransactionState_(financeSheet, financeRow, "ERROR", entryType, "MANUAL",
+      operationId, approvedBy, "", "Member save failed: " + String(saved && saved.message || "unknown"));
+    stateStore.deleteProperty(stateKey);
+    return {status:"error", message:"member_save_failed", detail:String(saved && saved.message || "unknown")};
+  }
+
+  var afterLookup = _findMemberRecord_(membersSheet, userId);
+  var after = afterLookup.record;
+  var integrityOk = afterLookup.count === 1 && after && after.package === targetPackage
+    && after.status === "ACTIVE" && after.startDate && after.expireDate;
+  if (previous && previousIsActive && after && previous.startDate !== after.startDate) integrityOk = false;
+  if (previous && previousIsActive && previous.package === "WEB" && previous.password
+      && targetPackage === "WEB" && after && previous.password !== after.password) integrityOk = false;
+  if (!integrityOk) {
+    stateStore.setProperty(stateKey, "MEMBER_SAVED|" + financeRow);
+    _setFinanceTransactionState_(financeSheet, financeRow, "REVIEW", entryType, "MANUAL",
+      operationId, approvedBy, after ? after.expireDate : "",
+      "Member saved but canonical re-read failed; do not retry manual approval");
+    return {status:"error", message:"member_finance_review_required", member:after || null, financeRow:financeRow};
+  }
+
+  _setFinanceTransactionState_(financeSheet, financeRow, "APPROVED", entryType, "MANUAL",
+    operationId, approvedBy, after.expireDate,
+    "Manual approval committed; canonical member verified");
+  writeAuditLog(approvedBy, "MANUAL_MEMBER_APPROVAL", userId,
+    "APPROVED:" + entryType + ":" + operationId);
+  stateStore.deleteProperty(stateKey);
+  return {
+    status:"ok", result:"approved", entryType:entryType,
+    package:after.package, member:after, financeRow:financeRow,
+    password:after.password
   };
 }
 

@@ -1181,6 +1181,59 @@ async def approve_payment_transaction(payment: dict) -> dict:
     }
 
 
+async def approve_manual_member_transaction(payment: dict) -> dict:
+    """Atomically approve a no-payment manual member action and its Finance audit row."""
+    if not SHEET_WEBHOOK:
+        return {"status": "error", "message": "sheet_webhook_not_configured"}
+    if not SHEET_SERVER_KEY:
+        return {"status": "error", "message": "server_key_not_configured"}
+    payload = dict(payment or {})
+    last_result = None
+    last_error = ""
+    for attempt in range(1, 4):
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                response = await client.post(
+                    SHEET_WEBHOOK,
+                    json={
+                        "action": "approveManualMember",
+                        "payment": payload,
+                        "serverKey": SHEET_SERVER_KEY,
+                    },
+                    timeout=45,
+                )
+            result = response.json()
+            if isinstance(result, dict):
+                last_result = result
+                if response.status_code < 400:
+                    if result.get("status") == "ok" or result.get("message") in {
+                        "transaction_already_used",
+                        "transaction_in_progress",
+                        "transaction_review_required",
+                        "member_finance_review_required",
+                    }:
+                        return result
+                    if result.get("message") in {"unauthorized", "server_key_not_configured"}:
+                        return result
+            logger.warning(
+                "approveManualMember failed attempt=%s/3 status=%s response=%s",
+                attempt, response.status_code, str(result)[:300],
+            )
+            last_error = f"HTTP {response.status_code}"
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {str(exc)[:240]}"
+            logger.warning("approveManualMember request failed attempt=%s/3: %s", attempt, exc)
+        if attempt < 3:
+            await asyncio.sleep(1.0 * attempt)
+    if isinstance(last_result, dict) and last_result.get("message"):
+        return last_result
+    return {
+        "status": "error",
+        "message": "manual_transaction_request_failed",
+        "detail": last_error,
+    }
+
+
 async def save_payment_draft(payment: dict) -> dict:
     """Persist a reviewable payment draft before notifying admins."""
     if not SHEET_WEBHOOK or not SHEET_SERVER_KEY:
@@ -5117,39 +5170,46 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"get_chat: {e}")
 
-    password   = generate_password() if package == "WEB" else ""
-    saved = await save_member_to_sheet(
-        str(member_id) if member_id else username_or_id,
-        member_username, days, password, package)
-    saved = await enrich_member_save_result(
-        str(member_id) if member_id else username_or_id, saved, package, strict=True)
-    if saved.get("status") != "ok":
+    password = generate_password() if package == "WEB" else ""
+    target_user_id = str(member_id) if member_id else username_or_id
+    approved_by = str(getattr(update.effective_user, "username", "") or user_id)
+    # Same user/package/period within one 10-minute bucket is one manual action.
+    # Repeating the command therefore returns duplicate instead of extending twice.
+    operation_bucket = int(datetime.now(timezone.utc).timestamp() // 600)
+    operation_id = f"MANUAL-{target_user_id}-{package}-{days}-{operation_bucket}"
+    atomic_result = await approve_manual_member_transaction({
+        "userId": target_user_id,
+        "username": member_username,
+        "days": days,
+        "months": months,
+        "password": password,
+        "package": package,
+        "approvedBy": approved_by,
+        "operationId": operation_id,
+    })
+    if atomic_result.get("status") != "ok":
+        message = atomic_result.get("message")
+        if message in {"transaction_in_progress", "transaction_review_required", "member_finance_review_required"}:
+            text = (
+                "⚠️ Manual approval ကို ဆက်မနှိပ်ပါနှင့်။\n"
+                "Member/Finance transaction သည် စစ်ဆေးရန်လိုနေပါသည်။\n"
+                "Finance row နှင့် Members row ကို Admin က စစ်ပြီးမှသာ ဆက်လုပ်ပါ။"
+            )
+        else:
+            text = "❌ Atomic manual approval မအောင်မြင်သေးပါ။ Membership Approved မဖြစ်သေးပါ။"
+        await update.message.reply_text(text, parse_mode="HTML")
+        return
+    if atomic_result.get("duplicate") or atomic_result.get("result") == "recovered":
         await update.message.reply_text(
-            "❌ Sheet ထဲ မသိမ်းနိုင်သေးပါ။ Membership Approved မဖြစ်သေးပါ။",
-            parse_mode="HTML",
-        )
+            "⚠️ ဒီ Manual approval သည် အရင်က အတည်ပြုပြီးသားဖြစ်ပါသည်။\n"
+            "Member သက်တမ်းကို ထပ်မတိုးထားပါ။ Finance row အသစ် မဖန်တီးထားပါ။",
+            parse_mode="HTML")
         return
 
-    canonical_password = str(saved.get("password") or password or "")
-    canonical_expire = str(saved.get("expireDate") or "")
-    canonical_package = str(saved.get("package") or package).upper()
-    await log_finance_entry({
-        "date": datetime.now(timezone.utc).strftime("%d/%m/%Y"),
-        "time": datetime.now(timezone.utc).strftime("%H:%M"),
-        "userId": str(member_id) if member_id else username_or_id,
-        "username": member_username,
-        "package": PLAN_NAMES.get(canonical_package, canonical_package),
-        "months": months,
-        "amount": "",
-        "payType": "MANUAL",
-        "transactionNo": "",
-        "status": "NO_PAYMENT",
-        "entryType": str(saved.get("entryType") or "UNKNOWN").upper(),
-        "source": "MANUAL",
-        "approvedBy": str(getattr(update.effective_user, "username", "") or user_id),
-        "expireDate": canonical_expire,
-        "note": "Manual admin approval; no payment slip recorded",
-    })
+    member = atomic_result.get("member") or {}
+    canonical_password = str(atomic_result.get("password") or member.get("password") or password or "")
+    canonical_expire = str(member.get("expireDate") or "")
+    canonical_package = str(atomic_result.get("package") or member.get("package") or package).upper()
     invite_url = await create_invite_link(context, days)
     if member_id:
         await send_approval_dm(
