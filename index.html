@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>JACC — Japan Auction Car Checker</title>
+<script>
+(function(){
+  try{
+    var params=new URLSearchParams(location.search);
+    if(params.get('app')==='flutter'&&params.get('jacc_app')==='1'&&params.get('build')!=='2026.08.20.4'){
+      params.set('build','2026.08.20.4');
+      location.replace(location.pathname+'?'+params.toString()+location.hash);
+    }
+  }catch(ignore){}
+})();
+</script>
 <meta name="description" content="MaeSot, Klang9 & Best Border-44 Gate freezone auction car database. Live pricing, chassis lookup, market trends.">
 <meta name="application-name" content="JACC">
 <meta name="robots" content="noindex,nofollow,noarchive">
