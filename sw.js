@@ -1,7 +1,7 @@
 // JACC PWA Service Worker
-// Version 2026.08.20-startup-recovery-v5
+// Version 2026.08.20-startup-diagnostics-v6
 const CACHE_PREFIX = 'jacc-';
-const CACHE_NAME = 'jacc-2026.08.20-startup-recovery-v5';
+const CACHE_NAME = 'jacc-2026.08.20-startup-diagnostics-v6';
 const BASE_PATH = '/Japan-Auction-Car-Checker';
 const APP_SHELL = [
   BASE_PATH + '/',

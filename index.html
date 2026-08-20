@@ -758,15 +758,21 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.20-startup-recovery-v5';
+const APP_VERSION     = '2026.08.20-startup-diagnostics-v6';
 const REQUEST_TIMEOUT_MS = 12000;
 const DATA_REQUEST_TIMEOUT_MS = 45000;
 const STARTUP_WATCHDOG_TIMEOUT_MS = 60000;
 let startupWatchdogTimer = null;
 let startupRetryInFlight = false;
+let startupDiagnostic = {stage:'BOOT', code:'', startedAt:Date.now()};
+function markStartupStage(stage, code=''){startupDiagnostic={stage:String(stage||'UNKNOWN'),code:String(code||''),startedAt:startupDiagnostic.startedAt||Date.now()};try{console.warn('[JACC_STARTUP]',startupDiagnostic.stage,startupDiagnostic.code);}catch(e){}}
+function safeStartupCode(error,prefix){const p=String(prefix||'STARTUP').toUpperCase();const raw=String(error&&error.code||'').trim().toUpperCase();if(raw==='REQUEST_TIMEOUT')return p+'_TIMEOUT';if(raw==='ABORT_ERR'||String(error&&error.name||'').toUpperCase()==='ABORTERROR')return p+'_ABORTED';if(raw)return p+'_'+raw.replace(/[^A-Z0-9]+/g,'_').slice(0,48);if(String(error&&error.name||'').toLowerCase()==='syntaxerror')return p+'_INVALID_JSON';const message=String(error&&error.message||'').trim();const http=message.match(/^http_(\d{3})$/i);if(http)return p+'_HTTP_'+http[1];return p+'_CONNECTION';}
+function startupDiagnosticHtml(){const code=startupDiagnostic.code||('STARTUP_'+startupDiagnostic.stage);return '<div style="font-size:11px;color:var(--ink-4);margin:8px 0 14px">Error code: <strong>'+esc(code)+'</strong><br>Stage: '+esc(startupDiagnostic.stage)+'</div>';}
+
 function clearStartupWatchdog(){if(startupWatchdogTimer){clearTimeout(startupWatchdogTimer);startupWatchdogTimer=null;}}
 async function retryStartupData(){
   if(startupRetryInFlight)return;
+  markStartupStage('RETRY_START','DATA_RETRY_RUNNING');
   if(!SESSION||!SESSION.token||!SESSION.userId){location.reload();return;}
   startupRetryInFlight=true;
   const loading=document.getElementById('loadingOverlay');
@@ -774,11 +780,12 @@ async function retryStartupData(){
   try{await init();}finally{startupRetryInFlight=false;}
 }
 function showStartupRecoveryError(){
+  markStartupStage('WATCHDOG_TIMEOUT','DATA_WATCHDOG_TIMEOUT');
   startupWatchdogTimer=null;
   const loading=document.getElementById('loadingOverlay');
   const login=document.getElementById('loginOverlay');
   if(!loading||loading.style.display==='none'||(login&&login.style.display==='flex'))return;
-  loading.innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">Data ဆွဲယူချိန်ကြာနေပါတယ်</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:14px">Internet သို့မဟုတ် Google Sheets response ကို စစ်ပြီး ပြန်ကြိုးစားပါ။</div><button onclick="retryStartupData()" class="btn btn-primary">🔄 Retry</button></div>';
+  loading.innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">Data ဆွဲယူချိန်ကြာနေပါတယ်</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:4px">Internet သို့မဟုတ် Google Sheets response ကို စစ်ပြီး ပြန်ကြိုးစားပါ။</div>'+startupDiagnosticHtml()+'<button onclick="retryStartupData()" class="btn btn-primary">🔄 Retry</button></div>';
 }
 function armStartupWatchdog(timeoutMs=STARTUP_WATCHDOG_TIMEOUT_MS){clearStartupWatchdog();startupWatchdogTimer=setTimeout(showStartupRecoveryError,Math.max(10000,timeoutMs));}
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
@@ -1004,10 +1011,14 @@ async function restoreRememberedLogin(){
 }
 async function restoreSession(){
   window.JACC_SESSION_ERROR='';
+  markStartupStage('SESSION_VERIFY_START','');
   const restored=await JACCDeviceBinding.verifyStoredSession({webhook:WEBHOOK,timeoutMs:REQUEST_TIMEOUT_MS});
-  if(restored.ok){SESSION=restored.session;return true;}
+  if(restored.ok){SESSION=restored.session;markStartupStage('SESSION_VERIFY_OK','SESSION_OK');return true;}
   const remembered=await restoreRememberedLogin();
-  if(remembered.ok)return true;
+  if(remembered.ok){markStartupStage('LOGIN_RESTORE_OK','SESSION_OK');return true;}
+  if(restored.reason==='backend_unavailable'||remembered.reason==='backend_unavailable')markStartupStage('SESSION_VERIFY_FAILED','SESSION_BACKEND_UNAVAILABLE');
+  else if(restored.deviceError||remembered.deviceError)markStartupStage('SESSION_VERIFY_FAILED','SESSION_DEVICE_ERROR');
+  else markStartupStage('SESSION_VERIFY_FAILED','SESSION_'+String(remembered.reason||restored.reason||'REJECTED').replace(/[^a-z0-9]+/gi,'_').toUpperCase().slice(0,42));
   const deviceResponse=remembered.deviceError?remembered.response:(restored.deviceError?restored.response:null);
   if(deviceResponse)window.JACC_SESSION_ERROR=JACCDeviceBinding.deviceErrorMessage(deviceResponse||{message:remembered.reason||restored.reason});
   else if(restored.reason==='backend_unavailable'||remembered.reason==='backend_unavailable')window.JACC_SESSION_ERROR='⚠️ Login server ကို ဆက်သွယ်မရပါ။ Internet စစ်ပြီး ပြန်ဖွင့်ပါ။';
@@ -1150,6 +1161,7 @@ const BODY_TYPE_MAP={
 function fixImgUrl(url){if(!url||url.trim()==='')return '';const m=url.match(/\/d\/([a-zA-Z0-9_-]+)/);if(m)return 'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w400';if(url.startsWith('http'))return url;return '';}
 
 async function init(){
+  markStartupStage('GETDATA_START','');
   armStartupWatchdog();
   const cached=readCarsCache();
   let allowCacheFallback=true;
@@ -1161,11 +1173,13 @@ async function init(){
   }
   try{
     const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))},DATA_REQUEST_TIMEOUT_MS);
+    markStartupStage('GETDATA_RESPONSE','');
     const res=loaded.response;
     if(!res.ok)throw new Error('http_'+res.status);
     const result=loaded.data;
     if(result.status!=='ok'){
       const reason=String(result.msg||result.message||result.error||'').toLowerCase();
+      markStartupStage('GETDATA_ERROR','DATA_RESPONSE_'+reason.replace(/[^a-z0-9]+/g,'_').toUpperCase().slice(0,48));
       const authFailure=JACCDeviceBinding.isDeviceError(result)||/expired|invalid.?token|unauthori[sz]ed|session|device/.test(reason);
       if(authFailure)allowCacheFallback=false;
       if(JACCDeviceBinding.isDeviceError(result)){
@@ -1243,10 +1257,12 @@ async function init(){
 
     renderCarsData(allCars);
     writeCarsCache(allCars);
+    markStartupStage('GETDATA_SUCCESS','DATA_OK');
     clearStartupWatchdog();
     document.getElementById('loadingOverlay').style.display='none';
     if(cached)showToast('Live data update ပြီးပါပြီ','ok');
   }catch(e){
+    markStartupStage('GETDATA_FAILED',safeStartupCode(e,'DATA'));
     if(allowCacheFallback&&cached){
       clearStartupWatchdog();
       document.getElementById('loadingOverlay').style.display='none';
@@ -1254,10 +1270,10 @@ async function init(){
       return;
     }
     clearStartupWatchdog();
-    const code=String(e&&e.code||'').trim();
-    const message=code==='REQUEST_TIMEOUT'?'Google Sheets response ကြာနေပါတယ်':'Connection မအောင်မြင်ပါ';
-    const detail=code&&code!=='REQUEST_TIMEOUT'?'<div style="font-size:11px;color:var(--ink-4);margin-bottom:14px">Error: '+esc(code)+'</div>':'';
-    document.getElementById('loadingOverlay').innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">'+message+'</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:8px">Internet စစ်ပြီး Retry နှိပ်ပါ။</div>'+detail+'<button onclick="init()" class="btn btn-primary">🔄 Retry</button></div>';
+    const code=startupDiagnostic.code||safeStartupCode(e,'DATA');
+    const message=code==='DATA_TIMEOUT'?'Google Sheets response ကြာနေပါတယ်':code.startsWith('DATA_RESPONSE_')?'Data response error ဖြစ်နေပါတယ်':'Connection မအောင်မြင်ပါ';
+    const detail=startupDiagnosticHtml();
+    document.getElementById('loadingOverlay').innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">'+message+'</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:8px">Internet စစ်ပြီး Retry နှိပ်ပါ။</div>'+detail+'<button onclick="retryStartupData()" class="btn btn-primary">🔄 Retry</button></div>';
   }
 }
 
