@@ -39,7 +39,7 @@ def test_explicit_logout_and_account_control_remove_saved_login() -> None:
 
 
 def test_pwa_cache_and_android_webview_keep_the_new_flow() -> None:
-    assert "jacc-2026.08.19-ai-console-v2" in SW
+    assert "jacc-2026.08.20-startup-recovery-v3" in SW
     assert "domStorageEnabled = true" in ANDROID
     assert "databaseEnabled = true" in ANDROID
     assert "clearCache" not in ANDROID
