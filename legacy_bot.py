@@ -4226,6 +4226,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         atomic_result = await approve_payment_transaction(atomic_payment)
         atomic_message = str(atomic_result.get("message") or "").strip()
+        if atomic_result.get("result") == "duplicate":
+            await clear_payment_draft(member_id, transaction_no)
+            pending_payment.pop(member_id, None)
+            await query.message.reply_text(
+                "⚠️ ဒီ Payment Transaction ကို အရင် Approve လုပ်ပြီးသားဖြစ်ပါတယ်။\n"
+                "ထပ်မံ Approve မလုပ်တော့ပါနှင့်။ Member သက်တမ်းကို ထပ်မတိုးထားပါ။",
+                parse_mode="Markdown")
+            return
         if atomic_result.get("status") != "ok":
             if atomic_message == "transaction_already_used":
                 await query.message.reply_text(
