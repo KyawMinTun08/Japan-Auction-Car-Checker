@@ -6806,7 +6806,7 @@ async def main():
     if qwen_http is not None:
         web_app.router.add_options("/api/ai/query", qwen_http.options)
         web_app.router.add_post("/api/ai/query", qwen_http.query)
-        logger.info("Qwen text query endpoint mounted (feature flag controls provider calls)")
+        logger.info("AI text query endpoint mounted (feature flag controls provider calls)")
 
     payment_http = build_website_payment_http_service(
         bot=app.bot,
