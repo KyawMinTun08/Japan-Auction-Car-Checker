@@ -760,6 +760,8 @@ const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
 const APP_VERSION     = '2026.08.20-startup-recovery-v5';
 const REQUEST_TIMEOUT_MS = 12000;
+const DATA_REQUEST_TIMEOUT_MS = 45000;
+const STARTUP_WATCHDOG_TIMEOUT_MS = 60000;
 let startupWatchdogTimer = null;
 let startupRetryInFlight = false;
 function clearStartupWatchdog(){if(startupWatchdogTimer){clearTimeout(startupWatchdogTimer);startupWatchdogTimer=null;}}
@@ -778,7 +780,7 @@ function showStartupRecoveryError(){
   if(!loading||loading.style.display==='none'||(login&&login.style.display==='flex'))return;
   loading.innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">Data ဆွဲယူချိန်ကြာနေပါတယ်</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:14px">Internet သို့မဟုတ် Google Sheets response ကို စစ်ပြီး ပြန်ကြိုးစားပါ။</div><button onclick="retryStartupData()" class="btn btn-primary">🔄 Retry</button></div>';
 }
-function armStartupWatchdog(timeoutMs=20000){clearStartupWatchdog();startupWatchdogTimer=setTimeout(showStartupRecoveryError,Math.max(10000,timeoutMs));}
+function armStartupWatchdog(timeoutMs=STARTUP_WATCHDOG_TIMEOUT_MS){clearStartupWatchdog();startupWatchdogTimer=setTimeout(showStartupRecoveryError,Math.max(10000,timeoutMs));}
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
 const DATA_CACHE_SCHEMA_VERSION = 'jacc-cars-v2';
 const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1158,7 +1160,7 @@ async function init(){
     clearStartupWatchdog();
   }
   try{
-    const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))});
+    const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId}))},DATA_REQUEST_TIMEOUT_MS);
     const res=loaded.response;
     if(!res.ok)throw new Error('http_'+res.status);
     const result=loaded.data;

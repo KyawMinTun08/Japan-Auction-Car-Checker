@@ -22,6 +22,10 @@ def test_frontend_uses_bounded_data_fetch_and_cache_fallback() -> None:
     assert "if(!SESSION||!SESSION.userId)return null;" in source
     assert "fetchWithTimeout(WEBHOOK" in source
     assert "async function fetchJsonWithTimeout" in source
+    assert "const DATA_REQUEST_TIMEOUT_MS = 45000;" in source
+    assert "const STARTUP_WATCHDOG_TIMEOUT_MS = 60000;" in source
+    assert "armStartupWatchdog(timeoutMs=STARTUP_WATCHDOG_TIMEOUT_MS)" in source
+    assert "},DATA_REQUEST_TIMEOUT_MS);" in source
     assert "function armStartupWatchdog" in source
     assert "function showStartupRecoveryError" in source
     assert "async function retryStartupData()" in source
