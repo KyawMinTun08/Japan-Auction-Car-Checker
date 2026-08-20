@@ -747,7 +747,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.20-startup-recovery-v3';
+const APP_VERSION     = '2026.08.20-startup-recovery-v4';
 const REQUEST_TIMEOUT_MS = 12000;
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
 const DATA_CACHE_SCHEMA_VERSION = 'jacc-cars-v2';
@@ -1216,8 +1216,10 @@ async function init(){
       showToast('Live data မရသေးပါ — Cached data ဖြင့် ဆက်သုံးနိုင်ပါတယ်','warn');
       return;
     }
-    const message=e&&e.code==='REQUEST_TIMEOUT'?'Google Sheets response ကြာနေပါတယ်':'Connection မအောင်မြင်ပါ';
-    document.getElementById('loadingOverlay').innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">'+message+'</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:18px">Internet စစ်ပြီး Retry နှိပ်ပါ။</div><button onclick="init()" class="btn btn-primary">🔄 Retry</button></div>';
+    const code=String(e&&e.code||'').trim();
+    const message=code==='REQUEST_TIMEOUT'?'Google Sheets response ကြာနေပါတယ်':'Connection မအောင်မြင်ပါ';
+    const detail=code&&code!=='REQUEST_TIMEOUT'?'<div style="font-size:11px;color:var(--ink-4);margin-bottom:14px">Error: '+esc(code)+'</div>':'';
+    document.getElementById('loadingOverlay').innerHTML='<div style="text-align:center;padding:32px;max-width:400px"><div style="font-size:50px;margin-bottom:14px">⚠️</div><div style="font-size:17px;font-weight:700;color:var(--ink-1);margin-bottom:8px">'+message+'</div><div style="font-size:13px;color:var(--ink-4);margin-bottom:8px">Internet စစ်ပြီး Retry နှိပ်ပါ။</div>'+detail+'<button onclick="init()" class="btn btn-primary">🔄 Retry</button></div>';
   }
 }
 
