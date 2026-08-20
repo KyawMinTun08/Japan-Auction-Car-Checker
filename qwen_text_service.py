@@ -4,7 +4,7 @@ This module is intentionally separate from Gemini payment-slip/image OCR.
 It returns a validated, grounded car-search plan. The actual JACC data search
 remains deterministic in the frontend, while grade questions receive explicit
 verified-data boundaries instead of generated grade values. The provider is
-selected by server-side environment variables; DeepSeek is the current target.
+selected by server-side environment variables; Gemini is the current text-search provider.
 """
 
 from __future__ import annotations
@@ -91,9 +91,9 @@ _CAR_ANCHOR_TERMS = (
 )
 
 _PROVIDER_DEFAULTS = {
-    "deepseek": {
-        "base_url": "https://api.deepseek.com",
-        "model": "deepseek-v4-flash",
+    "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta",
+        "model": "gemini-2.5-flash",
     },
 }
 
@@ -151,7 +151,7 @@ class QwenTextService:
         }
         self.enabled = _env_bool("JACC_AI_ENABLED", False)
         self.topic_only = _env_bool("JACC_AI_TOPIC_ONLY", True)
-        self.provider = str(os.environ.get("JACC_AI_PROVIDER", "deepseek")).strip().lower()
+        self.provider = str(os.environ.get("JACC_AI_PROVIDER", "gemini")).strip().lower()
         provider_defaults = _PROVIDER_DEFAULTS.get(self.provider, {})
         self.base_url = _clean_env_url(
             os.environ.get("JACC_AI_BASE_URL") or provider_defaults.get("base_url", "")
@@ -159,7 +159,10 @@ class QwenTextService:
         self.model = str(
             os.environ.get("JACC_AI_MODEL") or provider_defaults.get("model", "")
         ).strip()
-        self.api_key = str(os.environ.get("JACC_AI_API_KEY", "")).strip()
+        # Text search uses the existing server-side Gemini secret.
+        self.api_key = str(
+            os.environ.get("GEMINI_API_KEY") if self.provider == "gemini" else ""
+        ).strip()
         self.daily_limit = _clamp_int("JACC_AI_DAILY_LIMIT", 10, 1, 100)
         self.max_input_chars = _clamp_int("JACC_AI_MAX_INPUT_CHARS", 1200, 100, 4000)
         self.max_output_tokens = _clamp_int("JACC_AI_MAX_OUTPUT_TOKENS", 350, 64, 1200)
@@ -345,7 +348,7 @@ class QwenTextService:
     async def _call_provider(self, query: str) -> dict[str, Any]:
         if not self.enabled:
             raise QwenTextError("AI_DISABLED", status=503)
-        if self.provider != "deepseek":
+        if self.provider != "gemini":
             raise QwenTextError("AI_PROVIDER_NOT_ALLOWED", status=503)
         if not self.api_key or not self.base_url or not self.model:
             raise QwenTextError("AI_PROVIDER_NOT_CONFIGURED", status=503)
@@ -363,25 +366,26 @@ class QwenTextService:
             + prompt_context()
         )
         payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": f"<query>{query}</query>"},
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": f"<query>{query}</query>"}],
+                }
             ],
-            "temperature": 0.1,
-            "max_tokens": self.max_output_tokens,
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": self.max_output_tokens,
+                "responseMimeType": "application/json",
+            },
         }
-        if self.provider == "deepseek":
-            # DeepSeek JSON Output is safest for the deterministic filter-plan contract.
-            payload["response_format"] = {"type": "json_object"}
-            payload["thinking"] = {"type": "disabled"}
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
-                    f"{self.base_url}/chat/completions",
+                    f"{self.base_url}/models/{self.model}:generateContent",
                     headers={
-                        "Authorization": f"Bearer {self.api_key}",
+                        "x-goog-api-key": self.api_key,
                         "Content-Type": "application/json",
                     },
                     json=payload,
@@ -412,7 +416,14 @@ class QwenTextService:
             raise QwenTextError(error_code)
         try:
             data = response.json()
-            content = data["choices"][0]["message"]["content"]
+            parts = data["candidates"][0]["content"]["parts"]
+            content = "".join(
+                str(part.get("text", ""))
+                for part in parts
+                if isinstance(part, dict) and part.get("text")
+            )
+            if not content:
+                raise KeyError("text")
         except (ValueError, KeyError, IndexError, TypeError):
             raise QwenTextError("AI_INVALID_RESPONSE") from None
         return self._validate_plan(self._extract_json(str(content)))
@@ -423,7 +434,7 @@ class QwenTextService:
             raise QwenTextError("CAR_TOPIC_ONLY", status=400)
         if not self.enabled:
             raise QwenTextError("AI_DISABLED", status=503)
-        if self.provider != "deepseek" or not self.api_key or not self.base_url or not self.model:
+        if self.provider != "gemini" or not self.api_key or not self.base_url or not self.model:
             raise QwenTextError("AI_PROVIDER_NOT_CONFIGURED", status=503)
         quota = await self.consume_quota(user_id, self._query_hash(user_id, query))
         plan = await self._call_provider(query)
