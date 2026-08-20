@@ -40,6 +40,10 @@ def test_frontend_uses_bounded_data_fetch_and_cache_fallback() -> None:
     assert "await Promise.race([result.text(),timeout])" in source
     assert "Live data မရသေးပါ — Cached data ဖြင့် ဆက်သုံးနိုင်ပါတယ်" in source
     assert "verifyStoredSession({webhook:WEBHOOK,timeoutMs:REQUEST_TIMEOUT_MS})" in source
+    assert "function createChart(canvas,config)" in source
+    assert "typeof Chart==='undefined'" in source
+    assert "Chart.js unavailable; continuing without chart" in source
+    assert "try{return new Chart(canvas,config);}" in source
 
 
 def test_service_worker_delivers_startup_fix() -> None:
