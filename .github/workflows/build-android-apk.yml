@@ -80,18 +80,18 @@ jobs:
           echo "Detected package: $PACKAGE"
           echo "Detected version: $VERSION_NAME ($VERSION_CODE)"
           test "$PACKAGE" = "com.kyawmintun.jacc"
-          test "$VERSION_NAME" = "1.05"
-          test "$VERSION_CODE" = "105"
+          test "$VERSION_NAME" = "1.06"
+          test "$VERSION_CODE" = "106"
 
       - name: Rename APK
         working-directory: android-app
-        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.05-APKPure-signed.apk
+        run: cp app/build/outputs/apk/release/app-release.apk JACC-v1.06-APKPure-signed.apk
 
       - name: Upload verified signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: JACC-v1.05-APKPure-ready
-          path: android-app/JACC-v1.05-APKPure-signed.apk
+          name: JACC-v1.06-APKPure-ready
+          path: android-app/JACC-v1.06-APKPure-signed.apk
           if-no-files-found: error
           retention-days: 30
 
