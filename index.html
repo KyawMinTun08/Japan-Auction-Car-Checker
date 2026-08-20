@@ -750,6 +750,7 @@ const LOCKOUT_MINUTES = 15;
 const APP_VERSION     = '2026.08.20-startup-recovery-v3';
 const REQUEST_TIMEOUT_MS = 12000;
 const DATA_CACHE_KEY = 'jacc_cars_cache_v2';
+const DATA_CACHE_SCHEMA_VERSION = 'jacc-cars-v2';
 const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const REMEMBER_LOGIN_KEY = 'jacc_remember_login_v1';
 const REMEMBER_LOGIN_DB = 'jacc_remember_login_db_v1';
@@ -828,14 +829,17 @@ function readCarsCache(){
   if(!SESSION||!SESSION.userId)return null;
   try{
     const parsed=JSON.parse(localStorage.getItem(dataCacheKey())||'null');
-    if(!parsed||parsed.version!==APP_VERSION||!Array.isArray(parsed.cars)||!parsed.cars.length)return null;
+    if(!parsed)return null;
+    const legacyCompatible=parsed.version==='2026.08.19-ai-console-v2'||parsed.version===APP_VERSION;
+    const schemaCompatible=parsed.schemaVersion===DATA_CACHE_SCHEMA_VERSION;
+    if(!parsed||(!legacyCompatible&&!schemaCompatible)||!Array.isArray(parsed.cars)||!parsed.cars.length)return null;
     const age=Date.now()-Number(parsed.savedAt||0);if(!Number.isFinite(age)||age<0||age>DATA_CACHE_MAX_AGE_MS)return null;
     return parsed;
   }catch(e){return null;}
 }
 function writeCarsCache(cars){
   if(!SESSION||!SESSION.userId)return;
-  try{localStorage.setItem(dataCacheKey(),JSON.stringify({version:APP_VERSION,savedAt:Date.now(),cars:Array.isArray(cars)?cars:[]}));}catch(e){console.warn('[JACC] local cache write failed',e);}
+  try{localStorage.setItem(dataCacheKey(),JSON.stringify({version:APP_VERSION,schemaVersion:DATA_CACHE_SCHEMA_VERSION,savedAt:Date.now(),cars:Array.isArray(cars)?cars:[]}));}catch(e){console.warn('[JACC] local cache write failed',e);}
 }
 function normalizeModelDisplay(value){
   const model=String(value||'').replace(/[\u0000-\u001F\u007F\u00A0\u200B-\u200D\u2060\uFEFF]/g,'').replace(/[._]+/g,' ').replace(/\s+/g,' ').trim().toUpperCase();

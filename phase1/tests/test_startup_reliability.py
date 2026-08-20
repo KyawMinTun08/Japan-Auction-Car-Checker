@@ -13,6 +13,9 @@ def test_frontend_uses_bounded_data_fetch_and_cache_fallback() -> None:
     source = INDEX.read_text(encoding="utf-8")
     assert "const REQUEST_TIMEOUT_MS = 12000" in source
     assert "const DATA_CACHE_KEY = 'jacc_cars_cache_v2'" in source
+    assert "const DATA_CACHE_SCHEMA_VERSION = 'jacc-cars-v2'" in source
+    assert "parsed.version==='2026.08.19-ai-console-v2'" in source
+    assert "schemaVersion:DATA_CACHE_SCHEMA_VERSION" in source
     assert "function dataCacheKey()" in source
     assert "function readCarsCache()" in source
     assert "function writeCarsCache(cars)" in source
