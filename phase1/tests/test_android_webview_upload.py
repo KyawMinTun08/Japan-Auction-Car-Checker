@@ -17,8 +17,8 @@ def test_android_webview_supports_image_file_chooser() -> None:
 
 def test_android_release_version_is_bumped_for_file_chooser_fix() -> None:
     source = GRADLE.read_text(encoding="utf-8")
-    assert "versionCode = 106" in source
-    assert 'versionName = "1.06"' in source
+    assert "versionCode = 107" in source
+    assert 'versionName = "1.07"' in source
     assert 'tasks.matching { it.name == "assembleRelease" }.configureEach' in source
     assert 'app-release-unsigned.apk' in source
     assert 'app-release.apk' in source
