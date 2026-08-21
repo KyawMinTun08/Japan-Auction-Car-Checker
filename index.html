@@ -884,8 +884,12 @@ window.__jaccNativeTransportResolve=function(requestId,encodedEnvelope){
       error.code='NATIVE_'+detail;
       throw error;
     }
-    const response={ok:Number(envelope.status)>=200&&Number(envelope.status)<300,status:Number(envelope.status)};
-    const data=JSON.parse(String(envelope.body||''));
+    const status=Number(envelope.status);
+    if(!Number.isFinite(status)){const error=new Error('native_response_status_invalid');error.code='NATIVE_RESPONSE_STATUS_INVALID';throw error;}
+    const body=String(envelope.body??'');
+    let data;
+    try{data=JSON.parse(body);}catch(error){error.code='NATIVE_RESPONSE_JSON_INVALID';throw error;}
+    const response={ok:status>=200&&status<300,status,statusText:'',url:String(envelope.url||'')};
     pending.resolve({response,data});
   }catch(error){pending.reject(classifyNativeTransportError(error));}
 };
@@ -1329,10 +1333,15 @@ async function init(){
     const payload=JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId,offset:0,limit:STARTUP_DATA_PAGE_SIZE}));
     markStartupStage('GETDATA_REQUEST_START',transport);
     const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:payload},DATA_REQUEST_TIMEOUT_MS);
-    markStartupStage('GETDATA_RESPONSE','');
+    markStartupStage('GETDATA_RESPONSE_RECEIVED','');
+    if(!loaded||!loaded.response){const error=new Error('native_response_contract_missing');error.code='NATIVE_RESPONSE_CONTRACT_MISSING';throw error;}
     const res=loaded.response;
+    if(!Number.isFinite(Number(res.status))){const error=new Error('native_response_status_invalid');error.code='NATIVE_RESPONSE_STATUS_INVALID';throw error;}
+    markStartupStage('GETDATA_HTTP_CHECK','HTTP_'+String(res.status));
     if(!res.ok)throw new Error('http_'+res.status);
     const result=loaded.data;
+    if(!result||typeof result!=='object'){const error=new Error('native_response_data_invalid');error.code='NATIVE_RESPONSE_DATA_INVALID';throw error;}
+    markStartupStage('GETDATA_RESULT_OK','');
     if(result.status!=='ok'){
       const reason=String(result.msg||result.message||result.error||'').toLowerCase();
       markStartupStage('GETDATA_ERROR','DATA_RESPONSE_'+reason.replace(/[^a-z0-9]+/g,'_').toUpperCase().slice(0,48));
@@ -1345,10 +1354,13 @@ async function init(){
       throw new Error(result.msg||result.message||'Data fetch failed');
     }
 
+    markStartupStage('GETDATA_MAP_START','');
     allCars=mapCarRows(result.cars);
-
+    markStartupStage('GETDATA_MAP_OK','');
     renderCarsData(allCars);
+    markStartupStage('GETDATA_RENDER_OK','');
     writeCarsCache(allCars);
+    markStartupStage('GETDATA_CACHE_OK','');
     markStartupStage('GETDATA_SUCCESS','DATA_OK');
     clearStartupWatchdog();
     document.getElementById('loadingOverlay').style.display='none';
