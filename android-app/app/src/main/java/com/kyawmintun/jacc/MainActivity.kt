@@ -20,6 +20,12 @@ import android.webkit.WebSettings
 import android.webkit.ValueCallback
 import android.webkit.JavascriptInterface
 import android.security.keystore.KeyGenParameterSpec
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import org.json.JSONObject
 import android.security.keystore.KeyProperties
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
@@ -110,6 +116,45 @@ class MainActivity : AppCompatActivity() {
     private var startupRecoveryAttempted = false
     private var startupPageFinished = false
     private val startupHandler = Handler(Looper.getMainLooper())
+    private val transportExecutor: ExecutorService = Executors.newCachedThreadPool()
+
+    private data class NativeHttpResult(val status: Int, val body: String)
+
+    private val nativeTransportBridge = object {
+        @JavascriptInterface
+        fun postJson(requestId: String, url: String, body: String, timeoutMs: Int): Boolean {
+            val id = requestId.trim()
+            if (id.isEmpty()) return false
+            transportExecutor.execute {
+                val envelope = try {
+                    val result = performNativePostJson(url, body, timeoutMs)
+                    JSONObject()
+                        .put("ok", true)
+                        .put("status", result.status)
+                        .put("body", result.body)
+                        .toString()
+                } catch (error: Exception) {
+                    JSONObject()
+                        .put("ok", false)
+                        .put("status", 0)
+                        .put("error", error.message ?: "native_transport_error")
+                        .toString()
+                }
+                val encoded = Base64.encodeToString(
+                    envelope.toByteArray(StandardCharsets.UTF_8),
+                    Base64.NO_WRAP
+                )
+                val script = "window.__jaccNativeTransportResolve(${JSONObject.quote(id)},${JSONObject.quote(encoded)})"
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        webView.evaluateJavascript(script, null)
+                    }
+                }
+            }
+            return true
+        }
+    }
+
     private val startupRecoveryRunnable = Runnable {
         if (!startupPageFinished && !startupRecoveryAttempted && !isFinishing) {
             startupRecoveryAttempted = true
@@ -156,10 +201,11 @@ class MainActivity : AppCompatActivity() {
             displayZoomControls = false
             allowFileAccess = false
             allowContentAccess = true
-            userAgentString = "$userAgentString JACC-Android/1.06"
+            userAgentString = "$userAgentString JACC-Android/1.08"
         }
 
         webView.addJavascriptInterface(RememberLoginBridge(this), "JACCRememberLogin")
+        webView.addJavascriptInterface(nativeTransportBridge, "JACCNativeTransport")
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -242,6 +288,62 @@ class MainActivity : AppCompatActivity() {
         startupHandler.postDelayed(startupRecoveryRunnable, 20000L)
     }
 
+    private fun performNativePostJson(urlString: String, body: String, timeoutMs: Int): NativeHttpResult {
+        var currentUrl = urlString
+        var method = "POST"
+        var redirects = 0
+        val connectTimeout = timeoutMs.coerceIn(1_000, 30_000)
+        val readTimeout = timeoutMs.coerceIn(1_000, 120_000)
+
+        while (redirects++ < 4) {
+            val url = URL(currentUrl)
+            val host = url.host.lowercase()
+            if (url.protocol.lowercase() != "https" ||
+                host != "script.google.com" && host != "script.googleusercontent.com"
+            ) {
+                throw IOException("native_transport_host_blocked")
+            }
+
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                requestMethod = method
+                this.connectTimeout = connectTimeout
+                this.readTimeout = readTimeout
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "JACC-Android/1.08")
+                if (method == "POST") {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "text/plain; charset=UTF-8")
+                }
+            }
+
+            try {
+                if (method == "POST") {
+                    connection.outputStream.use { stream ->
+                        stream.write(body.toByteArray(StandardCharsets.UTF_8))
+                    }
+                }
+
+                val status = connection.responseCode
+                if (status in 300..399) {
+                    val location = connection.getHeaderField("Location")
+                        ?: throw IOException("native_transport_redirect_missing")
+                    currentUrl = URL(url, location).toString()
+                    method = "GET"
+                    continue
+                }
+
+                val stream = if (status >= 400) connection.errorStream else connection.inputStream
+                val responseBody = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() } ?: ""
+                return NativeHttpResult(status, responseBody)
+            } finally {
+                connection.disconnect()
+            }
+        }
+
+        throw IOException("native_transport_redirect_limit")
+    }
+
     private fun openExternalIfNeeded(uri: Uri): Boolean {
         val scheme = uri.scheme?.lowercase()
         val host = uri.host?.lowercase()
@@ -261,6 +363,7 @@ class MainActivity : AppCompatActivity() {
         filePathCallback?.onReceiveValue(null)
         filePathCallback = null
         startupHandler.removeCallbacks(startupRecoveryRunnable)
+        transportExecutor.shutdownNow()
         webView.apply {
             stopLoading()
             clearHistory()
@@ -277,6 +380,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL =
-            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.20.7&recovery=2026.08.20.6&native=1.07&shell=faststart-v9"
+            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.20.8&recovery=2026.08.20.7&native=1.08&shell=faststart-native-transport-v10&transport=native-redirect-v1"
     }
 }
