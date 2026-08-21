@@ -4947,36 +4947,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_updateid.pop(admin_id, None)
         await query.message.reply_text("❌ Cancel လုပ်ပြီး")
 
-    elif data.startswith("qa_"):
-        parts     = data.split("_")
-        target_id = int(parts[1])
-        months    = int(parts[2])
-        days      = months * 30
-        try:
-            chat            = await context.bot.get_chat(target_id)
-            member_username = chat.username or chat.first_name or str(target_id)
-        except:
-            member_username = str(target_id)
-
-        saved = await save_member_to_sheet(str(target_id), member_username, days, "", "CH")
-        saved = await enrich_member_save_result(str(target_id), saved, "CH")
-        if saved.get("status") != "ok":
-            await query.message.reply_text(
-                "❌ Sheet ထဲ မသိမ်းနိုင်သေးပါ။ Quick Approve မဖြစ်သေးပါ။"
-            )
-            return
-        canonical_expire = str(saved.get("expireDate") or "")
-        canonical_package = str(saved.get("package") or "CH").upper()
-        invite_url = await create_invite_link(context, days)
-        await send_approval_dm(
-            context, target_id, months, "", invite_url,
-            package=canonical_package, expire_date=canonical_expire)
-        expire_date = canonical_expire or (datetime.now() + timedelta(days=days)).strftime("%d/%m/%Y")
-        await query.message.reply_text(
-            f"✅ *Quick Approve ပြီး!*\n\n👤 @{member_username}\n📅 {months} လ\n"
-            f"⏰ ကုန်ဆုံး: `{expire_date}`",
-            parse_mode='Markdown')
-
     elif data.startswith("req_budget_"):
         user_id = query.from_user.id
         if user_id not in pending_request: return

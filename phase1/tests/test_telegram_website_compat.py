@@ -55,11 +55,12 @@ def test_railway_wrappers_preserve_structured_result_and_expiry() -> None:
     assert 'return {"status": "error", "message": last_detail}' in patch
 
 
-def test_standard_paths_do_not_advertise_a_web_password() -> None:
+def test_qa_quick_approve_handler_is_removed() -> None:
+    """The qa_ callback bypassed Finance entirely (raw save_member_to_sheet,
+    no admin check, no duplicate protection) and had no live button pointing
+    at it anywhere in the codebase. It must stay removed."""
     bot = LEGACY.read_text(encoding="utf-8")
-    quick = bot[bot.index('elif data.startswith("qa_")'):bot.index('elif data.startswith("req_budget_")')]
-    assert '"CH")' in quick
-    assert 'Password: `{password}`' not in quick
+    assert 'elif data.startswith("qa_")' not in bot
 
 
 def test_payment_slip_approval_is_strict_and_fail_closed() -> None:
