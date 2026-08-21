@@ -21,10 +21,13 @@ import android.webkit.ValueCallback
 import android.webkit.JavascriptInterface
 import android.security.keystore.KeyGenParameterSpec
 import java.io.IOException
-import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import org.json.JSONObject
 import android.security.keystore.KeyProperties
 import java.nio.charset.StandardCharsets
@@ -118,6 +121,14 @@ class MainActivity : AppCompatActivity() {
     private var serviceWorkerResetAttempted = false
     private val startupHandler = Handler(Looper.getMainLooper())
     private val transportExecutor: ExecutorService = Executors.newCachedThreadPool()
+    private val nativeHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .retryOnConnectionFailure(false)
+        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
 
     private data class NativeHttpResult(val status: Int, val body: String)
 
@@ -202,7 +213,7 @@ class MainActivity : AppCompatActivity() {
             displayZoomControls = false
             allowFileAccess = false
             allowContentAccess = true
-            userAgentString = "$userAgentString JACC-Android/1.12"
+            userAgentString = "$userAgentString JACC-Android/1.13"
         }
 
         webView.addJavascriptInterface(RememberLoginBridge(this), "JACCRememberLogin")
@@ -315,9 +326,12 @@ class MainActivity : AppCompatActivity() {
         var currentUrl = urlString
         var method = "POST"
         var redirects = 0
-        val connectTimeout = timeoutMs.coerceIn(1_000, 30_000)
-        val readTimeout = timeoutMs.coerceIn(1_000, 120_000)
-        val requestBody = body.toByteArray(StandardCharsets.UTF_8)
+        val requestBody = body.toRequestBody("text/plain; charset=UTF-8".toMediaType())
+        val requestClient = nativeHttpClient.newBuilder()
+            .connectTimeout(timeoutMs.coerceIn(1_000, 30_000).toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .writeTimeout(timeoutMs.coerceIn(1_000, 120_000).toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .readTimeout(timeoutMs.coerceIn(1_000, 120_000).toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .build()
 
         while (redirects++ < 4) {
             val url = URL(currentUrl)
@@ -328,48 +342,28 @@ class MainActivity : AppCompatActivity() {
                 throw IOException("native_transport_host_blocked")
             }
 
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = false
-                useCaches = false
-                doInput = true
-                requestMethod = method
-                this.connectTimeout = connectTimeout
-                this.readTimeout = readTimeout
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("Accept-Encoding", "identity")
-                setRequestProperty("Cache-Control", "no-cache")
-                setRequestProperty("Connection", "close")
-                setRequestProperty("User-Agent", "JACC-Android/1.12")
-                if (method == "POST") {
-                    doOutput = true
-                    setFixedLengthStreamingMode(requestBody.size)
-                    setRequestProperty("Content-Type", "text/plain; charset=UTF-8")
-                }
-            }
+            val requestBuilder = Request.Builder()
+                .url(url)
+                .header("Accept", "application/json")
+                .header("Accept-Encoding", "identity")
+                .header("Cache-Control", "no-cache")
+                .header("Connection", "close")
+                .header("User-Agent", "JACC-Android/1.13")
 
-            try {
-                connection.connect()
-                if (method == "POST") {
-                    connection.outputStream.use { stream ->
-                        stream.write(requestBody)
-                        stream.flush()
-                    }
-                }
+            if (method == "POST") requestBuilder.post(requestBody)
+            else requestBuilder.get()
 
-                val status = connection.responseCode
+            requestClient.newCall(requestBuilder.build()).execute().use { response ->
+                val status = response.code
                 if (status in 300..399) {
-                    val location = connection.getHeaderField("Location")
+                    val location = response.header("Location")
                         ?: throw IOException("native_transport_redirect_missing")
                     currentUrl = URL(url, location).toString()
                     method = "GET"
-                    continue
+                    return@use
                 }
 
-                val stream = if (status >= 400) connection.errorStream else connection.inputStream
-                val responseBody = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() } ?: ""
-                return NativeHttpResult(status, responseBody)
-            } finally {
-                connection.disconnect()
+                return NativeHttpResult(status, response.body?.string() ?: "")
             }
         }
 
@@ -412,6 +406,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL =
-            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.2&recovery=2026.08.21.1&native=1.12&shell=faststart-native-transport-diagnostics-v11&transport=native-redirect-v5&nav=20260821-4"
+            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.2&recovery=2026.08.21.1&native=1.13&shell=faststart-native-transport-diagnostics-v11&transport=native-okhttp-v1&nav=20260821-5"
     }
 }
