@@ -202,7 +202,7 @@ class MainActivity : AppCompatActivity() {
             displayZoomControls = false
             allowFileAccess = false
             allowContentAccess = true
-            userAgentString = "$userAgentString JACC-Android/1.10"
+            userAgentString = "$userAgentString JACC-Android/1.11"
         }
 
         webView.addJavascriptInterface(RememberLoginBridge(this), "JACCRememberLogin")
@@ -333,7 +333,7 @@ class MainActivity : AppCompatActivity() {
                 this.connectTimeout = connectTimeout
                 this.readTimeout = readTimeout
                 setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "JACC-Android/1.10")
+                setRequestProperty("User-Agent", "JACC-Android/1.11")
                 if (method == "POST") {
                     doOutput = true
                     setRequestProperty("Content-Type", "text/plain; charset=UTF-8")
@@ -403,6 +403,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL =
-            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.2&recovery=2026.08.21.1&native=1.10&shell=faststart-native-transport-diagnostics-v11&transport=native-redirect-v3&nav=20260821-2"
+            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.2&recovery=2026.08.21.1&native=1.11&shell=faststart-native-transport-diagnostics-v11&transport=native-redirect-v4&nav=20260821-3"
     }
 }
