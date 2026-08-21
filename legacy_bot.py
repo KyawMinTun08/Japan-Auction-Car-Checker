@@ -633,14 +633,27 @@ async def get_member_package(user_id: int) -> str | None:
         return None
 
 def decode_vin_year(vin: str) -> int:
-    VIN_YEAR_MODERN = {
-        'A':2010,'B':2011,'C':2012,'D':2013,'E':2014,'F':2015,'G':2016,
-        'H':2017,'J':2018,'K':2019,'L':2020,'M':2021,'N':2022,'P':2023,
-        'R':2024,'S':2025,'T':2026,
-        '1':2001,'2':2002,'3':2003,'4':2004,'5':2005,'6':2006,'7':2007,
-        '8':2008,'9':2009,
-    }
+    """Decode the model-year digit from position 10 of a real 17-char VIN.
+
+    Japanese auction chassis codes (e.g. "CM55-0090382") are NOT VINs — they
+    are a prefix plus an arbitrary serial number, and happen to satisfy the
+    old "len(vin) >= 10" check too. Running the VIN year table against their
+    10th character produced a coincidental-looking but meaningless year
+    (e.g. serial digit '3' at index 9 decoding to 2003), which
+    choose_verified_year() then trusted as a real year with no review
+    warning. Gate this on is_european_vin() so it only ever runs on an
+    actual 17-character VIN.
+    """
     try:
+        if not is_european_vin(vin):
+            return 0
+        VIN_YEAR_MODERN = {
+            'A':2010,'B':2011,'C':2012,'D':2013,'E':2014,'F':2015,'G':2016,
+            'H':2017,'J':2018,'K':2019,'L':2020,'M':2021,'N':2022,'P':2023,
+            'R':2024,'S':2025,'T':2026,
+            '1':2001,'2':2002,'3':2003,'4':2004,'5':2005,'6':2006,'7':2007,
+            '8':2008,'9':2009,
+        }
         if len(vin) >= 10:
             char = vin[9].upper()
             return VIN_YEAR_MODERN.get(char, 0)
