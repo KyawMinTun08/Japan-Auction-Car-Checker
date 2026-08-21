@@ -971,13 +971,29 @@ function normalizeModelDisplay(value){
 }
 
 function renderCarsData(cars){
-  allCars=(Array.isArray(cars)?cars:[]).map(car=>Object.assign({},car,{model:normalizeModelDisplay(car.model)})).filter(car=>car.model&&car.model!=='UNKNOWN');
-  document.getElementById('liveCount').textContent=allCars.length;
+  try{
+    const list=Array.isArray(cars)?cars:[];
+    const mapped=[];
+    list.forEach(car=>{
+      try{
+        const normalized=Object.assign({},car,{model:normalizeModelDisplay(car&&car.model)});
+        if(normalized.model&&normalized.model!=='UNKNOWN')mapped.push(normalized);
+      }catch(rowError){try{console.error('[JACC] car row normalize skipped',rowError);}catch(ignore){}}
+    });
+    allCars=mapped;
+  }catch(mapError){
+    try{console.error('[JACC] renderCarsData map failed',mapError);}catch(ignore){}
+    const wrapped=new Error('render_cars_map_failed');wrapped.code='RENDER_CARS_MAP_FAILED';throw wrapped;
+  }
+  const liveCountEl=document.getElementById('liveCount');
+  if(liveCountEl)liveCountEl.textContent=allCars.length;
   const failed=[];
   [['populateFilters',populateFilters],['dashboard',renderDashboard],['explorer',renderExplorer],['price',renderPrice],['chassis',renderChassisTbl],['trends',renderTrends],['savedSearches',renderSavedSearches]].forEach(([name,renderer])=>{
     try{renderer();}catch(error){failed.push(name);console.error('[JACC] renderer failed',name,error);}
   });
-  if(pendingSharedChassis){const shared=pendingSharedChassis;pendingSharedChassis='';setTimeout(()=>{switchTab('chassis',false);const input=document.getElementById('chassisInput');if(input){input.value=shared.toUpperCase();lookupChassis();}},0);}
+  try{
+    if(pendingSharedChassis){const shared=pendingSharedChassis;pendingSharedChassis='';setTimeout(()=>{switchTab('chassis',false);const input=document.getElementById('chassisInput');if(input){input.value=shared.toUpperCase();lookupChassis();}},0);}
+  }catch(shareError){try{console.error('[JACC] shared chassis nav failed',shareError);}catch(ignore){}}
   return{failed};
 }
 function appendCarsData(cars){
@@ -1378,6 +1394,7 @@ async function init(){
       loadRemainingCarPages(result.page).catch(e=>{console.warn('[JACC] background data sync failed',e);showToast('ကား data အချို့သာ ရသေးပါတယ်','warn');});
     }
   }catch(e){
+    try{console.error('[JACC_STARTUP] init() failed',e&&e.name,e&&e.message,e);}catch(ignore){}
     const baseCode=safeStartupCode(e,'DATA');
     const stageName=String(startupDiagnostic.stage||'UNKNOWN').toUpperCase().replace(/[^A-Z0-9]+/g,'_').slice(0,42)||'UNKNOWN';
     const failureCode=baseCode==='DATA_CONNECTION'?'DATA_'+stageName+'_CONNECTION':baseCode;
@@ -1820,7 +1837,7 @@ function renderAiVehicleSpec(spec,exactChassis='',matchedCar=null){
   const labels={series:'Series',chassis_prefix:'Chassis',engine_code:'Engine',engine_size:'Engine Size',engine_type:'Engine Type',drive:'Drive',gearbox:'Gearbox',fuel:'Fuel',fuel_tank:'Fuel Tank',seats:'Seats',hybrid:'Hybrid'};
   const title=matchedCar?.model||spec.series||exactChassis||'Vehicle specification';
   const facts=Object.entries(labels).filter(([key])=>spec[key]!==undefined&&spec[key]!==null&&String(spec[key]).trim()!=='').map(([key,label])=>'<div class="ai-vehicle-spec-fact"><div class="ai-vehicle-spec-label">'+label+'</div><div class="ai-vehicle-spec-value">'+esc(spec[key])+'</div></div>').join('');
-  const sources=Array.isArray(spec.sources)?spec.sources.filter(source=>source&&/^https?:\\/\\//.test(String(source.uri||''))).slice(0,5):[];
+  const sources=Array.isArray(spec.sources)?spec.sources.filter(source=>source&&/^https?:\/\//.test(String(source.uri||''))).slice(0,5):[];
   const sourceLinks=sources.length?sources.map(source=>'<a href="'+escAttr(source.uri)+'" target="_blank" rel="noopener">'+esc(source.title||source.uri)+'</a>').join(''):'';
   const actionChassis=matchedCar?.chassis||exactChassis;
   const actions=(actionChassis?'<button type="button" class="btn btn-primary btn-sm" onclick="goLookup(\''+escAttr(actionChassis)+'\')">JACC detail ကြည့်ရန် ↗</button>':'')+'<a class="btn btn-outline btn-sm" href="https://t.me/JapanAuctionCar_Bot" target="_blank" rel="noopener">Telegram Request ↗</a><button type="button" class="btn btn-outline btn-sm" onclick="copyRequestCommand()">/carrequest Copy</button>';
