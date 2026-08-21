@@ -689,6 +689,31 @@ def find_by_chassis(chassis_input: str):
             return car
     return None
 
+def normalize_model_label(value: str) -> str:
+    """Normalize model labels for comparing verified and vision results."""
+    text = re.sub(r"[^A-Z0-9 ]", "", str(value or "").upper()).strip()
+    text = re.sub(r"^(HONDA|TOYOTA|NISSAN|MAZDA|SUZUKI|MITSUBISHI|SUBARU|DAIHATSU|HINO|ISUZU|UD)[ ]+", "", text)
+    return re.sub(r"[^A-Z0-9]", "", text)
+
+
+def choose_verified_model(chassis: str, database_model: str = "", vision_model: str = "", caption_model: str = "") -> tuple[str, str, bool]:
+    """Choose a model without allowing vision-only output to silently win."""
+    def usable(value: str) -> bool:
+        return bool(str(value or "").strip()) and str(value).strip().upper() not in {"UNKNOWN", "N/A", "-"}
+
+    known_model = guess_model_from_chassis(chassis or "")
+    if usable(caption_model):
+        return str(caption_model).strip(), "caption", False
+    if usable(database_model):
+        conflict = usable(known_model) and normalize_model_label(database_model) != normalize_model_label(known_model)
+        return str(database_model).strip(), "database_conflict" if conflict else "database", conflict
+    if usable(known_model):
+        return str(known_model).strip(), "chassis_prefix", False
+    if usable(vision_model):
+        return str(vision_model).strip(), "vision_review", True
+    return "UNKNOWN", "manual", True
+
+
 def normalize_model_search(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value).upper())
 
@@ -3089,8 +3114,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 car_loc = LOC_MAESOT
 
-    final_model = gemini_model if gemini_model and gemini_model not in ("","UNKNOWN") else (car['model'] if car else guess_model_from_chassis(chassis or ""))
-    final_color = gemini_color if gemini_color and gemini_color != "-" else (car['color'] if car else "-")
+    # Caption fields are explicit admin/user input; vision fields are only a fallback.
+    caption_model = gemini_model if caption and chassis else ""
+    caption_color = gemini_color if caption and chassis else ""
+    vision_model = gemini_model if not (caption and chassis) else ""
+    database_model = car.get('model', '') if car else ''
+    final_model, model_source, model_needs_review = choose_verified_model(
+        chassis or "", database_model, vision_model, caption_model)
+    final_color = caption_color or (car.get('color', '-') if car else gemini_color or "-")
     database_year = normalize_year(car.get('year', 0)) if car else 0
     vin_year = decode_vin_year(chassis or "")
     # Do not trust a vision-only year. Prefer explicit caption, verified database,
@@ -3101,9 +3132,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     missing = []
     if not final_chassis:                                          missing.append("Chassis")
-    if not final_model or final_model == "UNKNOWN":               missing.append("Model")
+    if not final_model or final_model == "UNKNOWN" or model_needs_review:
+        missing.append("Model")
     if not final_color or final_color == "-":                     missing.append("Color")
     if not final_year:                                             missing.append("Year")
+    model_warning = (
+        "\n⚠️ Model ကို AI vision ကသာ ခန့်မှန်းထားသောကြောင့် အတည်ပြုပြီးမှ Save လုပ်ပါ။"
+        if model_needs_review else ""
+    )
     year_warning = (
         "\n⚠️ Year ကို OCR result အဖြစ် မယုံကြည်ရသေးပါ။ Database/VIN/Caption မှ year မရသေးသောကြောင့် "
         "ကိုယ်တိုင် Year ဖြည့်ပြီးမှ Save လုပ်ပါ။"
@@ -3119,11 +3155,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "year":      final_year,
             "year_source": year_source,
             "year_needs_review": year_needs_review,
+            "model_source": model_source,
+            "model_needs_review": model_needs_review,
             "price":     price,
             "loc":       car_loc,
             "image_url": image_url,
         }
-        warn = (f"\n⚠️ မသေချာ: *{', '.join(missing)}*\n" if missing else "") + year_warning
+        warn = (f"\n⚠️ မသေချာ: *{', '.join(dict.fromkeys(missing))}*\n" if missing else "") + model_warning + year_warning
         field_labels = {"Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
         fill_btns = [InlineKeyboardButton(f"✏️ {field_labels.get(f,f)} ဖြည့်",
                      callback_data=f"fill_{user_id}_{f.lower()}") for f in missing if f != "Chassis"]
@@ -3151,9 +3189,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_photo[user_id] = {
             "user_id":user_id,"chassis":final_chassis,"model":final_model,
             "color":final_color,"year":final_year,"year_source":year_source,
-            "year_needs_review":year_needs_review,"price":None,"loc":car_loc,"image_url":image_url,
+            "year_needs_review":year_needs_review,"model_source":model_source,
+            "model_needs_review":model_needs_review,"price":None,"loc":car_loc,"image_url":image_url,
         }
-        warn = (f"\n⚠️ မသေချာ: *{', '.join(missing)}*\n" if missing else "") + year_warning
+        warn = (f"\n⚠️ မသေချာ: *{', '.join(dict.fromkeys(missing))}*\n" if missing else "") + model_warning + year_warning
         loc_row2 = [
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_MAESOT else '📍'} MaeSot",    callback_data=f"setloc_{user_id}_MaeSot"),
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_KLANG9 else '📍'} Klang9",    callback_data=f"setloc_{user_id}_Klang9"),
@@ -3165,7 +3204,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([loc_row2]))
     elif chassis:
-        guessed = gemini_model or guess_model_from_chassis(chassis)
+        guessed = final_model or guess_model_from_chassis(chassis)
         if not guessed or guessed == "UNKNOWN":
             guessed = guess_model_from_chassis(chassis)
         display_color = final_color if final_color and final_color != "-" else (gemini_color or "-")
@@ -3174,12 +3213,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_photo[user_id] = {
                 "user_id":user_id,"chassis":chassis,"model":guessed,
                 "color":display_color,"year":display_year,"year_source":"manual",
-                "year_needs_review":True,"price":price,"loc":LOC_MAESOT,"image_url":image_url,
+                "year_needs_review":True,"model_source":model_source,
+                "model_needs_review":model_needs_review,"price":price,"loc":LOC_MAESOT,"image_url":image_url,
             }
-            kb = InlineKeyboardMarkup([[
+            review_row = ([InlineKeyboardButton("✏️ Model ဖြည့်", callback_data=f"fill_{user_id}_model")]
+                          if model_needs_review else [])
+            kb_rows = [review_row] if review_row else []
+            kb_rows.append([
                 InlineKeyboardButton("✅ မှန်တယ် Save",    callback_data=f"cs_{user_id}"),
                 InlineKeyboardButton("❌ မှားတယ် Cancel", callback_data=f"cc_{user_id}"),
-            ]])
+            ])
+            kb = InlineKeyboardMarkup(kb_rows)
             await update.message.reply_text(
                 f"⚠️ *Checklist မှာ မပါဘူး*\n\n🚗 ခန့်မှန်း: *{guessed}* ({ys(display_year)})\n"
                 f"🔑 `{chassis}`\n🎨 {display_color}\n💰 ฿{price:,}\n\n"
@@ -3189,7 +3233,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_photo[user_id] = {
                 "user_id":user_id,"chassis":chassis,"model":guessed,
                 "color":display_color,"year":display_year,"year_source":"manual",
-                "year_needs_review":True,"price":None,"loc":LOC_MAESOT,"image_url":image_url,
+                "year_needs_review":True,"model_source":model_source,
+                "model_needs_review":model_needs_review,"price":None,"loc":LOC_MAESOT,"image_url":image_url,
             }
             msg = (f"⚠️ Checklist မှာ မပါဘူး\n\n🚗 ခန့်မှန်း: *{guessed}* ({ys(display_year)})\n"
                    f"🔑 `{chassis}`\n🎨 {display_color}\n\n💰 ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`"
@@ -3414,9 +3459,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pdata["color"] = val.upper()
             elif field == "model":
                 pdata["model"] = val.upper()
+                pdata["model_source"] = "manual"
+                pdata["model_needs_review"] = False
             pending_photo[photo_uid] = pdata
             m2 = []
-            if not pdata.get("model") or pdata["model"] == "UNKNOWN": m2.append("Model")
+            if not pdata.get("model") or pdata["model"] == "UNKNOWN" or pdata.get("model_needs_review"): m2.append("Model")
             if not pdata.get("color") or pdata["color"] == "-":       m2.append("Color")
             if not pdata.get("year"):                                   m2.append("Year")
             field_labels = {"Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
@@ -3489,10 +3536,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 price            = int(text.replace(',','').replace(' ',''))
                 data['price']    = price
                 pending_photo[user_id] = data
-                kb = InlineKeyboardMarkup([[
+                review_row = ([InlineKeyboardButton("✏️ Model ဖြည့်", callback_data=f"fill_{user_id}_model")]
+                              if data.get("model_needs_review") else [])
+                kb_rows = [review_row] if review_row else []
+                kb_rows.append([
                     InlineKeyboardButton("✅ မှန်တယ် Save",    callback_data=f"cs_{user_id}"),
                     InlineKeyboardButton("❌ မှားတယ် Cancel", callback_data=f"cc_{user_id}"),
-                ]])
+                ])
+                kb = InlineKeyboardMarkup(kb_rows)
                 await update.message.reply_text(
                     f"⚠️ *စစ်ဆေးပါ — မှန်ကန်ပါသလား?*\n\n"
                     f"🚗 *{data['model']}* ({ys(data.get('year',0))})\n"
@@ -3871,6 +3922,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info = pending_photo.get(uid)
         if not info:
             await query.message.reply_text("❌ Data မရှိတော့ပါ — ပုံ ပြန်တင်ပါ")
+            return
+        if info.get("model_needs_review"):
+            await query.message.reply_text(
+                "❌ Model ကို အတည်ပြုရန်လိုပါသည်။ AI vision model ကို တိုက်ရိုက် Save မလုပ်နိုင်ပါ။\n"
+                "`Model ဖြည့်` button ကိုနှိပ်ပြီး မှန်ကန်သော Model ထည့်ပါ။",
+                parse_mode="Markdown")
             return
         if info.get("year_needs_review") or not normalize_year(info.get("year")):
             await query.message.reply_text(
