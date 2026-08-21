@@ -115,6 +115,7 @@ class MainActivity : AppCompatActivity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var startupRecoveryAttempted = false
     private var startupPageFinished = false
+    private var serviceWorkerResetAttempted = false
     private val startupHandler = Handler(Looper.getMainLooper())
     private val transportExecutor: ExecutorService = Executors.newCachedThreadPool()
 
@@ -201,7 +202,7 @@ class MainActivity : AppCompatActivity() {
             displayZoomControls = false
             allowFileAccess = false
             allowContentAccess = true
-            userAgentString = "$userAgentString JACC-Android/1.09"
+            userAgentString = "$userAgentString JACC-Android/1.10"
         }
 
         webView.addJavascriptInterface(RememberLoginBridge(this), "JACCRememberLogin")
@@ -248,6 +249,28 @@ class MainActivity : AppCompatActivity() {
                 startupPageFinished = true
                 startupHandler.removeCallbacks(startupRecoveryRunnable)
                 webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
+                if (!serviceWorkerResetAttempted) {
+                    serviceWorkerResetAttempted = true
+                    val targetUrl = JSONObject.quote(APP_URL)
+                    webView.evaluateJavascript(
+                        """
+                        (async function(){
+                          try {
+                            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                              const registrations = await navigator.serviceWorker.getRegistrations();
+                              await Promise.all(registrations.map(function(registration){ return registration.unregister(); }));
+                            }
+                            if (window.caches && caches.keys) {
+                              const keys = await caches.keys();
+                              await Promise.all(keys.map(function(key){ return caches.delete(key); }));
+                            }
+                          } catch (ignore) {}
+                          location.replace($targetUrl);
+                        })();
+                        """.trimIndent(),
+                        null
+                    )
+                }
             }
 
             override fun shouldOverrideUrlLoading(
@@ -310,7 +333,7 @@ class MainActivity : AppCompatActivity() {
                 this.connectTimeout = connectTimeout
                 this.readTimeout = readTimeout
                 setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "JACC-Android/1.09")
+                setRequestProperty("User-Agent", "JACC-Android/1.10")
                 if (method == "POST") {
                     doOutput = true
                     setRequestProperty("Content-Type", "text/plain; charset=UTF-8")
@@ -380,6 +403,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL =
-            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.1&recovery=2026.08.20.8&native=1.09&shell=faststart-native-transport-diagnostics-v11&transport=native-redirect-v2&nav=20260821-1"
+            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.2&recovery=2026.08.21.1&native=1.10&shell=faststart-native-transport-diagnostics-v11&transport=native-redirect-v3&nav=20260821-2"
     }
 }
