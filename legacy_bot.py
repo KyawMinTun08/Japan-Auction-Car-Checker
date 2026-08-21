@@ -722,8 +722,34 @@ def extract_chassis_from_text(text: str):
 def get_price_history(chassis: str):
     return [p for p in PRICE_HISTORY if p["chassis"] == chassis]
 
+def normalize_year(value) -> int:
+    """Return only a plausible production year; reject OCR noise and malformed values."""
+    try:
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        match = re.search(r"(?<!\d)(19\d{2}|20\d{2})(?!\d)", str(value or ""))
+        year = int(match.group()) if match else 0
+        return year if 1980 <= year <= datetime.now().year + 1 else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def choose_verified_year(caption_year=0, database_year=0, vin_year=0) -> tuple[int, str]:
+    """Choose a trusted year source; never use vision-only OCR as a final year."""
+    for value, source in (
+        (caption_year, "caption"),
+        (database_year, "database"),
+        (vin_year, "vin"),
+    ):
+        year = normalize_year(value)
+        if year:
+            return year, source
+    return 0, "manual"
+
+
 def ys(year) -> str:
-    return str(year) if year and year != 0 else "—"
+    return str(normalize_year(year)) if normalize_year(year) else "—"
+
 
 def format_car_info(car, price=None, history=None) -> str:
     txt = (
@@ -2984,6 +3010,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chassis      = extract_chassis_from_text(caption) if caption else None
     price_match  = re.search(r'(?<![A-Z0-9])(\d{4,6})(?![A-Z0-9])', caption.upper()) if caption else None
     price        = int(price_match.group(1)) if price_match else None
+    caption_year = 0
     gemini_model = ""; gemini_color = ""; gemini_year = 0; file_bytes = None
 
     if caption and chassis:
@@ -2994,7 +3021,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cap_work = cap_work.strip()
         year_m = re.search(r'\b(19|20)\d{2}\b', cap_work)
         if year_m:
-            gemini_year = int(year_m.group())
+            caption_year = normalize_year(year_m.group())
             cap_work = cap_work.replace(year_m.group(), '').strip()
         KNOWN_COLORS = ["PEARL WHITE","DARK BLUE","LIGHT BLUE","LIGHT GREEN",
                         "WHITE","BLACK","SILVER","RED","BLUE","GREEN","YELLOW",
@@ -3064,14 +3091,24 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     final_model = gemini_model if gemini_model and gemini_model not in ("","UNKNOWN") else (car['model'] if car else guess_model_from_chassis(chassis or ""))
     final_color = gemini_color if gemini_color and gemini_color != "-" else (car['color'] if car else "-")
-    final_year  = gemini_year  if gemini_year  else (car.get('year', 0) if car else 0)
+    database_year = normalize_year(car.get('year', 0)) if car else 0
+    vin_year = decode_vin_year(chassis or "")
+    # Do not trust a vision-only year. Prefer explicit caption, verified database,
+    # or VIN year; otherwise force the Admin to confirm/type the year manually.
+    final_year, year_source = choose_verified_year(caption_year, database_year, vin_year)
+    year_needs_review = year_source == "manual"
     final_chassis = chassis or ""
 
     missing = []
     if not final_chassis:                                          missing.append("Chassis")
     if not final_model or final_model == "UNKNOWN":               missing.append("Model")
     if not final_color or final_color == "-":                     missing.append("Color")
-    if not final_year:                                            missing.append("Year")
+    if not final_year:                                             missing.append("Year")
+    year_warning = (
+        "\n⚠️ Year ကို OCR result အဖြစ် မယုံကြည်ရသေးပါ။ Database/VIN/Caption မှ year မရသေးသောကြောင့် "
+        "ကိုယ်တိုင် Year ဖြည့်ပြီးမှ Save လုပ်ပါ။"
+        if year_needs_review else ""
+    )
 
     if final_chassis and price:
         pending_photo[user_id] = {
@@ -3080,11 +3117,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "model":     final_model,
             "color":     final_color,
             "year":      final_year,
+            "year_source": year_source,
+            "year_needs_review": year_needs_review,
             "price":     price,
             "loc":       car_loc,
             "image_url": image_url,
         }
-        warn = f"\n⚠️ မသေချာ: *{', '.join(missing)}*\n" if missing else ""
+        warn = (f"\n⚠️ မသေချာ: *{', '.join(missing)}*\n" if missing else "") + year_warning
         field_labels = {"Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
         fill_btns = [InlineKeyboardButton(f"✏️ {field_labels.get(f,f)} ဖြည့်",
                      callback_data=f"fill_{user_id}_{f.lower()}") for f in missing if f != "Chassis"]
@@ -3111,9 +3150,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif final_chassis:
         pending_photo[user_id] = {
             "user_id":user_id,"chassis":final_chassis,"model":final_model,
-            "color":final_color,"year":final_year,"price":None,"loc":car_loc,"image_url":image_url,
+            "color":final_color,"year":final_year,"year_source":year_source,
+            "year_needs_review":year_needs_review,"price":None,"loc":car_loc,"image_url":image_url,
         }
-        warn = f"\n⚠️ မသေချာ: *{', '.join(missing)}*\n" if missing else ""
+        warn = (f"\n⚠️ မသေချာ: *{', '.join(missing)}*\n" if missing else "") + year_warning
         loc_row2 = [
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_MAESOT else '📍'} MaeSot",    callback_data=f"setloc_{user_id}_MaeSot"),
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_KLANG9 else '📍'} Klang9",    callback_data=f"setloc_{user_id}_Klang9"),
@@ -3129,11 +3169,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not guessed or guessed == "UNKNOWN":
             guessed = guess_model_from_chassis(chassis)
         display_color = final_color if final_color and final_color != "-" else (gemini_color or "-")
-        display_year  = final_year or gemini_year or 0
+        display_year  = final_year
         if price:
             pending_photo[user_id] = {
                 "user_id":user_id,"chassis":chassis,"model":guessed,
-                "color":display_color,"year":display_year,"price":price,"loc":LOC_MAESOT,"image_url":image_url,
+                "color":display_color,"year":display_year,"year_source":"manual",
+                "year_needs_review":True,"price":price,"loc":LOC_MAESOT,"image_url":image_url,
             }
             kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton("✅ မှန်တယ် Save",    callback_data=f"cs_{user_id}"),
@@ -3147,7 +3188,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             pending_photo[user_id] = {
                 "user_id":user_id,"chassis":chassis,"model":guessed,
-                "color":display_color,"year":display_year,"price":None,"loc":LOC_MAESOT,"image_url":image_url,
+                "color":display_color,"year":display_year,"year_source":"manual",
+                "year_needs_review":True,"price":None,"loc":LOC_MAESOT,"image_url":image_url,
             }
             msg = (f"⚠️ Checklist မှာ မပါဘူး\n\n🚗 ခန့်မှန်း: *{guessed}* ({ys(display_year)})\n"
                    f"🔑 `{chassis}`\n🎨 {display_color}\n\n💰 ဈေး ရိုက်ထည့်ပါ:\nဥပမာ: `150000`"
@@ -3359,11 +3401,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pdata = pending_photo[photo_uid]
             val   = text.strip()
             if field == "year":
-                try:
-                    pdata["year"] = int(re.search(r"\d{4}", val).group())
-                except:
-                    await update.message.reply_text("❌ ဂဏန်းလေးလုံး ထည့်ပါ (ဥပမာ: `2013`)", parse_mode='Markdown')
+                parsed_year = normalize_year(val)
+                if not parsed_year:
+                    await update.message.reply_text(
+                        "❌ Year မမှန်ပါ။ 1980 မှ လက်ရှိနှစ်အထိ ဂဏန်း ၄ လုံး ထည့်ပါ (ဥပမာ: `2013`)",
+                        parse_mode='Markdown')
                     pending_edit[user_id] = edit; return
+                pdata["year"] = parsed_year
+                pdata["year_source"] = "manual"
+                pdata["year_needs_review"] = False
             elif field == "color":
                 pdata["color"] = val.upper()
             elif field == "model":
@@ -3821,7 +3867,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── ✅ Confirm Save ──
     if data.startswith("cs_"):
-        uid  = int(data.replace("cs_",""))
+        uid = int(data.replace("cs_", ""))
+        info = pending_photo.get(uid)
+        if not info:
+            await query.message.reply_text("❌ Data မရှိတော့ပါ — ပုံ ပြန်တင်ပါ")
+            return
+        if info.get("year_needs_review") or not normalize_year(info.get("year")):
+            await query.message.reply_text(
+                "❌ Year ကို အတည်ပြုရန်လိုပါသည်။ OCR year ကို တိုက်ရိုက် Save မလုပ်နိုင်ပါ။\n"
+                "`Year ဖြည့်` button ကိုနှိပ်ပြီး မှန်ကန်သော Year ထည့်ပါ။",
+                parse_mode="Markdown")
+            return
         info = pending_photo.pop(uid, None)
         if not info or info.get('price') is None:
             await query.message.reply_text("❌ Data မရှိတော့ပါ — ပုံ ပြန်တင်ပါ")
