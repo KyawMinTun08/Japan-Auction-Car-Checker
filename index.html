@@ -1324,9 +1324,11 @@ async function init(){
     clearStartupWatchdog();
   }
   try{
+    markStartupStage('GETDATA_PAYLOAD_START','');
     const transport=isMobileDevice()?(isNativeAndroidTransportAvailable()?'NATIVE_READY':'NATIVE_MISSING'):'WEB_FETCH';
-    markStartupStage('GETDATA_'+transport,transport);
-    const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId,offset:0,limit:STARTUP_DATA_PAGE_SIZE}))},DATA_REQUEST_TIMEOUT_MS);
+    const payload=JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId,offset:0,limit:STARTUP_DATA_PAGE_SIZE}));
+    markStartupStage('GETDATA_REQUEST_START',transport);
+    const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:payload},DATA_REQUEST_TIMEOUT_MS);
     markStartupStage('GETDATA_RESPONSE','');
     const res=loaded.response;
     if(!res.ok)throw new Error('http_'+res.status);
@@ -1355,7 +1357,10 @@ async function init(){
       loadRemainingCarPages(result.page).catch(e=>{console.warn('[JACC] background data sync failed',e);showToast('ကား data အချို့သာ ရသေးပါတယ်','warn');});
     }
   }catch(e){
-    markStartupStage('GETDATA_FAILED',safeStartupCode(e,'DATA'));
+    const baseCode=safeStartupCode(e,'DATA');
+    const stageName=String(startupDiagnostic.stage||'UNKNOWN').toUpperCase().replace(/[^A-Z0-9]+/g,'_').slice(0,42)||'UNKNOWN';
+    const failureCode=baseCode==='DATA_CONNECTION'?'DATA_'+stageName+'_CONNECTION':baseCode;
+    markStartupStage('GETDATA_FAILED',failureCode);
     if(allowCacheFallback&&cached){
       clearStartupWatchdog();
       document.getElementById('loadingOverlay').style.display='none';
