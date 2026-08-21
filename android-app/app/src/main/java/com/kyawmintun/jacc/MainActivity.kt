@@ -202,7 +202,7 @@ class MainActivity : AppCompatActivity() {
             displayZoomControls = false
             allowFileAccess = false
             allowContentAccess = true
-            userAgentString = "$userAgentString JACC-Android/1.11"
+            userAgentString = "$userAgentString JACC-Android/1.12"
         }
 
         webView.addJavascriptInterface(RememberLoginBridge(this), "JACCRememberLogin")
@@ -317,6 +317,7 @@ class MainActivity : AppCompatActivity() {
         var redirects = 0
         val connectTimeout = timeoutMs.coerceIn(1_000, 30_000)
         val readTimeout = timeoutMs.coerceIn(1_000, 120_000)
+        val requestBody = body.toByteArray(StandardCharsets.UTF_8)
 
         while (redirects++ < 4) {
             val url = URL(currentUrl)
@@ -329,21 +330,29 @@ class MainActivity : AppCompatActivity() {
 
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
+                useCaches = false
+                doInput = true
                 requestMethod = method
                 this.connectTimeout = connectTimeout
                 this.readTimeout = readTimeout
                 setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "JACC-Android/1.11")
+                setRequestProperty("Accept-Encoding", "identity")
+                setRequestProperty("Cache-Control", "no-cache")
+                setRequestProperty("Connection", "close")
+                setRequestProperty("User-Agent", "JACC-Android/1.12")
                 if (method == "POST") {
                     doOutput = true
+                    setFixedLengthStreamingMode(requestBody.size)
                     setRequestProperty("Content-Type", "text/plain; charset=UTF-8")
                 }
             }
 
             try {
+                connection.connect()
                 if (method == "POST") {
                     connection.outputStream.use { stream ->
-                        stream.write(body.toByteArray(StandardCharsets.UTF_8))
+                        stream.write(requestBody)
+                        stream.flush()
                     }
                 }
 
@@ -403,6 +412,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL =
-            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.2&recovery=2026.08.21.1&native=1.11&shell=faststart-native-transport-diagnostics-v11&transport=native-redirect-v4&nav=20260821-3"
+            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.2&recovery=2026.08.21.1&native=1.12&shell=faststart-native-transport-diagnostics-v11&transport=native-redirect-v5&nav=20260821-4"
     }
 }
