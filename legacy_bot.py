@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from aiohttp import web
 import re
@@ -682,12 +683,78 @@ async def guess_model_gemini(chassis_input: str) -> str:
         logger.error(f"Gemini model: {e}")
     return "UNKNOWN"
 
+def normalize_chassis_key(value: str) -> str:
+    """Compare chassis values independent of spaces, hyphens, or dash variants."""
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
 def find_by_chassis(chassis_input: str):
-    c = chassis_input.upper().strip()
+    target = normalize_chassis_key(chassis_input)
+    if not target:
+        return None
     for car in CARS:
-        if car["chassis"].upper() == c:
+        if normalize_chassis_key(car.get("chassis", "")) == target:
             return car
     return None
+
+
+def _gviz_cell(row, index: int) -> str:
+    if index < 0 or index >= len(row):
+        return ""
+    cell = row[index] or {}
+    return str(cell.get("v", "") if isinstance(cell, dict) else cell).strip()
+
+
+def find_sheet_car_in_gviz_rows(rows, chassis_input: str):
+    """Find the exact auction-list row in Sheet1 without writing anything."""
+    target = normalize_chassis_key(chassis_input)
+    if not target:
+        return None
+    for row_obj in rows or []:
+        cells = row_obj.get("c", []) if isinstance(row_obj, dict) else []
+        if normalize_chassis_key(_gviz_cell(cells, 1)) != target:
+            continue
+        year_raw = _gviz_cell(cells, 4)
+        price_raw = _gviz_cell(cells, 5).replace(",", "")
+        try:
+            price = float(price_raw) if price_raw else 0
+        except (TypeError, ValueError):
+            price = 0
+        return {
+            "date": _gviz_cell(cells, 0),
+            "chassis": _gviz_cell(cells, 1),
+            "model": _gviz_cell(cells, 2) or "UNKNOWN",
+            "color": _gviz_cell(cells, 3) or "-",
+            "year": normalize_year(year_raw),
+            "price": price,
+            "location": _gviz_cell(cells, 6),
+            "loc": _gviz_cell(cells, 6) or "MaeSot",
+            "added_by": _gviz_cell(cells, 7),
+            "image_url": _gviz_cell(cells, 8),
+            "source": "sheet_exact",
+        }
+    return None
+
+
+async def lookup_sheet_car_by_chassis(chassis_input: str):
+    """Read Sheet1 through the existing public read path; never mutates production."""
+    sheet_id = os.environ.get("SHEET_ID", "").strip()
+    if not sheet_id or not chassis_input:
+        return None
+    try:
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:json&sheet=Sheet1"
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.get(url, timeout=8)
+        raw = resp.text
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start < 0 or end <= start:
+            return None
+        payload = json.loads(raw[start:end])
+        return find_sheet_car_in_gviz_rows(payload.get("table", {}).get("rows", []), chassis_input)
+    except Exception as e:
+        logger.error(f"sheet exact car lookup: {e}")
+        return None
 
 def normalize_model_label(value: str) -> str:
     """Normalize model labels for comparing verified and vision results."""
@@ -729,19 +796,28 @@ def find_by_model(model_input: str):
         if query in normalize_model_search(car.get("model", ""))
     ]
 def extract_chassis_from_text(text: str):
-    text = text.upper().strip()
+    text = str(text or "").upper().strip()
     vin_matches = re.findall(r'[A-HJ-NPR-Z0-9]{17}', text)
     for v in vin_matches:
         if v[0] in ("W","S","V","Z","X","T"):
             return v
     for pattern in [
-        r'[A-Z]{1,5}\d{1,4}[A-Z]{0,2}\d{0,2}-\d{4,7}',
-        r'[A-Z]{2,6}\d{2,4}-\d{4,7}',
-        r'[A-Z0-9]{4,20}-\d{4,7}',
+        r'[A-Z]{1,5}\d{1,4}[A-Z]{0,2}\d{0,2}[-\s]\d{4,7}',
+        r'[A-Z]{2,6}\d{2,4}[-\s]\d{4,7}',
+        r'[A-Z0-9]{4,20}[-\s]\d{4,7}',
     ]:
         matches = re.findall(pattern, text)
         if matches:
-            return max(matches, key=len)
+            return max(matches, key=len).replace(" ", "-")
+
+    # Handwritten windshield text is often returned without a hyphen or with
+    # spaces between prefix and serial. Use only known chassis prefixes here;
+    # this avoids turning arbitrary dates/amounts into a chassis number.
+    compact = re.sub(r"[^A-Z0-9]", "", text)
+    for prefix in sorted(CHASSIS_PREFIX_MAP.keys(), key=len, reverse=True):
+        match = re.search(re.escape(prefix) + r"(\d{4,8})", compact)
+        if match:
+            return f"{prefix}-{match.group(1)}"
     return None
 
 def get_price_history(chassis: str):
@@ -2425,13 +2501,28 @@ def tesseract_ocr_chassis(file_bytes: bytes) -> str:
     if not TESSERACT_AVAILABLE:
         return ""
     try:
-        img     = Image.open(BytesIO(file_bytes))
-        text    = pytesseract.image_to_string(img)
-        chassis = extract_chassis_from_text(text)
-        return chassis or ""
+        from PIL import ImageEnhance, ImageFilter, ImageOps
+        img = ImageOps.exif_transpose(Image.open(BytesIO(file_bytes))).convert("RGB")
+        # Marker writing is thin and low-contrast in many Telegram photos.
+        # Run a small deterministic set of enlarged/contrast variants.
+        scale = 2 if max(img.size) < 2400 else 1
+        if scale > 1:
+            img = img.resize((img.width * scale, img.height * scale))
+        gray = ImageOps.grayscale(img)
+        variants = [
+            img,
+            ImageEnhance.Contrast(gray).enhance(2.2),
+            ImageOps.autocontrast(gray).filter(ImageFilter.SHARPEN),
+        ]
+        for variant in variants:
+            for config in ("--psm 6", "--psm 11"):
+                text = pytesseract.image_to_string(variant, config=config)
+                chassis = extract_chassis_from_text(text)
+                if chassis:
+                    return chassis
     except Exception as e:
         logger.error(f"Tesseract: {e}")
-        return ""
+    return ""
 
 async def gemini_ocr_auction_list(file_bytes: bytes) -> tuple:
     if not GEMINI_API_KEY:
@@ -2487,11 +2578,12 @@ async def gemini_ocr_chassis(file_bytes: bytes) -> dict:
             url     = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
             payload = {"contents":[{"parts":[
                 {"text":"""Japan auction car photo.
-1. Find chassis number written on windshield with marker pen (e.g. NT32-024640, GP1-1049821, S510P-0173458)
+1. Read the handwritten chassis number on the windshield. Mentally zoom/crop that writing before reading it. Distinguish G/6, B/8, O/0, I/1, and missing hyphens carefully.
 2. Identify car body COLOR from the paint (WHITE, BLACK, SILVER, PEARL WHITE, DARK BLUE, RED, BLUE, GREEN, YELLOW, BROWN, ORANGE, GREY)
-3. Identify car MODEL from the shape/badge
-4. Identify manufacturing YEAR if visible
+3. Identify car MODEL from the shape/badge only as a tentative visual field.
+4. Identify manufacturing YEAR only if a clearly visible year is printed in the image.
 
+Do not infer a year from the chassis prefix, model, or apparent age. If the handwritten chassis or year is not clearly legible, return UNKNOWN or 0 instead of guessing.
 Return EXACTLY in this format (no extra text):
 CHASSIS: S510P-0236416
 MODEL: HIJET TRUCK
@@ -3073,6 +3165,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Photo: {e}")
 
     car       = find_by_chassis(chassis) if chassis else None
+    sheet_car = await lookup_sheet_car_by_chassis(chassis) if chassis else None
+    if sheet_car:
+        # Sheet1 is the persistent auction-list source; prefer its exact row over
+        # stale/static in-memory data and preserve the canonical chassis formatting.
+        chassis = sheet_car["chassis"]
+        car = sheet_car
     image_url = ""
     if chassis and file_bytes:
         image_url = await upload_to_cloudinary(file_bytes, chassis)
@@ -3129,6 +3227,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     final_year, year_source = choose_verified_year(caption_year, database_year, vin_year)
     year_needs_review = year_source == "manual"
     final_chassis = chassis or ""
+    match_source = "sheet_exact" if sheet_car else ("memory_exact" if car else "none")
+    match_warning = (
+        "\n✅ Auction list exact match ရပြီးပါပြီ။ Model/Color/Year ကို Sheet row မှ ယူထားသည်။"
+        if sheet_car else ""
+    )
 
     missing = []
     if not final_chassis:                                          missing.append("Chassis")
@@ -3157,11 +3260,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "year_needs_review": year_needs_review,
             "model_source": model_source,
             "model_needs_review": model_needs_review,
+            "match_source": match_source,
             "price":     price,
             "loc":       car_loc,
             "image_url": image_url,
         }
-        warn = (f"\n⚠️ မသေချာ: *{', '.join(dict.fromkeys(missing))}*\n" if missing else "") + model_warning + year_warning
+        warn = (f"\n⚠️ မသေချာ: *{', '.join(dict.fromkeys(missing))}*\n" if missing else "") + match_warning + model_warning + year_warning
         field_labels = {"Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
         fill_btns = [InlineKeyboardButton(f"✏️ {field_labels.get(f,f)} ဖြည့်",
                      callback_data=f"fill_{user_id}_{f.lower()}") for f in missing if f != "Chassis"]
@@ -3190,9 +3294,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "user_id":user_id,"chassis":final_chassis,"model":final_model,
             "color":final_color,"year":final_year,"year_source":year_source,
             "year_needs_review":year_needs_review,"model_source":model_source,
-            "model_needs_review":model_needs_review,"price":None,"loc":car_loc,"image_url":image_url,
+            "model_needs_review":model_needs_review,"match_source":match_source,
+            "price":None,"loc":car_loc,"image_url":image_url,
         }
-        warn = (f"\n⚠️ မသေချာ: *{', '.join(dict.fromkeys(missing))}*\n" if missing else "") + model_warning + year_warning
+        warn = (f"\n⚠️ မသေချာ: *{', '.join(dict.fromkeys(missing))}*\n" if missing else "") + match_warning + model_warning + year_warning
         loc_row2 = [
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_MAESOT else '📍'} MaeSot",    callback_data=f"setloc_{user_id}_MaeSot"),
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_KLANG9 else '📍'} Klang9",    callback_data=f"setloc_{user_id}_Klang9"),
