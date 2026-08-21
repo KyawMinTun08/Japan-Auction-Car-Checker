@@ -4565,6 +4565,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         pending_payment[user_id]["method"]       = method
         pending_payment[user_id]["waiting_slip"] = True
+        pending_payment[user_id]["userId"]       = str(user_id)
+
+        # Persist the package/period/method choice now, before any slip has
+        # been sent. Without this, the selection lives only in this process's
+        # memory: a bot restart (e.g. a deploy) between QR-shown and
+        # slip-sent silently drops it, and the member's very real payment
+        # slip then gets rejected by the Admin-only OCR gate, forcing them
+        # to redo the whole flow. Best-effort — a failed early save still
+        # falls back to the post-slip save at slip-received time.
+        early_draft = await save_payment_draft(pending_payment[user_id])
+        if early_draft.get("status") != "ok":
+            logger.warning(
+                "Early payment draft persistence failed user=%s result=%s",
+                user_id, early_draft)
 
         caption = (
             f"{info.get('label','')} *Payment* — *{flow_label}*\n\n"
