@@ -213,7 +213,7 @@ class MainActivity : AppCompatActivity() {
             displayZoomControls = false
             allowFileAccess = false
             allowContentAccess = true
-            userAgentString = "$userAgentString JACC-Android/1.13"
+            userAgentString = "$userAgentString JACC-Android/1.14"
         }
 
         webView.addJavascriptInterface(RememberLoginBridge(this), "JACCRememberLogin")
@@ -259,9 +259,9 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 startupPageFinished = true
                 startupHandler.removeCallbacks(startupRecoveryRunnable)
-                webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
                 if (!serviceWorkerResetAttempted) {
                     serviceWorkerResetAttempted = true
+                    webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
                     val targetUrl = JSONObject.quote(APP_URL)
                     webView.evaluateJavascript(
                         """
@@ -281,6 +281,8 @@ class MainActivity : AppCompatActivity() {
                         """.trimIndent(),
                         null
                     )
+                } else {
+                    webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
                 }
             }
 
@@ -406,6 +408,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL =
-            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.2&recovery=2026.08.21.1&native=1.13&shell=faststart-native-transport-diagnostics-v11&transport=native-okhttp-v1&nav=20260821-5"
+            "https://kyawmintun08.github.io/Japan-Auction-Car-Checker/?app=flutter&jacc_app=1&build=2026.08.21.3&recovery=2026.08.21.2&native=1.14&shell=renderer-isolation-v12&transport=native-okhttp-v1&nav=20260821-6"
     }
 }
