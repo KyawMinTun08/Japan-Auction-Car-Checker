@@ -857,12 +857,27 @@ async function fetchWithTimeout(url,options={},timeoutMs=REQUEST_TIMEOUT_MS){
 function isNativeAndroidTransportAvailable(){return isMobileDevice()&&window.JACCNativeTransport&&typeof window.JACCNativeTransport.postJson==='function'&&typeof window.__jaccNativeTransportResolve==='function';}
 const nativeTransportPending=new Map();
 let nativeTransportSequence=0;
+function decodeNativeTransportEnvelope(encodedEnvelope){
+  const binary=atob(String(encodedEnvelope||''));
+  const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));
+  if(typeof TextDecoder==='function')return new TextDecoder().decode(bytes);
+  let escaped='';
+  for(let i=0;i<bytes.length;i++)escaped+='%'+bytes[i].toString(16).padStart(2,'0');
+  try{return decodeURIComponent(escaped);}catch(ignore){return binary;}
+}
+function classifyNativeTransportError(error){
+  if(error&&error.code)return error;
+  const detail=String(error&&error.message||'response_decode_failed').toUpperCase().replace(/[^A-Z0-9]+/g,'_').slice(0,40)||'FAILED';
+  const wrapped=new Error('native_transport_response_'+detail.toLowerCase());
+  wrapped.code='NATIVE_RESPONSE_'+detail;
+  return wrapped;
+}
 window.__jaccNativeTransportResolve=function(requestId,encodedEnvelope){
   const pending=nativeTransportPending.get(String(requestId));
   if(!pending)return;
   nativeTransportPending.delete(String(requestId));
   try{
-    const envelope=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(String(encodedEnvelope||'')),c=>c.charCodeAt(0))));
+    const envelope=JSON.parse(decodeNativeTransportEnvelope(encodedEnvelope));
     if(!envelope.ok){
       const detail=String(envelope.error||'native_transport_error').toUpperCase().replace(/[^A-Z0-9]+/g,'_').slice(0,40)||'FAILED';
       const error=new Error('native_transport_'+detail.toLowerCase());
@@ -872,7 +887,7 @@ window.__jaccNativeTransportResolve=function(requestId,encodedEnvelope){
     const response={ok:Number(envelope.status)>=200&&Number(envelope.status)<300,status:Number(envelope.status)};
     const data=JSON.parse(String(envelope.body||''));
     pending.resolve({response,data});
-  }catch(error){pending.reject(error);}
+  }catch(error){pending.reject(classifyNativeTransportError(error));}
 };
 function fetchJsonWithNativeRedirect(url,options={},timeoutMs=REQUEST_TIMEOUT_MS){
   return new Promise((resolve,reject)=>{
