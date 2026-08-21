@@ -973,8 +973,12 @@ function normalizeModelDisplay(value){
 function renderCarsData(cars){
   allCars=(Array.isArray(cars)?cars:[]).map(car=>Object.assign({},car,{model:normalizeModelDisplay(car.model)})).filter(car=>car.model&&car.model!=='UNKNOWN');
   document.getElementById('liveCount').textContent=allCars.length;
-  populateFilters();renderDashboard();renderExplorer();renderPrice();renderChassisTbl();renderTrends();renderSavedSearches();
-  if(pendingSharedChassis){const shared=pendingSharedChassis;pendingSharedChassis='';setTimeout(()=>{switchTab('chassis',false);const input=document.getElementById('chassisInput');if(input){input.value=shared;lookupChassis();}},0);}
+  const failed=[];
+  [['populateFilters',populateFilters],['dashboard',renderDashboard],['explorer',renderExplorer],['price',renderPrice],['chassis',renderChassisTbl],['trends',renderTrends],['savedSearches',renderSavedSearches]].forEach(([name,renderer])=>{
+    try{renderer();}catch(error){failed.push(name);console.error('[JACC] renderer failed',name,error);}
+  });
+  if(pendingSharedChassis){const shared=pendingSharedChassis;pendingSharedChassis='';setTimeout(()=>{switchTab('chassis',false);const input=document.getElementById('chassisInput');if(input){input.value=shared.toUpperCase();lookupChassis();}},0);}
+  return{failed};
 }
 function appendCarsData(cars){
   const merged=allCars.slice();
@@ -1357,8 +1361,13 @@ async function init(){
     markStartupStage('GETDATA_MAP_START','');
     allCars=mapCarRows(result.cars);
     markStartupStage('GETDATA_MAP_OK','');
-    renderCarsData(allCars);
-    markStartupStage('GETDATA_RENDER_OK','');
+    const renderReport=renderCarsData(allCars);
+    if(renderReport&&renderReport.failed&&renderReport.failed.length){
+      markStartupStage('GETDATA_RENDER_PARTIAL',renderReport.failed.join('_').toUpperCase().slice(0,48));
+      showToast('ကား data ရောက်ပါပြီ — UI အချို့ကို ပြန်စစ်နေပါတယ်','warn');
+    }else{
+      markStartupStage('GETDATA_RENDER_OK','');
+    }
     writeCarsCache(allCars);
     markStartupStage('GETDATA_CACHE_OK','');
     markStartupStage('GETDATA_SUCCESS','DATA_OK');
