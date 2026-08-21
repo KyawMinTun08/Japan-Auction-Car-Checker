@@ -49,8 +49,8 @@ assert row['source'] == 'sheet_exact'
 assert find_sheet_car_in_gviz_rows(live_like_rows, 'GB3-999999') is None
 
 for fragment in (
-    'sheet_car = await lookup_sheet_car_by_chassis(chassis) if chassis else None',
-    'match_source = "sheet_exact" if sheet_car',
+    'sheet_car, sheet_match_source = await lookup_sheet_car_by_candidates(chassis) if chassis else (None, "none")',
+    'match_source = sheet_match_source if sheet_car',
     'source": "sheet_exact"',
     'Do not infer a year from the chassis prefix',
 ):

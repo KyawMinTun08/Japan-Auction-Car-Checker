@@ -291,6 +291,7 @@ CARS = [
 
 PRICE_HISTORY  = []
 pending_photo  = {}
+pending_auction_list = {}  # admin_id -> staged OCR list awaiting confirmation
 pending_payment = {}   # user_id -> {package, months, amount, username, name, slips}
 
 
@@ -688,6 +689,37 @@ def normalize_chassis_key(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
 
+def canonicalize_chassis(value: str) -> str:
+    """Format a known Japanese chassis prefix without inventing unknown digits."""
+    raw = str(value or "").upper().strip().replace("—", "-").replace("–", "-")
+    compact = normalize_chassis_key(raw)
+    for prefix in sorted(CHASSIS_PREFIX_MAP.keys(), key=len, reverse=True):
+        if compact.startswith(prefix):
+            serial = compact[len(prefix):]
+            if serial.isdigit() and 4 <= len(serial) <= 8:
+                return f"{prefix}-{serial}"
+    return raw
+
+
+def chassis_candidate_values(value: str):
+    """Return the OCR value plus narrowly scoped prefix-confusion candidates.
+
+    Candidates are accepted only when an exact persistent Sheet row is found;
+    the bot never changes a chassis solely because it is visually similar.
+    """
+    canonical = canonicalize_chassis(value)
+    candidates = [canonical] if canonical else []
+    if "-" in canonical:
+        prefix, serial = canonical.split("-", 1)
+        confusion_map = {
+            "GG7": ("GP1", "GP7"),
+            "GP1": ("GG7",),
+        }
+        for alternative in confusion_map.get(prefix, ()):
+            candidates.append(f"{alternative}-{serial}")
+    return list(dict.fromkeys(candidates))
+
+
 def find_by_chassis(chassis_input: str):
     target = normalize_chassis_key(chassis_input)
     if not target:
@@ -755,6 +787,104 @@ async def lookup_sheet_car_by_chassis(chassis_input: str):
     except Exception as e:
         logger.error(f"sheet exact car lookup: {e}")
         return None
+
+
+def find_sheet_car_by_candidates_in_rows(rows, chassis_input: str):
+    """Resolve a narrow OCR prefix ambiguity against one Sheet1 snapshot."""
+    values = chassis_candidate_values(chassis_input)
+    for index, candidate in enumerate(values):
+        row = find_sheet_car_in_gviz_rows(rows, candidate)
+        if row:
+            return row, ("sheet_exact" if index == 0 else "sheet_candidate")
+    return None, "none"
+
+
+async def fetch_sheet1_gviz_rows():
+    """Read the current Sheet1 rows once for duplicate-safe admin operations."""
+    sheet_id = os.environ.get("SHEET_ID", "").strip()
+    if not sheet_id:
+        return []
+    try:
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:json&sheet=Sheet1"
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.get(url, timeout=12)
+        raw = resp.text
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start < 0 or end <= start:
+            return []
+        payload = json.loads(raw[start:end])
+        return payload.get("table", {}).get("rows", [])
+    except Exception as e:
+        logger.error(f"sheet1 rows lookup: {e}")
+        return []
+
+
+def stage_auction_list_rows(new_cars, import_loc, existing_chassis=()):
+    """Prepare OCR list rows for explicit Admin confirmation; no write occurs here."""
+    seen = {normalize_chassis_key(value) for value in existing_chassis if value}
+    staged = []
+    duplicates = []
+    invalid = []
+    for raw_car in new_cars or []:
+        if not isinstance(raw_car, dict):
+            continue
+        chassis = canonicalize_chassis(raw_car.get("chassis", ""))
+        key = normalize_chassis_key(chassis)
+        if not key or not re.fullmatch(r"[A-Z0-9]{3,25}(?:-[A-Z0-9]{4,8})?", chassis):
+            invalid.append(str(raw_car.get("chassis", "")))
+            continue
+        if key in seen:
+            duplicates.append(chassis)
+            continue
+        seen.add(key)
+        model = str(raw_car.get("model", "")).strip().upper()
+        color = str(raw_car.get("color", "")).strip().upper()
+        year = normalize_year(raw_car.get("year", 0))
+        missing = []
+        if not model or model in {"UNKNOWN", "N/A", "-"}:
+            model = guess_model_from_chassis(chassis)
+            if model == "UNKNOWN":
+                missing.append("Model")
+        if not color or color in {"UNKNOWN", "N/A", "-"}:
+            color = "-"
+            missing.append("Color")
+        if not year:
+            missing.append("Year")
+        staged.append({
+            "date": datetime.now().strftime("%d/%m/%Y"),
+            "chassis": chassis,
+            "model": model,
+            "color": color,
+            "year": year,
+            "price": 0,
+            "location": import_loc,
+            "added_by": "Admin Auction List OCR",
+            "image_url": "",
+            "missing": missing,
+        })
+    return staged, duplicates, invalid
+
+
+async def lookup_sheet_car_by_candidates(chassis_input: str):
+    """Use a prefix-confusion candidate only when Sheet1 proves the exact row."""
+    sheet_id = os.environ.get("SHEET_ID", "").strip()
+    if not sheet_id or not chassis_input:
+        return None, "none"
+    try:
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:json&sheet=Sheet1"
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.get(url, timeout=8)
+        raw = resp.text
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start < 0 or end <= start:
+            return None, "none"
+        payload = json.loads(raw[start:end])
+        return find_sheet_car_by_candidates_in_rows(payload.get("table", {}).get("rows", []), chassis_input)
+    except Exception as e:
+        logger.error(f"sheet candidate car lookup: {e}")
+        return None, "none"
 
 def normalize_model_label(value: str) -> str:
     """Normalize model labels for comparing verified and vision results."""
@@ -3079,46 +3209,46 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ List ဖတ်မရပါ\n💡 Gemini API limit ကုန်နိုင်တယ်")
             return
 
-        existing = {c["chassis"].upper() for c in CARS}
-        added    = []
-        unknown  = []
+        sheet_rows = await fetch_sheet1_gviz_rows()
+        existing_sheet = []
+        for row_obj in sheet_rows:
+            cells = row_obj.get("c", []) if isinstance(row_obj, dict) else []
+            existing_sheet.append(_gviz_cell(cells, 1))
+        staged, duplicates, invalid = stage_auction_list_rows(new_cars, import_loc, existing_sheet)
+        if not staged:
+            await update.message.reply_text(
+                f"⚠️ အသစ်ထည့်ရန် row မရှိပါ။ Duplicate: {len(duplicates)}၊ Invalid: {len(invalid)}\n"
+                f"📋 Database: {await get_sheet_car_count()} စီး",
+                parse_mode='Markdown')
+            return
 
-        for car in new_cars:
-            ch    = str(car.get("chassis","")).upper().strip()
-            model = str(car.get("model","")).strip()
-            color = str(car.get("color","")).strip()
-            year  = int(car.get("year",0) or 0)
-            if not ch:
-                continue
-            missing_fields = []
-            if not model or model.upper() in ("", "UNKNOWN", "N/A"):
-                missing_fields.append("Model")
-                model = guess_model_from_chassis(ch)
-            if not color or color in ("", "-", "N/A"):
-                missing_fields.append("Color")
-                color = "-"
-            if not year:
-                missing_fields.append("Year")
-            if ch not in existing:
-                CARS.append({"chassis":ch,"model":model,"color":color,"year":year,"loc":import_loc})
-                existing.add(ch)
-                added.append(ch)
-            if missing_fields:
-                unknown.append({"chassis":ch,"model":model,"missing":missing_fields})
-
-        txt = f"✅ *{loc_name} List Update ပြီး!*\n\n📊 ဖတ်ရ: {len(new_cars)} စီး\n✨ အသစ်: {len(added)} စီး\n"
-        if added:
-            txt += "\n🆕 " + "".join(f"`{ch}`\n" for ch in added[:10])
-            if len(added) > 10:
-                txt += f"... {len(added)-10} စီး ထပ်ရှိ\n"
+        pending_auction_list[user_id] = {
+            "location": import_loc,
+            "location_name": loc_name,
+            "rows": staged,
+            "duplicates": duplicates,
+            "invalid": invalid,
+        }
+        unknown = [row for row in staged if row.get("missing")]
+        txt = (
+            f"🟡 *Auction List ကို စစ်ဆေးရန် staging လုပ်ထားသည်*\n\n"
+            f"📊 ဖတ်ရ: {len(new_cars)} စီး\n"
+            f"🆕 အသစ်စစ်ရန်: {len(staged)} စီး\n"
+            f"♻️ Duplicate/ရှိပြီးသား: {len(duplicates)} စီး\n"
+            f"⛔ Invalid: {len(invalid)} စီး\n\n"
+            f"⚠️ Confirm မနှိပ်မချင်း Sheet1/CARS ထဲ မထည့်သေးပါ။\n"
+        )
+        if staged:
+            txt += "\n🆕 Preview:\n" + "".join(f"`{row['chassis']}` — {row['model']} / {row['year'] or 'Year?'}\n" for row in staged[:10])
+            if len(staged) > 10:
+                txt += f"... {len(staged) - 10} စီး ထပ်ရှိ\n"
         if unknown:
-            txt += f"\n⚠️ *မသေချာ ({len(unknown)} စီး):*\n"
-            for u in unknown[:5]:
-                txt += f"• `{u['chassis']}` ({u['model']}) — မရ: *{', '.join(u['missing'])}*\n"
-            if len(unknown) > 5:
-                txt += f"... {len(unknown)-5} စီး ထပ်ရှိ\n"
-        txt += f"\n📋 Database: {await get_sheet_car_count()} စီး"
-        await update.message.reply_text(txt, parse_mode='Markdown')
+            txt += f"\n⚠️ Field မပြည့်စုံ: {len(unknown)} စီး — Confirm မလုပ်မီ စစ်ပါ။\n"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Admin Confirm & Save", callback_data=f"list_save_{user_id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data=f"list_cancel_{user_id}"),
+        ]])
+        await update.message.reply_text(txt, parse_mode='Markdown', reply_markup=kb)
         return
 
     # ── Car Photo Mode ──
@@ -3165,7 +3295,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Photo: {e}")
 
     car       = find_by_chassis(chassis) if chassis else None
-    sheet_car = await lookup_sheet_car_by_chassis(chassis) if chassis else None
+    sheet_car, sheet_match_source = await lookup_sheet_car_by_candidates(chassis) if chassis else (None, "none")
     if sheet_car:
         # Sheet1 is the persistent auction-list source; prefer its exact row over
         # stale/static in-memory data and preserve the canonical chassis formatting.
@@ -3227,14 +3357,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     final_year, year_source = choose_verified_year(caption_year, database_year, vin_year)
     year_needs_review = year_source == "manual"
     final_chassis = chassis or ""
-    match_source = "sheet_exact" if sheet_car else ("memory_exact" if car else "none")
+    match_source = sheet_match_source if sheet_car else ("memory_exact" if car else "none")
+    chassis_needs_review = bool(final_chassis and not sheet_car and not car)
     match_warning = (
         "\n✅ Auction list exact match ရပြီးပါပြီ။ Model/Color/Year ကို Sheet row မှ ယူထားသည်။"
-        if sheet_car else ""
+        if sheet_car and sheet_match_source == "sheet_exact" else
+        "\n✅ OCR prefix မသေချာသော်လည်း Sheet exact row ဖြင့် GP1/GP7 candidate match အတည်ပြုထားသည်။"
+        if sheet_car and sheet_match_source == "sheet_candidate" else
+        "\n⚠️ Auction list exact row မတွေ့သေးပါ။ Chassis ကို အတည်ပြုပြီးမှ Save လုပ်ပါ။"
+        if chassis_needs_review else ""
     )
 
     missing = []
-    if not final_chassis:                                          missing.append("Chassis")
+    if not final_chassis or chassis_needs_review:                 missing.append("Chassis")
     if not final_model or final_model == "UNKNOWN" or model_needs_review:
         missing.append("Model")
     if not final_color or final_color == "-":                     missing.append("Color")
@@ -3266,9 +3401,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "image_url": image_url,
         }
         warn = (f"\n⚠️ မသေချာ: *{', '.join(dict.fromkeys(missing))}*\n" if missing else "") + match_warning + model_warning + year_warning
-        field_labels = {"Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
+        field_labels = {"Chassis":"🔑 Chassis","Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
         fill_btns = [InlineKeyboardButton(f"✏️ {field_labels.get(f,f)} ဖြည့်",
-                     callback_data=f"fill_{user_id}_{f.lower()}") for f in missing if f != "Chassis"]
+                     callback_data=f"fill_{user_id}_{f.lower()}") for f in missing]
         loc_row = [
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_MAESOT else '📍'} MaeSot",    callback_data=f"setloc_{user_id}_MaeSot"),
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_KLANG9 else '📍'} Klang9",    callback_data=f"setloc_{user_id}_Klang9"),
@@ -3321,8 +3456,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "year_needs_review":True,"model_source":model_source,
                 "model_needs_review":model_needs_review,"price":price,"loc":LOC_MAESOT,"image_url":image_url,
             }
-            review_row = ([InlineKeyboardButton("✏️ Model ဖြည့်", callback_data=f"fill_{user_id}_model")]
-                          if model_needs_review else [])
+            review_buttons = []
+            if chassis_needs_review:
+                review_buttons.append(InlineKeyboardButton("✏️ Chassis ဖြည့်", callback_data=f"fill_{user_id}_chassis"))
+            if model_needs_review:
+                review_buttons.append(InlineKeyboardButton("✏️ Model ဖြည့်", callback_data=f"fill_{user_id}_model"))
+            review_row = review_buttons
             kb_rows = [review_row] if review_row else []
             kb_rows.append([
                 InlineKeyboardButton("✅ မှန်တယ် Save",    callback_data=f"cs_{user_id}"),
@@ -3550,7 +3689,39 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             pdata = pending_photo[photo_uid]
             val   = text.strip()
-            if field == "year":
+            if field == "chassis":
+                corrected_chassis = canonicalize_chassis(val)
+                compact_chassis = normalize_chassis_key(corrected_chassis)
+                if not corrected_chassis or not re.fullmatch(r"[A-Z0-9]{3,20}-[A-Z0-9]{4,8}", corrected_chassis):
+                    await update.message.reply_text(
+                        "❌ Chassis format မမှန်ပါ။ ဥပမာ: `GP1-106680`",
+                        parse_mode='Markdown')
+                    pending_edit[user_id] = edit
+                    return
+                pdata["chassis"] = corrected_chassis
+                pdata["chassis_source"] = "manual"
+                sheet_car, sheet_match_source = await lookup_sheet_car_by_candidates(corrected_chassis)
+                if sheet_car:
+                    pdata["chassis"] = sheet_car["chassis"]
+                    pdata["model"] = sheet_car.get("model", pdata.get("model", "UNKNOWN"))
+                    pdata["color"] = sheet_car.get("color", pdata.get("color", "-"))
+                    pdata["year"] = sheet_car.get("year", pdata.get("year", 0))
+                    pdata["year_source"] = "database"
+                    pdata["year_needs_review"] = not bool(normalize_year(pdata.get("year")))
+                    pdata["loc"] = loc_display(sheet_car.get("location", pdata.get("loc", LOC_MAESOT)))
+                    pdata["model_source"] = "database"
+                    pdata["model_needs_review"] = False
+                    pdata["match_source"] = sheet_match_source
+                else:
+                    known_model = guess_model_from_chassis(corrected_chassis)
+                    if known_model != "UNKNOWN":
+                        pdata["model"] = known_model
+                        pdata["model_source"] = "chassis_prefix"
+                        pdata["model_needs_review"] = False
+                    else:
+                        pdata["model_needs_review"] = True
+                    pdata["match_source"] = "none"
+            elif field == "year":
                 parsed_year = normalize_year(val)
                 if not parsed_year:
                     await update.message.reply_text(
@@ -3568,10 +3739,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pdata["model_needs_review"] = False
             pending_photo[photo_uid] = pdata
             m2 = []
+            if not pdata.get("chassis"):                                  m2.append("Chassis")
             if not pdata.get("model") or pdata["model"] == "UNKNOWN" or pdata.get("model_needs_review"): m2.append("Model")
             if not pdata.get("color") or pdata["color"] == "-":       m2.append("Color")
             if not pdata.get("year"):                                   m2.append("Year")
-            field_labels = {"Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
+            field_labels = {"Chassis":"🔑 Chassis","Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
             fill_btns = [InlineKeyboardButton(f"✏️ {field_labels.get(f,f)} ဖြည့်",
                          callback_data=f"fill_{photo_uid}_{f.lower()}") for f in m2]
             rows = []
@@ -4019,6 +4191,93 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"နောက်တဆင့် Button နှိပ်ပါ 👇",
             parse_mode='Markdown',
             reply_markup=get_tracking_keyboard(svc_type_full, req_id))
+        return
+
+    # ── 📋 Confirm staged auction-list import ──
+    if data.startswith("list_cancel_"):
+        if query.from_user.id not in ADMIN_IDS:
+            await query.answer("❌ Admin only", show_alert=True)
+            return
+        uid = int(data.replace("list_cancel_", ""))
+        pending_auction_list.pop(uid, None)
+        await query.edit_message_text("❌ Auction List staging ကို Cancel လုပ်ပြီးပါပြီ။ Sheet1 မပြောင်းပါ။")
+        return
+
+    if data.startswith("list_save_"):
+        if query.from_user.id not in ADMIN_IDS:
+            await query.answer("❌ Admin only", show_alert=True)
+            return
+        uid = int(data.replace("list_save_", ""))
+        staged_info = pending_auction_list.get(uid)
+        if not staged_info:
+            await query.answer("❌ Staged data မတွေ့ပါ — List ကို ပြန်တင်ပါ", show_alert=True)
+            return
+        if not SHEET_WEBHOOK:
+            await query.message.reply_text("❌ SHEET_WEBHOOK မရှိပါ။ Sheet1 မပြောင်းပါ။")
+            return
+
+        # Re-read Sheet1 immediately before writing to close the duplicate race.
+        fresh_rows = await fetch_sheet1_gviz_rows()
+        existing_keys = {
+            normalize_chassis_key(_gviz_cell(row_obj.get("c", []), 1))
+            for row_obj in fresh_rows
+            if isinstance(row_obj, dict)
+        }
+        to_write = []
+        already_present = []
+        for row in staged_info.get("rows", []):
+            key = normalize_chassis_key(row.get("chassis", ""))
+            if key in existing_keys:
+                already_present.append(row.get("chassis", ""))
+            elif key:
+                to_write.append(row)
+                existing_keys.add(key)
+
+        if not to_write:
+            pending_auction_list.pop(uid, None)
+            await query.edit_message_text(
+                f"✅ အသစ်ထည့်ရန် မရှိတော့ပါ။ Duplicate/ရှိပြီးသား {len(already_present)} စီး။\n"
+                f"Sheet1 ကို မပြောင်းပါ။")
+            return
+
+        saved = []
+        failed = []
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                for row in to_write:
+                    payload = {k: row.get(k, "") for k in (
+                        "date", "chassis", "model", "color", "year", "price",
+                        "location", "added_by", "image_url")}
+                    try:
+                        resp = await client.post(SHEET_WEBHOOK, json=payload, timeout=12)
+                        resp.raise_for_status()
+                        result = resp.json()
+                        if result.get("status") != "ok":
+                            raise RuntimeError(str(result))
+                        saved.append(row)
+                    except Exception as exc:
+                        logger.error(f"auction list persist {row.get('chassis')}: {exc}")
+                        failed.append(row)
+        except Exception as exc:
+            logger.error(f"auction list persist client: {exc}")
+            failed.extend([row for row in to_write if row not in saved and row not in failed])
+
+        for row in saved:
+            CARS.append({
+                "chassis": row["chassis"], "model": row["model"],
+                "color": row["color"], "year": row["year"], "loc": row["location"],
+            })
+        if failed:
+            staged_info["rows"] = failed
+            pending_auction_list[uid] = staged_info
+        else:
+            pending_auction_list.pop(uid, None)
+        await query.edit_message_text(
+            f"✅ Sheet1 Save ပြီး: {len(saved)} စီး\n"
+            f"♻️ Duplicate/ရှိပြီးသား: {len(already_present)} စီး\n"
+            f"⚠️ မအောင်မြင်သေး: {len(failed)} စီး\n"
+            f"📋 Database: {await get_sheet_car_count()} စီး"
+        )
         return
 
     # ── ✅ Confirm Save ──
