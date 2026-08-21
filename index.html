@@ -758,7 +758,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.20-startup-faststart-native-transport-v10';
+const APP_VERSION     = '2026.08.20-startup-faststart-native-transport-diagnostics-v11';
 const REQUEST_TIMEOUT_MS = 12000;
 // Google Apps Script may need extra time for a large Sheet1 response on mobile networks.
 const DATA_REQUEST_TIMEOUT_MS = 90000;
@@ -863,7 +863,12 @@ window.__jaccNativeTransportResolve=function(requestId,encodedEnvelope){
   nativeTransportPending.delete(String(requestId));
   try{
     const envelope=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(String(encodedEnvelope||'')),c=>c.charCodeAt(0))));
-    if(!envelope.ok)throw new Error(envelope.error||'native_transport_error');
+    if(!envelope.ok){
+      const detail=String(envelope.error||'native_transport_error').toUpperCase().replace(/[^A-Z0-9]+/g,'_').slice(0,40)||'FAILED';
+      const error=new Error('native_transport_'+detail.toLowerCase());
+      error.code='NATIVE_'+detail;
+      throw error;
+    }
     const response={ok:Number(envelope.status)>=200&&Number(envelope.status)<300,status:Number(envelope.status)};
     const data=JSON.parse(String(envelope.body||''));
     pending.resolve({response,data});
@@ -881,7 +886,13 @@ function fetchJsonWithNativeRedirect(url,options={},timeoutMs=REQUEST_TIMEOUT_MS
   });
 }
 async function fetchJsonWithTimeout(url,options={},timeoutMs=REQUEST_TIMEOUT_MS){
-  if(isNativeAndroidTransportAvailable()&&String(url||'').startsWith('https://script.google.com/'))return fetchJsonWithNativeRedirect(url,options,timeoutMs);
+  const isAppsScriptUrl=String(url||'').startsWith('https://script.google.com/');
+  if(isAppsScriptUrl&&isMobileDevice()&&!isNativeAndroidTransportAvailable()){
+    const error=new Error('native_transport_bridge_unavailable');
+    error.code='NATIVE_BRIDGE_UNAVAILABLE';
+    throw error;
+  }
+  if(isAppsScriptUrl&&isNativeAndroidTransportAvailable())return fetchJsonWithNativeRedirect(url,options,timeoutMs);
   const controller=typeof AbortController==='function'?new AbortController():null;
   const requestOptions=Object.assign({},options);if(controller)requestOptions.signal=controller.signal;
   let timer;
@@ -1298,6 +1309,8 @@ async function init(){
     clearStartupWatchdog();
   }
   try{
+    const transport=isMobileDevice()?(isNativeAndroidTransportAvailable()?'NATIVE_READY':'NATIVE_MISSING'):'WEB_FETCH';
+    markStartupStage('GETDATA_'+transport,transport);
     const loaded=await fetchJsonWithTimeout(WEBHOOK,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(JACCDeviceBinding.withDevice('getData',{token:SESSION.token,userId:SESSION.userId,offset:0,limit:STARTUP_DATA_PAGE_SIZE}))},DATA_REQUEST_TIMEOUT_MS);
     markStartupStage('GETDATA_RESPONSE','');
     const res=loaded.response;
