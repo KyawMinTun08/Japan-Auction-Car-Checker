@@ -63,6 +63,18 @@ def test_qa_quick_approve_handler_is_removed() -> None:
     assert 'elif data.startswith("qa_")' not in bot
 
 
+def test_redeem_checks_finance_log_result() -> None:
+    """A promo redemption grants membership first, then logs a Finance row.
+    log_finance_entry() can still fail after its own retries; redeem_cmd
+    must notice and alert an admin instead of silently losing the audit
+    trail while telling the user everything succeeded."""
+    bot = LEGACY.read_text(encoding="utf-8")
+    redeem_cmd = bot[bot.index("async def redeem_cmd"):bot.index("# ── Auto Timer")]
+    assert "finance_logged = await log_finance_entry(" in redeem_cmd
+    assert "if not finance_logged:" in redeem_cmd
+    assert "no Finance" in redeem_cmd
+
+
 def test_payment_slip_approval_is_strict_and_fail_closed() -> None:
     bot = LEGACY.read_text(encoding="utf-8")
     assert "validate_payment_batch(" in bot
