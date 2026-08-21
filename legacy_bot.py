@@ -6822,7 +6822,7 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     canonical_password = str(saved.get("password") or password or "")
     canonical_expire = str(saved.get("expireDate") or "")
-    await log_finance_entry({
+    finance_logged = await log_finance_entry({
         "date": datetime.now(timezone.utc).strftime("%d/%m/%Y"),
         "time": datetime.now(timezone.utc).strftime("%H:%M"),
         "userId": str(user_id),
@@ -6839,6 +6839,16 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "expireDate": canonical_expire,
         "note": "Promo code: " + code,
     })
+    if not finance_logged:
+        # Member already extended above — do not block the user. But this
+        # membership change now has no Finance audit row, so an admin has
+        # to add one manually.
+        await notify_admins(
+            context,
+            f"⚠️ Promo Finance log FAILED for {user_id} (@{username}). "
+            f"Code={code}; member was extended {days} days but no Finance "
+            f"row was recorded — please add one manually.",
+        )
     invite_url = await create_invite_link(context, days)
     await send_approval_dm(
         context, user_id, max(1, days // 30), canonical_password, invite_url,
