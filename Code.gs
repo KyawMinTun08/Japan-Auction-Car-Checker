@@ -728,15 +728,23 @@ case 'banCustomer': {
 
   var gdSheet = ss.getSheetByName('Sheet1');
   if (!gdSheet) return _json({status:'error', msg:'no_sheet'});
-  var gdRows = gdSheet.getDataRange().getValues();
-  var gdTotal = Math.max(0, gdRows.length - 1);
+
+  // Read the header and only the requested page. The old implementation used
+  // getDataRange().getValues(), which still loaded the entire Sheet1 before
+  // returning a small page and could trigger Apps Script response/watchdog
+  // failures as the car table grew.
+  var gdLastRow = gdSheet.getLastRow();
+  var gdLastColumn = gdSheet.getLastColumn();
   var gdOffset = Math.max(0, parseInt(data.offset, 10) || 0);
   var gdLimit = Math.max(0, parseInt(data.limit, 10) || 0);
   if (gdLimit > 500) gdLimit = 500;
-  var gdStart = 1 + Math.min(gdOffset, gdTotal);
-  var gdEnd = gdLimit > 0 ? Math.min(gdRows.length, gdStart + gdLimit) : gdRows.length;
-  if (gdRows.length < 2) return _json({status:'ok', cars:[], page:{offset:0,limit:gdLimit,total:0,hasMore:false}});
-  var gdHeaders = gdRows[0].map(function(value){ return String(value || '').trim().toLowerCase(); });
+  var gdTotal = Math.max(0, gdLastRow - 1);
+  if (gdLastRow < 2 || gdLastColumn < 1 || gdOffset >= gdTotal) {
+    return _json({status:'ok', cars:[], page:{offset:gdOffset,limit:gdLimit,total:gdTotal,hasMore:false}});
+  }
+
+  var gdHeaders = gdSheet.getRange(1, 1, 1, gdLastColumn).getValues()[0]
+    .map(function(value){ return String(value || '').trim().toLowerCase(); });
   var gdIndex = function(names, fallback){ for (var hi = 0; hi < names.length; hi++) { var found = gdHeaders.indexOf(String(names[hi]).toLowerCase()); if (found >= 0) return found; } return fallback; };
   var gdEvidence = {
     auctionSheetUrl: gdIndex(['auctionsheeturl','auctionsheet','sheeturl','auction sheet url'], -1),
@@ -747,8 +755,15 @@ case 'banCustomer': {
     source: gdIndex(['source','sourceurl','source name'], -1),
     sourceDate: gdIndex(['sourcedate','source date','verifiedat'], -1)
   };
+
+  var gdStartRow = 2 + gdOffset;
+  var gdAvailableRows = Math.max(0, gdLastRow - gdStartRow + 1);
+  var gdReadCount = gdLimit > 0 ? Math.min(gdLimit, gdAvailableRows) : gdAvailableRows;
+  var gdRows = gdReadCount > 0
+    ? gdSheet.getRange(gdStartRow, 1, gdReadCount, gdLastColumn).getValues()
+    : [];
   var gdCars = [];
-  for (var gdi = gdStart; gdi < gdEnd; gdi++) {
+  for (var gdi = 0; gdi < gdRows.length; gdi++) {
     var r = gdRows[gdi];
     if (!r[0] && !r[1]) continue;
     gdCars.push({
@@ -758,9 +773,9 @@ case 'banCustomer': {
       color:    r[3] ? String(r[3]) : '',
       year:     r[4] ? String(r[4]) : '',
       price:    r[5] ? String(r[5]) : '',
-      location: r[6] ? String(r[6]) : '',
-      addedBy:  r[7] ? String(r[7]) : '',
-      imageUrl: r[8] ? String(r[8]) : '',
+      location:  r[6] ? String(r[6]) : '',
+      addedBy:   r[7] ? String(r[7]) : '',
+      imageUrl:  r[8] ? String(r[8]) : '',
       auctionSheetUrl: gdEvidence.auctionSheetUrl >= 0 ? String(r[gdEvidence.auctionSheetUrl] || '') : '',
       auctionGrade: gdEvidence.auctionGrade >= 0 ? String(r[gdEvidence.auctionGrade] || '') : '',
       mileage: gdEvidence.mileage >= 0 ? String(r[gdEvidence.mileage] || '') : '',
@@ -770,7 +785,7 @@ case 'banCustomer': {
       sourceDate: gdEvidence.sourceDate >= 0 ? String(r[gdEvidence.sourceDate] || '') : ''
     });
   }
-  return _json({status:'ok', cars:gdCars, page:{offset:gdOffset,limit:gdLimit,total:gdTotal,hasMore:gdEnd < gdRows.length}});
+  return _json({status:'ok', cars:gdCars, page:{offset:gdOffset,limit:gdLimit,total:gdTotal,hasMore:(gdOffset + gdReadCount) < gdTotal}});
 }
 case 'removeBroker': {
   const telegramId = String(payload.telegramId || '').trim();
