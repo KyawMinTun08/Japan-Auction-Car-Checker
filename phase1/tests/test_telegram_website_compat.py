@@ -75,6 +75,19 @@ def test_redeem_checks_finance_log_result() -> None:
     assert "no Finance" in redeem_cmd
 
 
+def test_paymethod_selection_persists_draft_before_slip_is_sent() -> None:
+    """pending_payment (package/period/method) lived only in process memory
+    until the first slip was processed. A bot restart (deploy) in between
+    dropped it silently, and the member's already-sent slip then got
+    rejected by the admin-only OCR gate. The method-selection step must now
+    save a draft immediately so a restart can restore it."""
+    bot = LEGACY.read_text(encoding="utf-8")
+    paymethod_cb = bot[bot.index('elif data.startswith("paymethod_")'):bot.index('elif data.startswith("setqr_")')]
+    assert 'pending_payment[user_id]["waiting_slip"] = True' in paymethod_cb
+    assert 'pending_payment[user_id]["userId"]' in paymethod_cb
+    assert "await save_payment_draft(pending_payment[user_id])" in paymethod_cb
+
+
 def test_payment_slip_approval_is_strict_and_fail_closed() -> None:
     bot = LEGACY.read_text(encoding="utf-8")
     assert "validate_payment_batch(" in bot
