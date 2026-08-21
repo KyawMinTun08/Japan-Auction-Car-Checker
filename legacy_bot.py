@@ -2134,6 +2134,17 @@ async def web_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown')
 
 def build_package_keyboard(user_id: int, action: str = "renew"):
+    # /upgrade is CH -> WEB only (validate_payment_flow already blocks WEB
+    # members from reaching this screen). Offering "Standard" here let an
+    # existing CH member pay through the upgrade flow for a plain renewal
+    # mislabeled "Renew/Upgrade" end-to-end, which is confusing for both the
+    # member and the admin reviewing the payment even though Apps Script
+    # still books it safely. Show only the Web Premium choice for upgrade.
+    if action == "upgrade":
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"💎 Web Premium — Upgrade", callback_data=f"pkg_WEB_{user_id}_{action}")],
+            [InlineKeyboardButton("❌ Cancel",                  callback_data=f"pkg_cancel_{user_id}")],
+        ])
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"📱 Standard",      callback_data=f"pkg_CH_{user_id}_{action}"),
          InlineKeyboardButton(f"💎 Web Premium",   callback_data=f"pkg_WEB_{user_id}_{action}")],
