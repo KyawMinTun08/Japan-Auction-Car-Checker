@@ -983,8 +983,14 @@ def normalize_year(value) -> int:
         return 0
 
 
-def choose_verified_year(caption_year=0, database_year=0, vin_year=0) -> tuple[int, str]:
-    """Choose a trusted year source; never use vision-only OCR as a final year."""
+def choose_verified_year(caption_year=0, database_year=0, vin_year=0, vision_year=0) -> tuple[int, str]:
+    """Choose a trusted year source. Caption/database/VIN win outright.
+
+    A vision (windshield OCR) year is used only as a last-resort fallback,
+    same pattern as choose_verified_model()'s vision_review path — it is
+    returned but the caller must still flag it "needs review" so an Admin
+    confirms it before Save.
+    """
     for value, source in (
         (caption_year, "caption"),
         (database_year, "database"),
@@ -993,6 +999,9 @@ def choose_verified_year(caption_year=0, database_year=0, vin_year=0) -> tuple[i
         year = normalize_year(value)
         if year:
             return year, source
+    year = normalize_year(vision_year)
+    if year:
+        return year, "vision_review"
     return 0, "manual"
 
 
@@ -2750,9 +2759,9 @@ async def gemini_ocr_chassis(file_bytes: bytes) -> dict:
 1. Read the handwritten chassis number on the windshield. Mentally zoom/crop that writing before reading it. Distinguish G/6, B/8, O/0, I/1, and missing hyphens carefully.
 2. Identify car body COLOR from the paint (WHITE, BLACK, SILVER, PEARL WHITE, DARK BLUE, RED, BLUE, GREEN, YELLOW, BROWN, ORANGE, GREY)
 3. Identify car MODEL from the shape/badge only as a tentative visual field.
-4. Identify manufacturing YEAR only if a clearly visible year is printed in the image.
+4. Identify manufacturing YEAR only if a clearly visible year is shown in the image — this includes a 4-digit year (e.g. 2016) that is handwritten on the windshield near the chassis number, the same way the chassis number itself is handwritten there, as well as a year printed on a plate or sticker.
 
-Do not infer a year from the chassis prefix, model, or apparent age. If the handwritten chassis or year is not clearly legible, return UNKNOWN or 0 instead of guessing.
+Do not infer a year from the chassis prefix, model, or apparent age, and do not confuse the year with a lot number, price, or inspection date written nearby. If the handwritten chassis or year is not clearly legible, return UNKNOWN or 0 instead of guessing.
 Return EXACTLY in this format (no extra text):
 CHASSIS: S510P-0236416
 MODEL: HIJET TRUCK
@@ -3403,10 +3412,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     final_color = caption_color or (car.get('color', '-') if car else gemini_color or "-")
     database_year = normalize_year(car.get('year', 0)) if car else 0
     vin_year = decode_vin_year(chassis or "")
-    # Do not trust a vision-only year. Prefer explicit caption, verified database,
-    # or VIN year; otherwise force the Admin to confirm/type the year manually.
-    final_year, year_source = choose_verified_year(caption_year, database_year, vin_year)
-    year_needs_review = year_source == "manual"
+    # Prefer explicit caption, verified database, or VIN year. If none of those
+    # are available, fall back to the windshield OCR (vision) year — same as
+    # model's vision_review path — but still flag it for Admin confirmation.
+    final_year, year_source = choose_verified_year(caption_year, database_year, vin_year, gemini_year)
+    year_needs_review = year_source in ("manual", "vision_review")
     final_chassis = chassis or ""
     match_source = sheet_match_source if sheet_car else ("memory_exact" if car else "none")
     chassis_needs_review = bool(final_chassis and not sheet_car and not car)
@@ -3424,14 +3434,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not final_model or final_model == "UNKNOWN" or model_needs_review:
         missing.append("Model")
     if not final_color or final_color == "-":                     missing.append("Color")
-    if not final_year:                                             missing.append("Year")
+    if not final_year or year_needs_review:                        missing.append("Year")
     model_warning = (
         "\n⚠️ Model ကို AI vision ကသာ ခန့်မှန်းထားသောကြောင့် အတည်ပြုပြီးမှ Save လုပ်ပါ။"
         if model_needs_review else ""
     )
     year_warning = (
-        "\n⚠️ Year ကို OCR result အဖြစ် မယုံကြည်ရသေးပါ။ Database/VIN/Caption မှ year မရသေးသောကြောင့် "
-        "ကိုယ်တိုင် Year ဖြည့်ပြီးမှ Save လုပ်ပါ။"
+        "\n⚠️ Year ကို ကားပုံ (windshield) OCR ကနေ ခန့်မှန်းယူထားတာဖြစ်လို့ "
+        "မှန်ကန်မှန်းသေချာအောင် အတည်ပြုပြီးမှ Save လုပ်ပါ။"
+        if year_source == "vision_review" else
+        "\n⚠️ Year ကို OCR result အဖြစ် မယုံကြည်ရသေးပါ။ Database/VIN/Caption/ပုံထဲက Year မှ "
+        "ဘာမှမတွေ့သေးသောကြောင့် ကိုယ်တိုင် Year ဖြည့်ပြီးမှ Save လုပ်ပါ။"
         if year_needs_review else ""
     )
 
