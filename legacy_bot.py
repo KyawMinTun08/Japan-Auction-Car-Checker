@@ -3413,10 +3413,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     database_year = normalize_year(car.get('year', 0)) if car else 0
     vin_year = decode_vin_year(chassis or "")
     # Prefer explicit caption, verified database, or VIN year. If none of those
-    # are available, fall back to the windshield OCR (vision) year — same as
-    # model's vision_review path — but still flag it for Admin confirmation.
+    # are available, fall back to the windshield OCR (vision) year — trusted
+    # directly like the chassis OCR field, not gated behind Admin retyping.
     final_year, year_source = choose_verified_year(caption_year, database_year, vin_year, gemini_year)
-    year_needs_review = year_source in ("manual", "vision_review")
+    year_needs_review = year_source == "manual"
     final_chassis = chassis or ""
     match_source = sheet_match_source if sheet_car else ("memory_exact" if car else "none")
     chassis_needs_review = bool(final_chassis and not sheet_car and not car)
@@ -3440,8 +3440,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if model_needs_review else ""
     )
     year_warning = (
-        "\n⚠️ Year ကို ကားပုံ (windshield) OCR ကနေ ခန့်မှန်းယူထားတာဖြစ်လို့ "
-        "မှန်ကန်မှန်းသေချာအောင် အတည်ပြုပြီးမှ Save လုပ်ပါ။"
+        "\n✅ Year ကို ကားပုံ (windshield) OCR မှ ယူထားသည်။"
         if year_source == "vision_review" else
         "\n⚠️ Year ကို OCR result အဖြစ် မယုံကြည်ရသေးပါ။ Database/VIN/Caption/ပုံထဲက Year မှ "
         "ဘာမှမတွေ့သေးသောကြောင့် ကိုယ်တိုင် Year ဖြည့်ပြီးမှ Save လုပ်ပါ။"
