@@ -393,16 +393,18 @@ async def get_member_record(user_id: int | str) -> dict | None:
     try:
         # getMembers() on the Apps Script side used to fan out into a full
         # sessions-sheet scan per non-active member row (fixed separately in
-        # Code.gs/_revokeMemberSessionsBulk_), which could push it past a
-        # 10s round trip as the Members sheet grew — causing this
-        # fail-closed lookup to wrongly block real active members from
-        # /renew, /upgrade, and payment slips. 25s gives headroom while
-        # that Code.gs fix gets deployed.
+        # Code.gs/_revokeMemberSessionsBulk_ — requires a manual redeploy to
+        # Apps Script to take effect). On top of that, doPost() holds a
+        # project-wide LockService lock (up to 30s wait) shared by every
+        # webhook action, so a getMembers() call can also queue behind a
+        # slow write (e.g. an auction-list import) from another request.
+        # 40s clears the lock's own 30s ceiling with headroom; this stays a
+        # stopgap until the Code.gs fix is actually redeployed.
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(
                 SHEET_WEBHOOK,
                 json={"action": "getMembers"},
-                timeout=25,
+                timeout=40,
             )
         resp.raise_for_status()
         members = resp.json().get("members", [])
@@ -417,7 +419,7 @@ async def get_member_record(user_id: int | str) -> dict | None:
             if str(member_id or "").replace(".0", "").strip() == target_id:
                 return member
     except Exception as exc:
-        logger.warning("get_member_record failed for %s: %s", user_id, exc)
+        logger.warning("get_member_record failed for %s: %s: %s", user_id, type(exc).__name__, exc)
         return {"__lookup_error__": "member_lookup_failed"}
     return None
 
