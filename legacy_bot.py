@@ -3346,19 +3346,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # and lost every auction list import on the next restart/redeploy).
         saved, failed, already_present = await persist_staged_auction_rows(staged)
         unknown = [row for row in saved if row.get("missing")]
-        txt = (
-            f"✅ *{loc_name} List Update ပြီး!*\n\n"
-            f"📊 ဖတ်ရ: {len(new_cars)} စီး\n"
-            f"✨ အသစ်: {len(saved)} စီး\n"
-            f"♻️ Duplicate/ရှိပြီးသား: {len(duplicates) + len(already_present)} စီး\n"
-            f"⛔ Invalid: {len(invalid)} စီး\n"
-        )
+        txt = f"✅ *{loc_name} List Update ပြီး!*\n\n📊 ဖတ်ရ: {len(new_cars)} စီး\n✨ အသစ်: {len(saved)} စီး\n"
         if saved:
             txt += "\n🆕 " + "".join(f"`{row['chassis']}`\n" for row in saved[:10])
             if len(saved) > 10:
                 txt += f"... {len(saved) - 10} စီး ထပ်ရှိ\n"
         if unknown:
-            txt += f"\n⚠️ Field မပြည့်စုံ ({len(unknown)} စီး) — Sheet1 ထဲ ထည့်ပြီးပြီ၊ Model/Color/Year အချို့ ပြန်စစ်ပါ။\n"
+            txt += f"\n⚠️ *မသေချာ ({len(unknown)} စီး):*\n"
+            for row in unknown[:5]:
+                txt += f"• `{row['chassis']}` ({row['model']}) — မရ: *{', '.join(row['missing'])}*\n"
+            if len(unknown) > 5:
+                txt += f"... {len(unknown) - 5} စီး ထပ်ရှိ\n"
         kb = None
         if failed:
             pending_auction_list[user_id] = {
