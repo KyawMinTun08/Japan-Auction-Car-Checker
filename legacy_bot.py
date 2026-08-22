@@ -391,11 +391,18 @@ async def get_member_record(user_id: int | str) -> dict | None:
     if not SHEET_WEBHOOK:
         return {"__lookup_error__": "sheet_webhook_missing"}
     try:
+        # getMembers() on the Apps Script side used to fan out into a full
+        # sessions-sheet scan per non-active member row (fixed separately in
+        # Code.gs/_revokeMemberSessionsBulk_), which could push it past a
+        # 10s round trip as the Members sheet grew — causing this
+        # fail-closed lookup to wrongly block real active members from
+        # /renew, /upgrade, and payment slips. 25s gives headroom while
+        # that Code.gs fix gets deployed.
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(
                 SHEET_WEBHOOK,
                 json={"action": "getMembers"},
-                timeout=10,
+                timeout=25,
             )
         resp.raise_for_status()
         members = resp.json().get("members", [])

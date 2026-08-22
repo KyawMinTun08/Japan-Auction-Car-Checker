@@ -279,6 +279,36 @@ function _revokeMemberSessions_(userId) {
   return count;
 }
 
+// Same effect as calling _revokeMemberSessions_ once per userId, but reads
+// and writes the sessions sheet exactly once regardless of how many userIds
+// are passed in. getMembers() used to call the single-user version in a loop
+// for every non-active member row, which meant one full sessions-sheet scan
+// (plus a per-match write) per such row on every getMembers() call — as the
+// Members sheet grew this made getMembers() slow enough to blow past the
+// bot's request timeout and fail-close real active members out of /renew.
+function _revokeMemberSessionsBulk_(userIds) {
+  if (!userIds || !userIds.length) return 0;
+  var targets = {};
+  for (var t = 0; t < userIds.length; t++) {
+    targets[_normalizeBindingUserId_(userIds[t])] = true;
+  }
+  var sheet = _authSessionsSheet_();
+  if (sheet.getLastRow() < 2) return 0;
+  var range  = sheet.getRange(2, 1, sheet.getLastRow() - 1, AUTH_SESSION_HEADERS.length);
+  var values = range.getValues();
+  var now = new Date();
+  var count = 0;
+  for (var i = 0; i < values.length; i++) {
+    if (!targets[_normalizeBindingUserId_(values[i][1])]) continue;
+    if (String(values[i][6] || '').toUpperCase() === 'REVOKED') continue;
+    values[i][6] = 'REVOKED';
+    values[i][7] = now;
+    count++;
+  }
+  if (count) range.setValues(values);
+  return count;
+}
+
 function _createAuthSession_(token, userId, deviceCheck, expireDate) {
   var sessionHash = _hashSessionToken_(token);
   if (!sessionHash) return {status: 'error', message: 'device_binding_not_configured'};

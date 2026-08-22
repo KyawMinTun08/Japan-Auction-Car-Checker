@@ -2253,6 +2253,14 @@ function getMembers() {
   var rows  = sheet.getDataRange().getValues();
   var now   = new Date();
   var members = [];
+  // Batch every Sheet write instead of issuing one Range.setValue()/
+  // _revokeMemberSessions_() call per row inline — with dozens of
+  // non-active rows that used to mean dozens of full sessions-sheet scans
+  // on every single getMembers() call, slow enough to blow past callers'
+  // request timeouts (see _revokeMemberSessionsBulk_ for the other half).
+  var statusUpdates = [];
+  var tokenUpdates  = [];
+  var revokeUserIds = [];
   for (var i = 1; i < rows.length; i++) {
     if (!rows[i][C_USERID]) continue;
     var rawDate    = rows[i][C_EXPIRE];
@@ -2261,13 +2269,16 @@ function getMembers() {
     var status = (savedStatus === "KICKED" || savedStatus === "BANNED")
       ? savedStatus
       : (expireDate && expireDate >= now ? "ACTIVE" : "EXPIRED");
-    // Update status in sheet
-    sheet.getRange(i+1, C_STATUS+1).setValue(status);
+    if (status !== savedStatus) {
+      statusUpdates.push({row: i + 1, value: status});
+    }
     // Expired/kicked/banned and non-WEB accounts must never retain a web
     // session token.
     if (status !== "ACTIVE" || _normalizePackage(rows[i][C_PACKAGE]) !== "WEB") {
-      sheet.getRange(i+1, C_TOKEN+1).setValue("");
-      _revokeMemberSessions_(String(rows[i][C_USERID] || '').trim());
+      if (rows[i][C_TOKEN]) {
+        tokenUpdates.push({row: i + 1, value: ""});
+      }
+      revokeUserIds.push(String(rows[i][C_USERID] || '').trim());
     }
     members.push({
       userId:     String(rows[i][C_USERID]),
@@ -2280,6 +2291,13 @@ function getMembers() {
       package:    _normalizePackage(rows[i][C_PACKAGE])
     });
   }
+  for (var s = 0; s < statusUpdates.length; s++) {
+    sheet.getRange(statusUpdates[s].row, C_STATUS+1).setValue(statusUpdates[s].value);
+  }
+  for (var t = 0; t < tokenUpdates.length; t++) {
+    sheet.getRange(tokenUpdates[t].row, C_TOKEN+1).setValue(tokenUpdates[t].value);
+  }
+  if (revokeUserIds.length) _revokeMemberSessionsBulk_(revokeUserIds);
   return members;
 }
 
