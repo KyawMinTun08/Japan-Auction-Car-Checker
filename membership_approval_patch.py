@@ -19,8 +19,20 @@ _legacy = _queue._legacy
 _original_button_callback = _legacy.button_callback
 _original_send_approval_dm = _legacy.send_approval_dm
 _last_membership_save: dict[str, dict[str, Any]] = {}
-_approval_lock = asyncio.Lock()
+# Per-member locks, not one global lock: approve_payment_transaction's own
+# retries can take 45-135s. A single shared lock would serialize an admin
+# approving member A behind an unrelated slow retry for member B.
+_approval_locks: dict[str, asyncio.Lock] = {}
 _PAYMENT_DRAFT_RESTORE_TIMEOUT_SECONDS = 3.0
+
+
+def _lock_for_member(member_id: Any) -> asyncio.Lock:
+    key = str(member_id)
+    lock = _approval_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _approval_locks[key] = lock
+    return lock
 
 
 def _normalise_package(value: Any) -> str:
@@ -345,8 +357,9 @@ async def button_callback(update, context):
     # Sheet/network I/O before delegating, or Telegram may reject the callback as
     # too old before the approval logic starts. Apps Script saveMember remains
     # the canonical password-preservation authority.
+    member_lock = _lock_for_member(member_id)
     try:
-        async with _approval_lock:
+        async with member_lock:
             await _original_button_callback(update, context)
     except Exception as exc:
         # The legacy handler removes pending_payment before the Sheet write. If

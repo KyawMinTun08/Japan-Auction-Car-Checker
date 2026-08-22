@@ -267,10 +267,21 @@ async def brokers_admin_cmd(update, context):
         await message.reply_text("❌ Google Sheet status update မအောင်မြင်ပါ")
         return
 
-    await _bot._set_broker_availability(
-        telegram_user_id=int(telegram_id),
-        accepting_requests=desired_free,
-    )
+    # Sheet update above already succeeded; Supabase mirror is secondary.
+    # A failure here must not swallow the admin's confirmation — the Sheet
+    # (source of truth for the bot) is already correct — but the admin does
+    # need to know the two systems have drifted apart.
+    supabase_synced = True
+    try:
+        await _bot._set_broker_availability(
+            telegram_user_id=int(telegram_id),
+            accepting_requests=desired_free,
+        )
+    except Exception:
+        supabase_synced = False
+        _legacy.logger.exception(
+            "Supabase broker availability sync failed for %s", telegram_id
+        )
 
     emoji = "🟢" if desired_free else "🔴"
     label = "FREE / Available" if desired_free else "BUSY"
@@ -281,7 +292,8 @@ async def brokers_admin_cmd(update, context):
         f"{emoji} *Broker status ပြောင်းပြီးပါပြီ*\n\n"
         f"🆔 `#{broker_code}`\n"
         f"👤 @{username}\n"
-        f"📌 Status: *{label}*",
+        f"📌 Status: *{label}*"
+        + ("" if supabase_synced else "\n\n⚠️ Supabase sync မအောင်မြင်ပါ — Sheet ကတော့ update ဖြစ်ပြီးပါပြီ"),
         parse_mode="Markdown",
     )
 

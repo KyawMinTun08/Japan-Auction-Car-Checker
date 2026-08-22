@@ -1,8 +1,9 @@
 """Admin health, logical backup, and restore verification for JACC Phase 1.
 
-Railway starts ``queue_launcher.py`` directly. That launcher imports this module
-before ``legacy_bot.main`` registers handlers, so the command bridges below are
-part of the active production runtime.
+Railway starts ``phase1_production_launcher.py`` (see ``Procfile``), which
+imports ``queue_launcher.py`` and this module before ``legacy_bot.main``
+registers handlers, so the command bridges below are part of the active
+production runtime.
 """
 
 from __future__ import annotations
@@ -74,13 +75,16 @@ async def _get_rows(
 
 
 async def _get_all_rows(table: str, *, batch_size: int = 1000) -> list[dict[str, Any]]:
+    # A stable sort key is required for offset/limit paging — without it,
+    # concurrent inserts/deletes during a backup run can shift row order
+    # between pages and silently duplicate or skip rows in the export.
     rows: list[dict[str, Any]] = []
     offset = 0
     while True:
         batch = await _get_rows(
             table,
             select="*",
-            params={"offset": str(offset)},
+            params={"offset": str(offset), "order": "id.asc"},
             limit=batch_size,
         )
         rows.extend(batch)
@@ -423,46 +427,61 @@ async def backupdb_cmd(update, context):
             ),
         )
 
-        admin_profile_id = await _profile_id_for_telegram(user_id)
-        completed_at = datetime.now(timezone.utc)
-        backup_row = await _post_row(
-            "jacc_backup_runs",
-            {
-                "backup_type": "database_export",
-                "status": "succeeded",
-                "started_at": started_at.isoformat(),
-                "completed_at": completed_at.isoformat(),
-                "storage_location": (
-                    f"telegram://chat/{user_id}/message/{sent.message_id}"
-                ),
-                "checksum_sha256": checksum,
-                "size_bytes": len(archive_bytes),
-                "retention_until": (completed_at + timedelta(days=30)).isoformat(),
-                "metadata": {
-                    "format": _BACKUP_FORMAT,
-                    "archive": "AES-256 ZIP",
-                    "table_counts": counts,
-                    "supabase_managed_backup": False,
-                    "temporary_free_plan_strategy": True,
-                },
-                "created_by": admin_profile_id,
-            },
-        )
-
+        # The ZIP is already delivered at this point. Everything below is
+        # best-effort evidence bookkeeping — its failure must never be
+        # reported as "backup failed", or the admin is left believing a
+        # backup that was actually sent (and needs its password to open)
+        # never happened, and the password is lost for good.
         await message.reply_text(
             "🔐 Backup Password ကို နောက် message မှာ သီးခြားပို့ထားပါတယ်။\n\n"
             "ဒီ Password မရှိရင် ZIP ကိုဖွင့်မရပါ။ Backup file နဲ့ Password ကို "
             "တစ်နေရာတည်းမသိမ်းပါနဲ့။"
         )
         await context.bot.send_message(chat_id=user_id, text=password)
-        await message.reply_text(
-            "✅ Backup evidence မှတ်တမ်းတင်ပြီးပါပြီ။\n\n"
-            f"Evidence ID: {backup_row.get('id') if backup_row else '-'}\n"
-            "Restore စစ်ရန် Backup file ကို Reply လုပ်ပြီး—\n"
-            "`/restoreverify PASSWORD`\n"
-            "ပို့ပါ။",
-            parse_mode="Markdown",
-        )
+
+        try:
+            admin_profile_id = await _profile_id_for_telegram(user_id)
+            completed_at = datetime.now(timezone.utc)
+            backup_row = await _post_row(
+                "jacc_backup_runs",
+                {
+                    "backup_type": "database_export",
+                    "status": "succeeded",
+                    "started_at": started_at.isoformat(),
+                    "completed_at": completed_at.isoformat(),
+                    "storage_location": (
+                        f"telegram://chat/{user_id}/message/{sent.message_id}"
+                    ),
+                    "checksum_sha256": checksum,
+                    "size_bytes": len(archive_bytes),
+                    "retention_until": (completed_at + timedelta(days=30)).isoformat(),
+                    "metadata": {
+                        "format": _BACKUP_FORMAT,
+                        "archive": "AES-256 ZIP",
+                        "table_counts": counts,
+                        "supabase_managed_backup": False,
+                        "temporary_free_plan_strategy": True,
+                    },
+                    "created_by": admin_profile_id,
+                },
+            )
+            await message.reply_text(
+                "✅ Backup evidence မှတ်တမ်းတင်ပြီးပါပြီ။\n\n"
+                f"Evidence ID: {backup_row.get('id') if backup_row else '-'}\n"
+                "Restore စစ်ရန် Backup file ကို Reply လုပ်ပြီး—\n"
+                "`/restoreverify PASSWORD`\n"
+                "ပို့ပါ။",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            _legacy.logger.exception(
+                "Phase 1 backup evidence logging failed (ZIP + password already sent)"
+            )
+            await message.reply_text(
+                "⚠️ Backup ZIP နဲ့ Password ကို ပို့ပြီးပါပြီ — ZIP ကို ဖွင့်လို့ရပါတယ်။\n"
+                "Evidence မှတ်တမ်း (Supabase) တင်ရာမှာသာ error တက်ပါတယ်။ "
+                "ZIP/Password ကို လုံခြုံအောင် သိမ်းထားပါ။"
+            )
     except Exception as exc:
         _legacy.logger.exception("Phase 1 logical backup failed")
         await message.reply_text(
