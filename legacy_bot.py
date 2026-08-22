@@ -881,6 +881,61 @@ def stage_auction_list_rows(new_cars, import_loc, existing_chassis=()):
     return staged, duplicates, invalid
 
 
+async def persist_staged_auction_rows(staged_rows):
+    """Write staged auction-list rows to Sheet1 via the webhook.
+
+    Re-reads Sheet1 immediately before writing to close the duplicate race,
+    then posts each row. Returns (saved, failed, already_present).
+    """
+    if not SHEET_WEBHOOK:
+        return [], list(staged_rows), []
+
+    fresh_rows = await fetch_sheet1_gviz_rows()
+    existing_keys = {
+        normalize_chassis_key(_gviz_cell(row_obj.get("c", []), 1))
+        for row_obj in fresh_rows
+        if isinstance(row_obj, dict)
+    }
+    to_write = []
+    already_present = []
+    for row in staged_rows:
+        key = normalize_chassis_key(row.get("chassis", ""))
+        if key in existing_keys:
+            already_present.append(row.get("chassis", ""))
+        elif key:
+            to_write.append(row)
+            existing_keys.add(key)
+
+    saved = []
+    failed = []
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            for row in to_write:
+                payload = {k: row.get(k, "") for k in (
+                    "date", "chassis", "model", "color", "year", "price",
+                    "location", "added_by", "image_url")}
+                try:
+                    resp = await client.post(SHEET_WEBHOOK, json=payload, timeout=12)
+                    resp.raise_for_status()
+                    result = resp.json()
+                    if result.get("status") != "ok":
+                        raise RuntimeError(str(result))
+                    saved.append(row)
+                except Exception as exc:
+                    logger.error(f"auction list persist {row.get('chassis')}: {exc}")
+                    failed.append(row)
+    except Exception as exc:
+        logger.error(f"auction list persist client: {exc}")
+        failed.extend([row for row in to_write if row not in saved and row not in failed])
+
+    for row in saved:
+        CARS.append({
+            "chassis": row["chassis"], "model": row["model"],
+            "color": row["color"], "year": row["year"], "loc": row["location"],
+        })
+    return saved, failed, already_present
+
+
 async def lookup_sheet_car_by_candidates(chassis_input: str):
     """Use a prefix-confusion candidate only when Sheet1 proves the exact row."""
     sheet_id = os.environ.get("SHEET_ID", "").strip()
@@ -3269,6 +3324,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ List ဖတ်မရပါ\n💡 Gemini API limit ကုန်နိုင်တယ်")
             return
 
+        if not SHEET_WEBHOOK:
+            await update.message.reply_text("❌ SHEET_WEBHOOK မရှိပါ။ Sheet1 မပြောင်းပါ။")
+            return
+
         sheet_rows = await fetch_sheet1_gviz_rows()
         existing_sheet = []
         for row_obj in sheet_rows:
@@ -3282,32 +3341,37 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown')
             return
 
-        pending_auction_list[user_id] = {
-            "location": import_loc,
-            "location_name": loc_name,
-            "rows": staged,
-            "duplicates": duplicates,
-            "invalid": invalid,
-        }
-        unknown = [row for row in staged if row.get("missing")]
+        # Persist immediately — no confirm tap — but still a real Sheet1 write
+        # (unlike the pre-Aug21 behavior, which only updated in-memory CARS
+        # and lost every auction list import on the next restart/redeploy).
+        saved, failed, already_present = await persist_staged_auction_rows(staged)
+        unknown = [row for row in saved if row.get("missing")]
         txt = (
-            f"🟡 *Auction List ကို စစ်ဆေးရန် staging လုပ်ထားသည်*\n\n"
+            f"✅ *{loc_name} List Update ပြီး!*\n\n"
             f"📊 ဖတ်ရ: {len(new_cars)} စီး\n"
-            f"🆕 အသစ်စစ်ရန်: {len(staged)} စီး\n"
-            f"♻️ Duplicate/ရှိပြီးသား: {len(duplicates)} စီး\n"
-            f"⛔ Invalid: {len(invalid)} စီး\n\n"
-            f"⚠️ Confirm မနှိပ်မချင်း Sheet1/CARS ထဲ မထည့်သေးပါ။\n"
+            f"✨ အသစ်: {len(saved)} စီး\n"
+            f"♻️ Duplicate/ရှိပြီးသား: {len(duplicates) + len(already_present)} စီး\n"
+            f"⛔ Invalid: {len(invalid)} စီး\n"
         )
-        if staged:
-            txt += "\n🆕 Preview:\n" + "".join(f"`{row['chassis']}` — {row['model']} / {row['year'] or 'Year?'}\n" for row in staged[:10])
-            if len(staged) > 10:
-                txt += f"... {len(staged) - 10} စီး ထပ်ရှိ\n"
+        if saved:
+            txt += "\n🆕 " + "".join(f"`{row['chassis']}`\n" for row in saved[:10])
+            if len(saved) > 10:
+                txt += f"... {len(saved) - 10} စီး ထပ်ရှိ\n"
         if unknown:
-            txt += f"\n⚠️ Field မပြည့်စုံ: {len(unknown)} စီး — Confirm မလုပ်မီ စစ်ပါ။\n"
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Admin Confirm & Save", callback_data=f"list_save_{user_id}"),
-            InlineKeyboardButton("❌ Cancel", callback_data=f"list_cancel_{user_id}"),
-        ]])
+            txt += f"\n⚠️ Field မပြည့်စုံ ({len(unknown)} စီး) — Sheet1 ထဲ ထည့်ပြီးပြီ၊ Model/Color/Year အချို့ ပြန်စစ်ပါ။\n"
+        kb = None
+        if failed:
+            pending_auction_list[user_id] = {
+                "location": import_loc,
+                "location_name": loc_name,
+                "rows": failed,
+            }
+            txt += f"\n⚠️ Save မအောင်မြင်သေး: {len(failed)} စီး — ပြန်ကြိုးစားရန် Retry ကိုနှိပ်ပါ။\n"
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔁 Retry", callback_data=f"list_save_{user_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"list_cancel_{user_id}"),
+            ]])
+        txt += f"\n📋 Database: {await get_sheet_car_count()} စီး"
         await update.message.reply_text(txt, parse_mode='Markdown', reply_markup=kb)
         return
 
@@ -4299,57 +4363,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("❌ SHEET_WEBHOOK မရှိပါ။ Sheet1 မပြောင်းပါ။")
             return
 
-        # Re-read Sheet1 immediately before writing to close the duplicate race.
-        fresh_rows = await fetch_sheet1_gviz_rows()
-        existing_keys = {
-            normalize_chassis_key(_gviz_cell(row_obj.get("c", []), 1))
-            for row_obj in fresh_rows
-            if isinstance(row_obj, dict)
-        }
-        to_write = []
-        already_present = []
-        for row in staged_info.get("rows", []):
-            key = normalize_chassis_key(row.get("chassis", ""))
-            if key in existing_keys:
-                already_present.append(row.get("chassis", ""))
-            elif key:
-                to_write.append(row)
-                existing_keys.add(key)
+        saved, failed, already_present = await persist_staged_auction_rows(staged_info.get("rows", []))
 
-        if not to_write:
+        if not saved and not failed:
             pending_auction_list.pop(uid, None)
             await query.edit_message_text(
                 f"✅ အသစ်ထည့်ရန် မရှိတော့ပါ။ Duplicate/ရှိပြီးသား {len(already_present)} စီး။\n"
                 f"Sheet1 ကို မပြောင်းပါ။")
             return
 
-        saved = []
-        failed = []
-        try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                for row in to_write:
-                    payload = {k: row.get(k, "") for k in (
-                        "date", "chassis", "model", "color", "year", "price",
-                        "location", "added_by", "image_url")}
-                    try:
-                        resp = await client.post(SHEET_WEBHOOK, json=payload, timeout=12)
-                        resp.raise_for_status()
-                        result = resp.json()
-                        if result.get("status") != "ok":
-                            raise RuntimeError(str(result))
-                        saved.append(row)
-                    except Exception as exc:
-                        logger.error(f"auction list persist {row.get('chassis')}: {exc}")
-                        failed.append(row)
-        except Exception as exc:
-            logger.error(f"auction list persist client: {exc}")
-            failed.extend([row for row in to_write if row not in saved and row not in failed])
-
-        for row in saved:
-            CARS.append({
-                "chassis": row["chassis"], "model": row["model"],
-                "color": row["color"], "year": row["year"], "loc": row["location"],
-            })
         if failed:
             staged_info["rows"] = failed
             pending_auction_list[uid] = staged_info
