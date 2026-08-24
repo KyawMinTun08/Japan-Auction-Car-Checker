@@ -2261,6 +2261,10 @@ function getMembers() {
   var statusUpdates = [];
   var tokenUpdates  = [];
   var revokeUserIds = [];
+  // One full read of AuthSessions, reused for every row below — same
+  // batching principle as the writes: avoid turning an O(1) sheet read
+  // into an O(rows) one.
+  var lastActiveByUser = _lastActiveByUser_();
   for (var i = 1; i < rows.length; i++) {
     if (!rows[i][C_USERID]) continue;
     var rawDate    = rows[i][C_EXPIRE];
@@ -2280,6 +2284,7 @@ function getMembers() {
       }
       revokeUserIds.push(String(rows[i][C_USERID] || '').trim());
     }
+    var lastActive = lastActiveByUser[_normalizeBindingUserId_(rows[i][C_USERID])];
     members.push({
       userId:     String(rows[i][C_USERID]),
       username:   String(rows[i][C_USERNAME]),
@@ -2288,7 +2293,8 @@ function getMembers() {
         ? Utilities.formatDate(expireDate, "Asia/Bangkok", "dd/MM/yyyy")
         : String(rawDate || ""),
       status:     status,
-      package:    _normalizePackage(rows[i][C_PACKAGE])
+      package:    _normalizePackage(rows[i][C_PACKAGE]),
+      lastActive: lastActive ? Utilities.formatDate(lastActive, "Asia/Bangkok", "yyyy-MM-dd'T'HH:mm:ss") : ""
     });
   }
   for (var s = 0; s < statusUpdates.length; s++) {

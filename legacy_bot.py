@@ -7751,6 +7751,87 @@ async def check_unknown_channel_members(context):
     except Exception as e:
         logger.error(f"check_unknown_channel_members: {e}")
 
+
+# ── Daily Premium "Use The App" Reminder ──────────────
+async def remind_unused_premium_members(context):
+    """Daily nudge for Web Premium members who haven't used the Web App
+    recently. getMembers() now exposes lastActive (each user's most
+    recent AuthSessions LastSeenAt, empty if they've never logged in at
+    all — see Code.gs/_lastActiveByUser_). Repeats every day for a given
+    member until they log in within the last 3 days, covering both
+    "never used it since becoming Premium" and "used it once, then went
+    quiet" the same way; it naturally stops once lastActive is recent.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                SHEET_WEBHOOK,
+                json={"action": "getMembers"},
+                timeout=40,
+                follow_redirects=True
+            )
+        members = resp.json().get("members", [])
+        now = datetime.now()
+        reminded = []
+        failed = []
+        for m in members:
+            uid = str(m.get("userId", "")).strip()
+            if not uid.isdigit():
+                continue
+            if int(uid) in ADMIN_IDS:
+                continue
+            if str(m.get("package", "")).upper() != "WEB":
+                continue
+            if str(m.get("status", "")).upper() != "ACTIVE":
+                continue
+            last_active = m.get("lastActive") or ""
+            never_used = not last_active
+            if not never_used:
+                try:
+                    last_seen = datetime.strptime(last_active[:19], "%Y-%m-%dT%H:%M:%S")
+                    if (now - last_seen).days < 3:
+                        continue
+                except Exception:
+                    pass
+            try:
+                async with httpx.AsyncClient() as pw_client:
+                    pw_resp = await pw_client.post(SHEET_WEBHOOK, json={
+                        "action": "getPassword", "userId": uid}, timeout=15, follow_redirects=True)
+                password = pw_resp.json().get("password", "")
+            except Exception:
+                password = ""
+            pw_line = f"\n🔑 Web Password: `{password}`\n" if password else ""
+            title_suffix = " — App ကို တစ်ခါမှ မသုံးရသေးပါ" if never_used else ""
+            try:
+                await context.bot.send_message(
+                    chat_id=int(uid),
+                    text=(f"🔔 *Premium Reminder{title_suffix}*\n\n"
+                          f"သင်ဟာ Web Premium Member ဖြစ်ပါတယ်! Web App ကနေ "
+                          f"ဈေးနှုန်း/Chart တွေကို ကြည့်နိုင်ပါတယ် — သုံးကြည့်ပါ 👇\n"
+                          f"{pw_line}\n"
+                          f"🌐 https://kyawmintun08.github.io/Japan-Auction-Car-Checker/"),
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+                        "🌐 Web App ဖွင့်",
+                        url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/")]]))
+                reminded.append(m)
+            except Exception as e:
+                logger.error(f"unused premium remind {uid}: {e}")
+                failed.append(m)
+
+        if reminded:
+            txt = f"🔔 *Premium Reminder ပို့ပြီး: {len(reminded)} ယောက်*\n\n"
+            txt += "\n".join(f"• @{m.get('username','?')} — `{m.get('userId','?')}`" for m in reminded[:15])
+            if len(reminded) > 15:
+                txt += f"\n... {len(reminded) - 15} ယောက် ထပ်ရှိ"
+            await notify_admins(context, txt)
+        if failed:
+            txt = f"⚠️ *Premium Reminder ပို့မအောင်မြင်: {len(failed)} ယောက်*\n\n"
+            txt += "\n".join(f"• @{m.get('username','?')} — `{m.get('userId','?')}`" for m in failed[:15])
+            await notify_admins(context, txt)
+    except Exception as e:
+        logger.error(f"remind_unused_premium_members: {e}")
+
 # ── Main ──────────────────────────────────────────────
 async def main():
     logger.info("Bot starting...")
@@ -7801,9 +7882,10 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(ChatMemberHandler(handle_channel_member_join, ChatMemberHandler.CHAT_MEMBER))
-    app.job_queue.run_repeating(check_expired_members,         interval=43200, first=60)
-    app.job_queue.run_repeating(check_expired_bans,            interval=43200, first=120)
-    app.job_queue.run_repeating(check_unknown_channel_members, interval=43200, first=180)
+    app.job_queue.run_repeating(check_expired_members,          interval=43200, first=60)
+    app.job_queue.run_repeating(check_expired_bans,             interval=43200, first=120)
+    app.job_queue.run_repeating(check_unknown_channel_members,  interval=43200, first=180)
+    app.job_queue.run_repeating(remind_unused_premium_members,  interval=86400, first=240)
     await app.initialize()
     await app.start()
 

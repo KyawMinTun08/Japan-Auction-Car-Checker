@@ -309,6 +309,29 @@ function _revokeMemberSessionsBulk_(userIds) {
   return count;
 }
 
+// One full read of the sessions sheet, returning {userId: mostRecentLastSeenAt}
+// for every user who has ever logged into the Web App. LastSeenAt is set at
+// session creation and bumped on every subsequent token verification, so a
+// missing entry means that user has never used the Web App at all — used by
+// getMembers() to flag Premium members worth reminding to log in.
+function _lastActiveByUser_() {
+  var sheet = _authSessionsSheet_();
+  var result = {};
+  if (sheet.getLastRow() < 2) return result;
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, AUTH_SESSION_HEADERS.length).getValues();
+  for (var i = 0; i < values.length; i++) {
+    var userId   = _normalizeBindingUserId_(values[i][1]);
+    var lastSeen = values[i][8];
+    if (!userId || !lastSeen) continue;
+    var seenDate = lastSeen instanceof Date ? lastSeen : new Date(lastSeen);
+    if (isNaN(seenDate.getTime())) continue;
+    if (!result[userId] || seenDate > result[userId]) {
+      result[userId] = seenDate;
+    }
+  }
+  return result;
+}
+
 function _createAuthSession_(token, userId, deviceCheck, expireDate) {
   var sessionHash = _hashSessionToken_(token);
   if (!sessionHash) return {status: 'error', message: 'device_binding_not_configured'};
