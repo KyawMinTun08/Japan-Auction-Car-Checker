@@ -83,78 +83,664 @@ PLAN_NAMES = {
 }
 
 CHASSIS_PREFIX_MAP = {
-    "VZNY12":"ADVAN",
-    "GRS200":"CROWN","GRS201":"CROWN","GRS202":"CROWN","GRS204":"CROWN","GRS210":"CROWN",
-    "GWS204":"CROWN HYBRID",
-    "ZGE20":"WISH","ZGE21":"WISH","ZGE22":"WISH","ZGE25":"WISH",
-    "GRX133":"MARK X",
-    "GGH25":"ALPHARD","GGH20":"ALPHARD","MNH15":"ALPHARD","MNH10":"ALPHARD",
-    "ANH15":"ALPHARD","ANH20":"ALPHARD",
-    "ZRR75G":"NOAH","ZRR75W":"VOXY",
-    "ZRR70G":"NOAH","ZRR70W":"VOXY",
-    "ZWR80G":"NOAH HYBRID","ZWR80W":"VOXY HYBRID","ZWR80S":"ESQUIRE",
-    "ZRR75":"NOAH","ZRR70":"NOAH","ZWR80":"NOAH HYBRID",
-    "KDH201":"HIACE VAN","KDH200":"HIACE VAN","KDH205":"HIACE VAN","TRH200":"HIACE VAN",
-    "NCP165":"SUCCEED VAN","NCP160":"SUCCEED VAN",
-    "NCP59":"SUCCEED WAGON","NCP58":"SUCCEED WAGON",
-    "UZJ100":"LAND CRUISER","HDJ101":"LAND CRUISER","HZJ105":"LAND CRUISER",
-    "KDN185":"HILUX SURF","KZN185":"HILUX SURF","VZN185":"HILUX SURF",
-    "KDJ95":"LAND CRUISER PRADO","KZJ95":"LAND CRUISER PRADO","UZJ101":"LAND CRUISER",
-    "USF40":"LEXUS LS","USF41":"LEXUS LS",
-    "ACU25":"KLUGER","ACU20":"KLUGER","MCU25":"KLUGER",
-    "AZE0":"LEAF",
-    "XZC610":"DUTRO","XZU548":"DUTRO TRUCK","XZU300":"DUTRO TRUCK",
-    "ACA33":"VANGUARD","ACA38":"VANGUARD","CW4YL":"QUON",
-    "NT31":"X-TRAIL","NT32":"X-TRAIL","DNT31":"X-TRAIL","T31":"X-TRAIL",
-    "YF15":"JUKE","F15":"JUKE","NF15":"JUKE",
-    "SK82TN":"VANETTE TRUCK","SK82VN":"VANETTE TRUCK",
-    "GP1":"FIT HYBRID","GP5":"FIT HYBRID","GP6":"FIT HYBRID",
-    "GP7":"FIT SHUTTLE HYBRID","GP2":"FIT SHUTTLE HYBRID",
-    "GK3":"FIT","GK5":"FIT","GE6":"FIT","GE8":"FIT",
-    "GB3":"FREED","GB4":"FREED",
-    "RE4":"CRV","RE3":"CRV","RD1":"CRV","RD5":"CRV",
-    "ZE2":"INSIGHT","ZE3":"INSIGHT",
-    "KE2AW":"CX5","KE2FW":"CX5","KE5FW":"CX5",
-    "SKP2T":"BONGO TRUCK","SLP2L":"BONGO TRUCK",
-    "S210P":"HIJET TRUCK","S211P":"HIJET TRUCK","S510P":"HIJET TRUCK",
-    "S500P":"HIJET TRUCK","S501P":"HIJET TRUCK",
-    "S321V":"HIJET VAN","S331V":"HIJET VAN",
-    "S200P":"HIJET TRUCK","S201P":"HIJET TRUCK",
-    "S211U":"PIXIS TRUCK","S500U":"PIXIS TRUCK",
-    "S510J":"SAMBAR TRUCK","S201J":"SAMBAR TRUCK",
-    "FE74BV":"CANTER","FE82BS":"CANTER","FBA30":"CANTER",
-    "FE82D":"CANTER","FE82EE":"CANTER","FE72EE":"CANTER",
-    "FE84DV":"CANTER","FE83D":"CANTER","FE70B":"CANTER",
-    "FE73EB":"CANTER","FE70EB":"CANTER","FEA20":"CANTER",
-    "FB70BB":"CANTER GUTS",
-    "FK61FM":"FUSO FIGHTER","FQ62F":"FUSO FIGHTER","FK71F":"FUSO FIGHTER",
-    "FEA50":"FUSO TRUCK","FBA20":"FUSO TRUCK",
-    "FY54JTY":"SUPER GREAT","FS54JZ":"SUPER GREAT",
-    "FV50JJX":"SUPER GREAT","FV50MJX":"SUPER GREAT",
-    "FC6JLW":"RANGER","FC7JKY":"RANGER",
-    "FW1EXW":"PROFIA","SH1EDX":"PROFIA",
-    "CG5ZA":"UD","CG5ZE":"UD","CG4ZA":"UD","CG4YA":"UD",
-    "CD5ZA":"UD","CD4ZA":"UD","CD48R":"BIG THUMB",
-    "MK35A":"CONDOR","MK38L":"CONDOR","MK36A":"CONDOR",
-    "MK36B":"UD","MK38C":"UD",
-    "JNCMM60C6GU":"UD","JNCMM60G6GU":"UD","GK6XA":"QUON","JNCLSC":"CONDOR",
-    "V98W":"PAJERO","V97W":"PAJERO","V93W":"PAJERO","V75W":"PAJERO","V78W":"PAJERO",
-    "WVWZZZ":"NEW BEETLE",
-    "WWWZZZ":"NEW BEETLE",
-    "WVW":"VW",
-    "WAU":"AUDI",
-    "WBA":"BMW",
-    "WBS":"BMW M",
-    "WDB":"MERCEDES-BENZ",
-    "WDC":"MERCEDES-BENZ",
-    "WDD":"MERCEDES-BENZ",
-    "SAJ":"JAGUAR",
-    "SAL":"LAND ROVER",
-    "SAR":"RANGE ROVER",
-    "VF1":"RENAULT",
-    "ZFA":"FIAT",
-    "ZFF":"FERRARI",
-    "ZAR":"ALFA ROMEO",
+    # ── Data-driven from live Sheet1 (5,051 listings, 2026-03 to 2026-08) ──
+    # Majority-vote canonical model per chassis prefix, spelling/brand-prefix
+    # cleaned. Used only as a fallback GUESS when the entered/OCR'd Model text
+    # is missing or UNKNOWN — never overrides a real entered value, since some
+    # prefixes legitimately host more than one distinct nameplate (badge-share
+    # platforms like Hijet/Pixis/Sambar, Noah/Voxy, Probox/Succeed, etc. are
+    # intentionally kept separate rather than merged; see chassis_model_final_mapping.csv).
+    "A300S": "Mira",
+    "ACA21": "RAV4",
+    "ACA33": "Vanguard",
+    "ACA38": "Vanguard",
+    "ACAAZ": "RAV4",
+    "ACR50": "Estima",
+    "ACU25": "Highlander",
+    "ACU30": "Harrier",
+    "ACU35": "Harrier",
+    "AGH30": "Alphard",
+    "AGH35": "Alphard",
+    "AGL10": "RX",
+    "AGL10X": "RX",
+    "AGP2": "Fit",
+    "AGZ10": "NX",
+    "AGZ210": "NX",
+    "AHR20": "Estima Hybrid",
+    "ANH10": "Alphard",
+    "ANH15": "Alphard",
+    "ANH20": "Vellfire",
+    "ANH25": "Vellfire",
+    "ANH2E": "Alphard",
+    "ARZ10": "NX",
+    "AZE156": "Blade",
+    "AZE15B": "Blade",
+    "AZEO": "Leaf",
+    "AZR60": "Voxy",
+    "AZR65": "Voxy",
+    "B21W": "Dayz",
+    "B22W": "Dayz",
+    "B2JW": "Dayz Roox",
+    "B90": "Fuso Canter",
+    "BA00": "Fuso Canter",
+    "BA62T": "Carry Truck",
+    "BJLW": "Truck",
+    "CG48A": "Diesel Condor",
+    "CG5ZA": "UD",
+    "CK542B": "Truck",
+    "CM55": "Liteace",
+    "CM85": "Townace Truck",
+    "CR6": "Accord Hybrid",
+    "CV2YB": "UD",
+    "CW4XL": "UD Trucks",
+    "CW5W": "Outlander",
+    "CW5XL": "UD Quon",
+    "CW6W": "Outlander",
+    "CX2YA": "UD",
+    "CY4BE": "Diesel Quon Truck",
+    "D48YV": "UD Truck",
+    "DA16T": "Carry Truck",
+    "DA17V": "Every Van",
+    "DA26T": "Carry",
+    "DA52T": "Carry Truck",
+    "DA62T": "Carry Truck",
+    "DA63T": "Carry Truck",
+    "DA64V": "Every",
+    "DA65T": "Carry Truck",
+    "DAB3T": "Carry Truck",
+    "DAB4V": "Every Van",
+    "DAB64V": "Every",
+    "DABUV": "Every",
+    "DALBT": "Carry",
+    "DB52T": "Carry Truck",
+    "DB63T": "Carry Truck",
+    "DC51T": "Carry Truck",
+    "DD51B": "Carry Truck",
+    "DG63T": "Scrum Truck",
+    "DH206": "Hiace",
+    "DK5FW": "CX-3",
+    "DMT31": "X-TRAIL",
+    "DN731": "X-TRAIL",
+    "DNT31": "X-TRAIL",
+    "DNT32": "X-TRAIL",
+    "DR17V": "Every",
+    "E12": "Note",
+    "F15": "Juke",
+    "FB70BB": "Canter",
+    "FB73B": "Canter",
+    "FBA00": "Fuso Canter",
+    "FBA30": "Fuso Canter",
+    "FBA50": "Fuso Canter",
+    "FBA60": "Fuso Canter",
+    "FBA70EL": "Canter",
+    "FC6JCF": "Truck",
+    "FC6JKW": "Profia",
+    "FC9JLA": "Ranger",
+    "FD70BB": "Canter",
+    "FD7JDY": "Ranger",
+    "FD7JLF": "Ranger",
+    "FD7JLY": "Ranger",
+    "FDFA": "Ranger",
+    "FE70B": "Fuso Canter",
+    "FE70DB": "Canter",
+    "FE71DB": "Fuso Canter",
+    "FE71DSD": "Fuso Canter",
+    "FE723E": "Fuso Canter Truck",
+    "FE72DE": "Canter",
+    "FE72EB": "Canter",
+    "FE72EC": "Canter",
+    "FE72EE": "Canter",
+    "FE72EEV": "Canter",
+    "FE72EF": "Canter",
+    "FE73B": "Fuso Canter",
+    "FE73DB": "Canter",
+    "FE73DN": "Canter Truck",
+    "FE73EB": "Canter",
+    "FE73EC": "Fuso Canter",
+    "FE74BV": "Canter Truck",
+    "FE74DV": "Fuso Canter",
+    "FE7JMW": "Ranger",
+    "FE82B": "Fuso Canter",
+    "FE82BS": "Canter",
+    "FE82D": "Fuso Canter Truck",
+    "FE82DE": "Canter",
+    "FE82DEX": "Canter",
+    "FE82EE": "Canter",
+    "FE82FE": "Canter",
+    "FE850": "Canter",
+    "FEA20": "Fuso Canter",
+    "FEA50": "Fuso Canter",
+    "FEA80": "Canter",
+    "FEB50": "Canter",
+    "FEB90": "Fuso Canter",
+    "FF71DB": "Fuso Canter",
+    "FF73BG": "Fuso Canter",
+    "FK1RJ": "Fighter",
+    "FK417F": "Fuso Fighter",
+    "FK616F": "Fighter",
+    "FK61F": "Fuso Fighter",
+    "FK61HM": "Fuso Fighter",
+    "FK61J": "Fuso Fighter",
+    "FK61R": "Fuso Fighter",
+    "FK64F": "Fuso Fighter",
+    "FK71D": "Fuso",
+    "FK71F": "Fuso Canter",
+    "FK71R": "Fuso Canter",
+    "FK74F": "Fuso Fighter",
+    "FK74R": "Fuso Fighter",
+    "FK7JDC": "Fuso Fighter",
+    "FR1SPY": "Truck",
+    "FRG1F": "Ranger",
+    "FRJS": "Fuso Canter",
+    "FS54JZ": "Super Great",
+    "FSJEKX": "Profia",
+    "FV50JK": "Fuso Super Great Concrete Mixer Truck",
+    "FV50JX": "Fuso Super Great",
+    "FVZNY12": "AD Van",
+    "FW1EXW": "Rofia",
+    "FW1EZE": "Profia Truck",
+    "FW1JAB": "Profia",
+    "G4HW": "Rvr",
+    "G4MW": "Rvr",
+    "GA3W": "Rvr",
+    "GA4W": "Rvr",
+    "GAB3W": "Rvr",
+    "GB3": "Freed",
+    "GBS202": "Crown",
+    "GC20": "Wish",
+    "GC30": "Boon",
+    "GE20": "Wish",
+    "GE21": "Impreza",
+    "GE25": "Wish",
+    "GE6": "Fit",
+    "GE8": "Fit",
+    "GEF22": "Wish",
+    "GEF25": "Wish",
+    "GF6": "Fit",
+    "GF8W": "Outlander",
+    "GG6": "Fit",
+    "GGE25": "Wish",
+    "GGH20": "Alphard",
+    "GGH25": "Alphard",
+    "GGL20": "Alphard",
+    "GGLH20": "Alphard",
+    "GH20": "Alphard",
+    "GHE22": "Wish",
+    "GJA3W": "Rvr",
+    "GK3": "Fit",
+    "GK5": "Fit",
+    "GK6XA": "UD Quon",
+    "GLF8W": "Outlander",
+    "GM4": "Grace",
+    "GP1": "Fit",
+    "GP2": "Fit Hybrid",
+    "GP3": "Freed",
+    "GP5": "Fit",
+    "GP7": "Shuttle",
+    "GP8": "Fit",
+    "GPS14": "Crown",
+    "GRS18": "Crown",
+    "GRS180": "Crown",
+    "GRS182": "Crown",
+    "GRS184": "Crown",
+    "GRS20": "Crown",
+    "GRS200": "Crown",
+    "GRS201": "Crown",
+    "GRS202": "Crown",
+    "GRS203": "Crown",
+    "GRS204": "Crown",
+    "GRS206": "Crown",
+    "GRS210": "Crown",
+    "GRS214": "Crown",
+    "GRS262": "Crown",
+    "GRX120": "Mark X",
+    "GRX121": "Mark X",
+    "GRX130": "Mark X",
+    "GRX133": "Mark X",
+    "GRX135": "Mark X",
+    "GRX200": "Crown",
+    "GSR200": "Crown",
+    "GSR201": "Crown",
+    "GSR202": "Crown",
+    "GSR204": "Crown",
+    "GSR210": "Crown",
+    "GSRS201": "Crown",
+    "GSV60": "ES",
+    "GWS204": "Crown",
+    "GX110": "Mark Ii",
+    "GZ8B": "Fit",
+    "GZE20": "Wish",
+    "GZE6": "Fit",
+    "GZF8W": "Outlander",
+    "GZRS200": "Crown",
+    "GZRS202": "Crown",
+    "GZS180": "Crown",
+    "GZS19B": "GS",
+    "GZS201": "Crown",
+    "GZS204": "Crown Majesta",
+    "H2F23": "Atlas",
+    "H34S": "Wagon R",
+    "H53A": "Pajero Mini",
+    "H55A": "Pajero Mini",
+    "H57A": "Pajero Mini",
+    "H58A": "Pajero Mini",
+    "H59A": "Kix",
+    "H77W": "Pajero Io",
+    "HA25S": "Alto",
+    "HA25V": "Alto",
+    "HA35S": "Alto Eco",
+    "HA36S": "Alto",
+    "HA36V": "Alto",
+    "HB35S": "Carol",
+    "HB36S": "Carol",
+    "HDJ10": "Land Cruiser",
+    "HDJ101": "Land Cruiser 100",
+    "HE12": "Note",
+    "HGC30": "Boon",
+    "HK260F": "Diesel Condor",
+    "HNT32": "X-TRAIL",
+    "HT32": "X-TRAIL",
+    "J111G": "Terios Kid",
+    "J131G": "Terios",
+    "J19204": "Bongo Truck",
+    "J210E": "Rush",
+    "JAZ5": "Fit",
+    "JB23W": "Jimny",
+    "K13": "March",
+    "K58A": "Pajero Io",
+    "K82T": "Bongo Truck",
+    "KDH200": "Hiace Van",
+    "KDH200M": "Hiace Van",
+    "KDH201": "Hiace",
+    "KDH205": "Hiace",
+    "KDH205B": "Hiace Van",
+    "KDH206": "Hiace",
+    "KDH20B": "Hiace",
+    "KDH20V": "Hiace",
+    "KDH211": "Hiace Van",
+    "KDH225": "Hiace",
+    "KDH25": "Hiace",
+    "KDJ95": "Land Cruiser Prado",
+    "KDN185": "Hilux Surf",
+    "KDN201": "Hiace",
+    "KE2": "CX-5",
+    "KE2AW": "CX-5",
+    "KE2FW": "CX-5",
+    "KE2PW": "CX-5",
+    "KE2RFW": "CX-5",
+    "KE2W": "CX-5",
+    "KECFW": "CX-5",
+    "KEEFW": "CX-5",
+    "KEOFW": "CX-5",
+    "KEPAW": "CX-5",
+    "KF2FW": "CX-5",
+    "KG030": "Mira Cocoa",
+    "KG2C30": "Boon",
+    "KGC10": "Passo",
+    "KGC30": "Passo",
+    "KGC35": "Passo",
+    "KGJ10": "Iq",
+    "KGQ10": "Passo",
+    "KGQ30": "Passo",
+    "KJH201": "Hiace",
+    "KM51": "Liteace Truck",
+    "KM70": "Liteace",
+    "KM75": "Townace",
+    "KM80": "Liteace Truck",
+    "KP2T": "Bongo Truck",
+    "KPF15": "Juke",
+    "KQJ10": "Iq",
+    "KSP130": "Vitz",
+    "KSP90": "Vitz",
+    "KZH100": "Hiace",
+    "KZH106": "Hiace",
+    "KZH110": "Hiace",
+    "KZJ95": "Land Cruiser Prado",
+    "KZN185": "Hilux Surf",
+    "L275S": "Mira",
+    "LA100S": "Move",
+    "LA106S": "Move",
+    "LA150S": "Move",
+    "LA250S": "Cast",
+    "LA300A": "Pixis Epoch",
+    "LA300S": "Mira E:s",
+    "LA310S": "Mira E:s",
+    "LA35": "Mira E:s",
+    "LA350A": "Pixis Epoch",
+    "LA350S": "Mira E:s",
+    "LA360S": "Mira E:s",
+    "LA600S": "Tanto",
+    "M13": "March",
+    "M233": "Wagon R",
+    "M31": "X-TRAIL",
+    "M6010": "Passo",
+    "M700S": "Boon",
+    "MCU25": "Kluger",
+    "MCU30": "Harrier",
+    "MCU31": "Harrier",
+    "MCU35": "Harrier",
+    "MCU36": "Harrier",
+    "MH23S": "Wagon R",
+    "MH34S": "Wagon R",
+    "MH44S": "Wagon R",
+    "MH55S": "Wagon R",
+    "MHBS": "Wagon R",
+    "MHN4S": "Solio",
+    "MJ23S": "Wagon R",
+    "MK25N00083": "Condor",
+    "MK35A": "Condor",
+    "MK36A": "UD Condor Mk",
+    "MK36B": "Diesel Condor",
+    "MK36C": "UD",
+    "MK36J": "Diesel Condor",
+    "MK38C": "UD",
+    "MK98C": "UD Condor",
+    "MKSGA": "Diesel",
+    "MKZIIBN": "Isuzu Elf",
+    "MNH10": "Alphard",
+    "MNH15": "Alphard",
+    "MNHA10": "Alphard",
+    "MU31": "Harrier",
+    "MV33A": "Diesel",
+    "MXPK11": "Aqua",
+    "N131": "X-TRAIL",
+    "N31": "X-TRAIL",
+    "N731": "X-TRAIL",
+    "N732": "X-TRAIL",
+    "NB1": "X-TRAIL",
+    "NC10": "Iq",
+    "NCP100": "Ractis",
+    "NCP105": "Ractis",
+    "NCP120": "Ractis",
+    "NCP125": "Ractis",
+    "NCP160": "Probox",
+    "NCP165": "Probox",
+    "NCP265": "Probox",
+    "NCP50": "Probox",
+    "NCP51": "Probox",
+    "NCP51V": "Probox",
+    "NCP55": "Probox",
+    "NCP55J": "Probox",
+    "NCP58": "Probox",
+    "NCP59": "Probox",
+    "NCP5B": "Probox",
+    "NCP61": "Ist",
+    "NCP66": "Probox",
+    "NCP95": "Vitz",
+    "NCP96": "Belta",
+    "NCPBL": "Probox",
+    "NCPI65": "Probox",
+    "NCR165": "Probox",
+    "NE15": "Juke",
+    "NF15": "Juke",
+    "NGC30": "Passo",
+    "NGJ10": "Iq",
+    "NGP55": "Probox",
+    "NH10": "Alphard",
+    "NHP10": "Aqua",
+    "NHP11": "Aquae",
+    "NHP130": "Vitz",
+    "NHP170": "Sienta",
+    "NKE16": "Corolla Fielder",
+    "NKE160": "Corolla Fielder",
+    "NKE165": "Corolla Fielder",
+    "NLP51": "Probox",
+    "NLPS1": "Probox",
+    "NP51": "Probox",
+    "NQC30": "Passo",
+    "NR65": "Voxy",
+    "NRE161": "Corolla Axio",
+    "NSP10": "Aqua",
+    "NSP120": "Ractis",
+    "NSP130": "Vitz",
+    "NSP135": "Vitz",
+    "NSP160": "Probox",
+    "NSP165": "Probox",
+    "NSP166": "Probox",
+    "NSP170": "Sienta",
+    "NT31": "X-TRAIL",
+    "NT31F": "X-TRAIL",
+    "NT32": "X-TRAIL",
+    "NT3L": "X-TRAIL",
+    "NTS1": "X-TRAIL",
+    "NVY12": "AD Van",
+    "NY12": "AD Van",
+    "NZ144": "Corolla Fielder",
+    "NZE121": "Corolla",
+    "NZE121L": "Corolla Fielder",
+    "NZE124": "Corolla Fielder",
+    "NZE141": "Corolla Axio",
+    "NZE141G": "Corolla Fielder",
+    "NZE144": "Corolla Axio",
+    "NZE161": "Corolla Axio",
+    "NZE164": "Corolla Fielder",
+    "NZJ10": "Iq",
+    "P5": "Fit",
+    "PK36A": "Condor",
+    "PK50C": "Diesel Truck",
+    "Q070363": "Voxy",
+    "R03": "Vezel",
+    "R04": "Vezel",
+    "R75": "Voxy",
+    "RD3": "Vezel",
+    "RE3": "CR-V",
+    "RE4": "CR-V",
+    "RM1": "CR-V",
+    "RM4": "CR-V",
+    "RP75": "Voxy",
+    "RR75": "Voxy",
+    "RT3": "Crossroad",
+    "RU1": "Vezel",
+    "RU3": "Vezel",
+    "RU4": "Vezel",
+    "RV3": "Vezel",
+    "RV4": "Vezel",
+    "RZH101": "Hiace",
+    "S200P": "Hijet Truck",
+    "S201C": "Hijet Truck",
+    "S201J": "Sambar Truck",
+    "S201P": "Hijet Truck",
+    "S210": "Pixis Truck",
+    "S210P": "Hijet Truck",
+    "S210U": "Pixis Truck",
+    "S2110": "Pixis Truck",
+    "S211J": "Sambar Truck",
+    "S211P": "Hijet Truck",
+    "S211T": "Hijet Truck",
+    "S211U": "Pixis Truck",
+    "S291P": "Hijet Truck",
+    "S2SF24": "Atlas",
+    "S300U": "Pixis Truck",
+    "S321V": "Pixis Van",
+    "S402M": "Town Ace Van",
+    "S402U": "Liteace Van",
+    "S412M": "Townace Van",
+    "S412U": "Liteace Truck",
+    "S500J": "Sambar Truck",
+    "S500P": "Hijet Truck",
+    "S501P": "Hijet Truck",
+    "S5100": "Hijet Truck",
+    "S510J": "Sambar Truck",
+    "S510P": "Hijet Truck",
+    "S510U": "Hijet Truck",
+    "S511P": "Hijet Truck",
+    "S521P": "Hijet Truck",
+    "S801J": "Sambar Truck",
+    "S85": "Liteace Truck",
+    "SCP10": "Vitz",
+    "SCP100": "Ractis",
+    "SCP13": "Vitz",
+    "SCP90": "Vitz",
+    "SCP92": "Belta",
+    "SH1EDJ": "Profia",
+    "SJ5": "Forester",
+    "SJP2T": "Bongo",
+    "SK22L": "Bongo Truck",
+    "SK22T": "Bongo",
+    "SK827TN": "Vanette Truck",
+    "SK82L": "Bongo",
+    "SK82LN": "Vanette Truck",
+    "SK82N": "Vanette",
+    "SK82T": "Bongo Truck",
+    "SK82TM": "Delica Van",
+    "SK82TN": "Vanette Truck",
+    "SKF27": "Bongo",
+    "SKF2LN": "Vanette",
+    "SKF2T": "Bongo Truck",
+    "SKF2TN": "Vanette",
+    "SKP2L": "Bongo Truck",
+    "SKP2LN": "Vanette Truck",
+    "SKP2T": "Bongo Truck",
+    "SKP2TL": "Vanette",
+    "SKP2TN": "Vanette Truck",
+    "SKPMN": "Vanette",
+    "SKPTN": "Vanette",
+    "SLP2L": "Bongo",
+    "SLP2T": "Bongo Truck",
+    "SNCP165": "Probox",
+    "SRP2TN": "Vanette Truck",
+    "SS1EKA": "Profia",
+    "T31": "X-TRAIL",
+    "T32": "X-TRAIL",
+    "TDA4W": "Grand Vitara",
+    "THGPS": "Fit",
+    "TNT31": "X-TRAIL",
+    "TRH200": "Hiace",
+    "TRH214": "Hiace Wagon",
+    "TRH219": "Hiace",
+    "TRJ120": "Prado",
+    "U50JX": "Super Great",
+    "U62TM": "Minicab Truck",
+    "UB573GW": "Isuzu Bighorn",
+    "UCF31": "Celsior",
+    "USF40": "LS",
+    "UVF45": "LS",
+    "UVF46": "LS 600H L",
+    "UZJ100": "Land Cruiser",
+    "UZNY12": "AD Van",
+    "V2NY12": "AD Van",
+    "V46": "Pajero",
+    "V75W": "Pajero",
+    "V98W": "Pajero",
+    "VBNY12": "AD Van",
+    "VE12": "Note",
+    "VE15": "Juke",
+    "VF15": "Juke",
+    "VN12": "AD Van",
+    "VNH20": "Alphard",
+    "VNZY12": "Advan",
+    "VY12": "AD Van",
+    "VZN11": "AD Van",
+    "VZNT12": "AD Van",
+    "VZNY12": "AD Van",
+    "W2NY12": "AD Van",
+    "WHS5T": "Titan",
+    "WWZZZ167DM": "Beetle",
+    "WWZZZ16ZCM": "Beetle",
+    "WWZZZ16ZDM": "Beetle",
+    "WWZZZ16ZEM": "Beetle",
+    "XKU308": "Dyna",
+    "XKU508": "Dutro",
+    "XZC610": "Dutro",
+    "XZU302": "Dutro",
+    "XZU304": "Dutro Shari",
+    "XZU312": "Dutro",
+    "XZU314": "Dyna",
+    "XZU655": "Dutro",
+    "XZU6B5": "Dutro",
+    "Y12": "AD Van",
+    "YF15": "Juke",
+    "YF1S": "Juke",
+    "YM55": "Townace",
+    "YP15": "Juke",
+    "Z71S": "Swift",
+    "ZC11S": "Swift",
+    "ZC32S": "Swift",
+    "ZC53S": "Swift",
+    "ZC71S": "Swift",
+    "ZC72": "Swift",
+    "ZC723": "Swift",
+    "ZC72S": "Swift",
+    "ZC83S": "Swift",
+    "ZCZ23": "Swift",
+    "ZD11S": "Swift",
+    "ZD72S": "Swift",
+    "ZD83S": "Swift",
+    "ZE2": "Insight",
+    "ZE3": "Insight",
+    "ZEG20": "Wish",
+    "ZF2": "Insight",
+    "ZF3": "Insight",
+    "ZG20": "Wish",
+    "ZG2E25": "Wish",
+    "ZG72S": "Swift",
+    "ZGB20": "Wish",
+    "ZGC22": "Wish",
+    "ZGE2": "Wish",
+    "ZGE20": "Wish",
+    "ZGE20G": "Wish",
+    "ZGE21": "Wish",
+    "ZGE22": "Wish",
+    "ZGE25": "Wish",
+    "ZGE25G": "Wish",
+    "ZGE2B": "Wish",
+    "ZGE2S": "Wish",
+    "ZGF22": "Wish",
+    "ZGIE20": "Wish",
+    "ZGL20": "Wish",
+    "ZGLE25": "Wish",
+    "ZGM11": "Isis",
+    "ZGZE21": "Wish",
+    "ZGZE25": "Wish",
+    "ZNE14": "Wish",
+    "ZR51": "Wish",
+    "ZR60": "Voxy",
+    "ZR70": "Noah",
+    "ZR75": "Voxy",
+    "ZRA70": "Voxy",
+    "ZRE140": "Corolla Fielder",
+    "ZRE142": "Corolla Fielder",
+    "ZRE162": "Corolla Fielder",
+    "ZRR70": "Voxy",
+    "ZRR75": "Voxy",
+    "ZRR80": "Voxy",
+    "ZRR85": "Voxy",
+    "ZRR95": "Voxy",
+    "ZRRTB": "Voxy",
+    "ZRT260": "Premio",
+    "ZRT261": "Premio",
+    "ZRT265": "Premio",
+    "ZRT272": "Avensis",
+    "ZSP110": "Ist",
+    "ZSU60": "Harrier",
+    "ZSU65": "Harrier",
+    "ZUW30": "Prius",
+    "ZVW30": "Prius",
+    "ZVW35": "Prius Alpha",
+    "ZVW50": "Prius",
+    "ZW30": "Prius",
+    "ZWA10": "Ct 200H",
+    "ZWR80": "Voxy",
+    "ZYW30": "Prius",
+    "ZYX10": "C-HR",
+
+    # ── European VIN prefixes (unrelated to JDM chassis codes above) ──
+    "WVWZZZ": "NEW BEETLE",
+    "WWWZZZ": "NEW BEETLE",
+    "WVW": "VW",
+    "WAU": "AUDI",
+    "WBA": "BMW",
+    "WBS": "BMW M",
+    "WDB": "MERCEDES-BENZ",
+    "WDC": "MERCEDES-BENZ",
+    "WDD": "MERCEDES-BENZ",
+    "SAJ": "JAGUAR",
+    "SAL": "LAND ROVER",
+    "SAR": "RANGE ROVER",
+    "VF1": "RENAULT",
+    "ZFA": "FIAT",
+    "ZFF": "FERRARI",
+    "ZAR": "ALFA ROMEO",
 }
 
 CARS = [
@@ -370,7 +956,7 @@ async def is_active_member(user_id: int) -> bool:
         return True
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers"}, timeout=10)
+            resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=10)
         members = resp.json().get("members", [])
         for m in members:
             if str(m.get("userId","")) == str(user_id):
@@ -403,7 +989,7 @@ async def get_member_record(user_id: int | str) -> dict | None:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(
                 SHEET_WEBHOOK,
-                json={"action": "getMembers"},
+                json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
                 timeout=40,
             )
         resp.raise_for_status()
@@ -502,7 +1088,7 @@ async def check_promo10d_eligibility(str_uid: str) -> dict:
     """Returns {eligible, reason, active, carreq_count}"""
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers"}, timeout=10)
+            resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=10)
         members = resp.json().get("members", [])
         for m in members:
             if str(m.get("userId","")) == str_uid:
@@ -534,7 +1120,7 @@ async def activate_promo10d(context, user_id: int, username: str) -> bool:
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(SHEET_WEBHOOK, json={
-                "action":   "saveMember",
+                "action":   "saveMember", "serverKey": SHEET_SERVER_KEY,
                 "userId":   str(user_id),
                 "username": username,
                 "days":     10,
@@ -610,7 +1196,7 @@ async def get_member_package(user_id: int) -> str | None:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(
                 SHEET_WEBHOOK,
-                json={"action": "getMembers"},
+                json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
                 timeout=10,
             )
         resp.raise_for_status()
@@ -684,6 +1270,57 @@ def guess_model_from_chassis(chassis_input: str) -> str:
         if cu.startswith(prefix):
             return CHASSIS_PREFIX_MAP[prefix]
     return "UNKNOWN"
+
+# ── Model text normalization ────────────────────────────────
+# Sheet1's Model column has years of free-typed/OCR'd text with the same car
+# spelled a dozen ways ("X-TRAIL" / "NISSAN X-TRAIL" / "NISSIAN XTRAIL"), which
+# makes any per-model reporting (price trends, supply patterns) unreliable.
+# This cleans spelling/typos and drops the brand prefix (the chassis code
+# already implies brand), WITHOUT collapsing genuinely different nameplates —
+# Noah stays Noah, Voxy stays Voxy, Hijet/Pixis/Sambar stay separate, and
+# Hybrid/PHV trim suffixes are preserved as entered. The one confirmed merge
+# is HR-V -> Vezel (same car, JDM vs export name). See
+# chassis_model_final_mapping.csv for the full per-chassis review this was
+# built from.
+_MODEL_BRAND_WORDS = {
+    "TOYOTA", "HONDA", "NISSAN", "NISSIAN", "MAZDA", "SUZUKI", "DAIHATSU",
+    "SUBARU", "MITSUBISHI", "LEXUS", "HINO", "ISUZU", "UD",
+}
+_MODEL_NOISE_WORDS = {
+    "FREEZON", "FREEZONE", "KLANG9", "MAESOT", "44GATE", "WITE", "92000",
+}
+_MODEL_TYPO_FIX = {
+    "NISSIAN": "NISSAN", "XTRAIL": "X-TRAIL", "WIAH": "WISH", "VIZEL": "VEZEL",
+    "HONDAFIT": "FIT", "CX5": "CX-5", "JUAKE": "JUKE", "SABARU": "SUBARU",
+    "FEILDER": "FIELDER", "VANNTEE": "VANETTE", "VANNETTE": "VANETTE",
+    "VANETTEE": "VANETTE", "OUTLANDAR": "OUTLANDER", "MERA": "MIRA",
+    "CRV": "CR-V", "SUCCEDD": "SUCCEED", "PARADO": "PRADO", "VIZEL": "VEZEL",
+}
+_MODEL_KEEP_UPPER = {
+    "CR-V", "CR-Z", "X-TRAIL", "HR-V", "LS460", "CT200H", "LX470", "UD",
+    "CX-5", "CX-3", "CX-8", "RAV4", "C-HR", "NV200", "NV350", "LS", "AD",
+    "RX", "NX", "GX", "LX", "IS", "ES", "GS", "UX", "LC",
+}
+
+def normalize_model_name(raw_model: str) -> str:
+    """Clean a Model text value for storage: fix typos, drop brand prefix,
+    merge confirmed synonyms (HR-V -> Vezel). Returns "" for empty/UNKNOWN
+    input so callers can fall back to guess_model_from_chassis()."""
+    m = str(raw_model or "").strip().upper()
+    if not m or m in {"UNKNOWN", "N/A", "-", "NONE"}:
+        return ""
+    for typo, fix in _MODEL_TYPO_FIX.items():
+        m = m.replace(typo, fix)
+    tokens = [t for t in m.split() if t]
+    tokens = [t for t in tokens if t not in _MODEL_BRAND_WORDS and t not in _MODEL_NOISE_WORDS]
+    if not tokens:
+        return ""
+    if tokens == ["HR-V"] or " ".join(tokens) in ("HR-V", "HR-V (VEZEL)", "HR-V VEZEL"):
+        tokens = ["VEZEL"]
+    out = []
+    for t in tokens:
+        out.append(t if t in _MODEL_KEEP_UPPER else t.capitalize())
+    return " ".join(out)
 
 async def guess_model_gemini(chassis_input: str) -> str:
     if not GEMINI_API_KEY:
@@ -862,11 +1499,11 @@ def stage_auction_list_rows(new_cars, import_loc, existing_chassis=()):
             duplicates.append(chassis)
             continue
         seen.add(key)
-        model = str(raw_car.get("model", "")).strip().upper()
+        model = normalize_model_name(raw_car.get("model", ""))
         color = str(raw_car.get("color", "")).strip().upper()
         year = normalize_year(raw_car.get("year", 0))
         missing = []
-        if not model or model in {"UNKNOWN", "N/A", "-"}:
+        if not model:
             model = guess_model_from_chassis(chassis)
             if model == "UNKNOWN":
                 missing.append("Model")
@@ -1111,9 +1748,10 @@ async def upload_to_cloudinary(file_bytes: bytes, chassis: str) -> str:
 
 async def save_price(chassis, model, color, year, price, user_name, image_url="", location=LOC_MAESOT):
     now   = datetime.now().strftime("%d/%m/%Y")
+    model = normalize_model_name(model) or guess_model_from_chassis(chassis)
     entry = {"chassis":chassis,"model":model,"color":color,"year":year,
              "price":price,"date":now,"location":location,
-             "added_by":user_name,"image_url":image_url}
+             "added_by":user_name,"image_url":image_url,"serverKey":SHEET_SERVER_KEY}
     PRICE_HISTORY.append(entry)
     if SHEET_WEBHOOK:
         try:
@@ -1318,7 +1956,7 @@ async def set_payment_qr(method: str, file_id: str, admin_name: str) -> bool:
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(SHEET_WEBHOOK, json={
-                "action":    "setPaymentQR",
+                "action":    "setPaymentQR", "serverKey": SHEET_SERVER_KEY,
                 "method":    method,
                 "fileId":    file_id,
                 "adminName": admin_name,
@@ -1339,7 +1977,7 @@ async def save_member_to_sheet(user_id: str, username: str, days: int,
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(SHEET_WEBHOOK, json={
-                "action":   "saveMember",
+                "action":   "saveMember", "serverKey": SHEET_SERVER_KEY,
                 "userId":   str(user_id),
                 "username": username,
                 "days":     days,
@@ -1379,7 +2017,7 @@ async def enrich_member_save_result(
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
                     SHEET_WEBHOOK,
-                    json={"action": "getMembers"},
+                    json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
                     timeout=10,
                     follow_redirects=True,
                 )
@@ -1415,7 +2053,7 @@ async def enrich_member_save_result(
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
                     SHEET_WEBHOOK,
-                    json={"action": "getPassword", "userId": str(user_id)},
+                    json={"action": "getPassword", "userId": str(user_id), "serverKey": SHEET_SERVER_KEY},
                     timeout=10,
                     follow_redirects=True,
                 )
@@ -2085,7 +2723,7 @@ async def add_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             override_model = None
         else:
             override_color = extra_args[-1].upper()
-            override_model = " ".join(extra_args[:-1]).upper()
+            override_model = normalize_model_name(" ".join(extra_args[:-1])) or " ".join(extra_args[:-1]).upper()
 
         if car:
             target_key = normalize_chassis_key(chassis)
@@ -2106,12 +2744,12 @@ async def add_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 async with httpx.AsyncClient() as client:
                     if override_color:
                         await client.post(SHEET_WEBHOOK, json={
-                            "action": "updateCar", "chassis": chassis,
+                            "action": "updateCar", "chassis": chassis, "serverKey": SHEET_SERVER_KEY,
                             "field": "color", "value": override_color
                         }, timeout=10, follow_redirects=True)
                     if override_model:
                         await client.post(SHEET_WEBHOOK, json={
-                            "action": "updateCar", "chassis": chassis,
+                            "action": "updateCar", "chassis": chassis, "serverKey": SHEET_SERVER_KEY,
                             "field": "model", "value": override_model
                         }, timeout=10, follow_redirects=True)
             except Exception as e:
@@ -2312,7 +2950,7 @@ async def mypassword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(SHEET_WEBHOOK, json={
-                "action": "getPassword",
+                "action": "getPassword", "serverKey": SHEET_SERVER_KEY,
                 "userId": str(user_id),
             }, timeout=10, follow_redirects=True)
         data = resp.json()
@@ -2347,7 +2985,7 @@ async def resetpass_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(SHEET_WEBHOOK, json={
-                "action":   "resetPassword",
+                "action":   "resetPassword", "serverKey": SHEET_SERVER_KEY,
                 "username": target,
                 "password": new_pw,
             }, timeout=10, follow_redirects=True)
@@ -2506,7 +3144,7 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 SHEET_WEBHOOK,
-                json={"action": "getMembers"},
+                json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
                 timeout=15,
                 follow_redirects=True
             )
@@ -2565,7 +3203,7 @@ async def backup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(SHEET_WEBHOOK, json={
-                "action": "getBackupCSV"
+                "action": "getBackupCSV", "serverKey": SHEET_SERVER_KEY
             }, timeout=30, follow_redirects=True)
         data = resp.json()
         if data.get("status") == "ok":
@@ -2909,9 +3547,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏳ Member list ဆွဲနေတယ်...")
         try:
             async with httpx.AsyncClient() as client:
-                resp = await client.get(
+                resp = await client.post(
                     SHEET_WEBHOOK,
-                    params={"action": "getMembers"},
+                    json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
                     timeout=15, follow_redirects=True)
             data = resp.json()
             members = data.get("members", [])
@@ -3868,7 +4506,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif field == "color":
                 pdata["color"] = val.upper()
             elif field == "model":
-                pdata["model"] = val.upper()
+                pdata["model"] = normalize_model_name(val) or val.upper()
                 pdata["model_source"] = "manual"
                 pdata["model_needs_review"] = False
             pending_photo[photo_uid] = pdata
@@ -3928,7 +4566,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_val = text.upper().strip()
             display = new_val
         elif field == "model":
-            new_val = text.upper().strip()
+            new_val = normalize_model_name(text) or text.upper().strip()
             display = new_val
         else:
             return
@@ -3943,7 +4581,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.post(SHEET_WEBHOOK, json={
-                        "action": "updateCar",
+                        "action": "updateCar", "serverKey": SHEET_SERVER_KEY,
                         "chassis": car['chassis'],
                         "field": field,
                         "value": str(new_val),
@@ -4712,7 +5350,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
-                    SHEET_WEBHOOK, json={"action": "getMembers"},
+                    SHEET_WEBHOOK, json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
                     timeout=15, follow_redirects=True)
             data_resp = resp.json()
             members = data_resp.get("members", [])
@@ -5077,7 +5715,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(SHEET_WEBHOOK, json={
-                    "action":   "updateMemberId",
+                    "action":   "updateMemberId", "serverKey": SHEET_SERVER_KEY,
                     "username": target_username,
                     "newId":    str(new_id),
                     "password": new_pw,
@@ -5922,7 +6560,7 @@ async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     try:
         async with httpx.AsyncClient() as client:
-            resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers"}, timeout=10, follow_redirects=True)
+            resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=10, follow_redirects=True)
             members = resp.json().get("members",[])
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}"); return
@@ -5967,7 +6605,7 @@ async def kick_member_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 async with httpx.AsyncClient(follow_redirects=True) as client:
                     resp = await client.post(SHEET_WEBHOOK, json={
-                        "action": "updateStatus",
+                        "action": "updateStatus", "serverKey": SHEET_SERVER_KEY,
                         "userId": str(target_id),
                         "status": "KICKED"
                     }, timeout=10)
@@ -6120,7 +6758,7 @@ async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(SHEET_WEBHOOK, json={
-                "action":     "removeBroker",
+                "action":     "removeBroker", "serverKey": SHEET_SERVER_KEY,
                 "telegramId": tg_id,
             }, timeout=10)
 
@@ -6417,7 +7055,7 @@ async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 await client.post(SHEET_WEBHOOK, json={
-                    "action":    "banCustomer",
+                    "action":    "banCustomer", "serverKey": SHEET_SERVER_KEY,
                     "userId":    str_uid,
                     "banExpire": ban_expire,
                 }, timeout=10)
@@ -6782,7 +7420,7 @@ async def mystatus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(SHEET_WEBHOOK, json={
-                "action":     "getMyRequests",
+                "action":     "getMyRequests", "serverKey": SHEET_SERVER_KEY,
                 "customerId": str_uid,
             }, timeout=10)
         data     = resp.json()
@@ -7489,7 +8127,7 @@ async def check_expired_members(context):
     global warned_3days
     try:
         async with httpx.AsyncClient() as client:
-            resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers"}, timeout=10, follow_redirects=True)
+            resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=10, follow_redirects=True)
             members = resp.json().get("members",[])
         now = datetime.now(); kicked = []; kick_failed = []; expiring = []
         for m in members:
@@ -7515,7 +8153,7 @@ async def check_expired_members(context):
                 if uid.isdigit():
                     try:
                         pw_resp = await (httpx.AsyncClient()).post(SHEET_WEBHOOK, json={
-                            "action": "getPassword", "userId": uid}, timeout=10, follow_redirects=True)
+                            "action": "getPassword", "userId": uid, "serverKey": SHEET_SERVER_KEY}, timeout=10, follow_redirects=True)
                         pw_data  = pw_resp.json()
                         password = pw_data.get("password","")
                         pw_line  = f"\n🔑 Web Password: `{password}`\n" if password else ""
@@ -7577,7 +8215,7 @@ async def check_expired_members(context):
                         try:
                             async with httpx.AsyncClient() as client:
                                 await client.post(SHEET_WEBHOOK, json={
-                                    "action": "updateStatus",
+                                    "action": "updateStatus", "serverKey": SHEET_SERVER_KEY,
                                     "userId": uid,
                                     "status": "KICKED"
                                 }, timeout=10, follow_redirects=True)
@@ -7647,7 +8285,7 @@ async def is_valid_member(user_id: int) -> bool:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 SHEET_WEBHOOK,
-                json={"action": "getMembers"},
+                json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
                 timeout=15,
                 follow_redirects=True
             )
@@ -7704,7 +8342,7 @@ async def check_unknown_channel_members(context):
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 SHEET_WEBHOOK,
-                json={"action": "getMembers"},
+                json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
                 timeout=15,
                 follow_redirects=True
             )
@@ -7766,7 +8404,7 @@ async def remind_unused_premium_members(context):
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 SHEET_WEBHOOK,
-                json={"action": "getMembers"},
+                json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
                 timeout=40,
                 follow_redirects=True
             )
@@ -7796,7 +8434,7 @@ async def remind_unused_premium_members(context):
             try:
                 async with httpx.AsyncClient() as pw_client:
                     pw_resp = await pw_client.post(SHEET_WEBHOOK, json={
-                        "action": "getPassword", "userId": uid}, timeout=15, follow_redirects=True)
+                        "action": "getPassword", "userId": uid, "serverKey": SHEET_SERVER_KEY}, timeout=15, follow_redirects=True)
                 password = pw_resp.json().get("password", "")
             except Exception:
                 password = ""

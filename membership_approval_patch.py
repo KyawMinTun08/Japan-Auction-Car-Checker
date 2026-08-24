@@ -82,7 +82,7 @@ async def _fetch_sheet_member(user_id: str, attempts: int = 3) -> dict[str, str]
             ) as client:
                 response = await client.post(
                     _legacy.SHEET_WEBHOOK,
-                    json={"action": "getPassword", "userId": clean_user_id},
+                    json={"action": "getPassword", "userId": clean_user_id, "serverKey": _legacy.SHEET_SERVER_KEY},
                 )
             if not response.is_error:
                 data = response.json()
@@ -151,6 +151,7 @@ async def save_member_to_sheet(
         "days": clean_days,
         "password": clean_password,
         "package": clean_package,
+        "serverKey": _legacy.SHEET_SERVER_KEY,
     }
 
     last_detail = "unknown webhook failure"

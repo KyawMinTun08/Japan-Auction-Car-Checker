@@ -182,8 +182,8 @@ async def mypassword_cmd(update, context):
         async with _legacy.httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.post(
                 _legacy.SHEET_WEBHOOK,
-                json={"action": "getPassword", "userId": str(user_id)},
-                timeout=10,
+                json={"action": "getPassword", "userId": str(user_id), "serverKey": _legacy.SHEET_SERVER_KEY},
+                timeout=25,
             )
         response.raise_for_status()
         data = response.json()
