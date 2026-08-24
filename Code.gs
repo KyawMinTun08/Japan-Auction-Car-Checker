@@ -75,6 +75,8 @@ function doPost(e) {
 
       // ── Save / Update Member ─────────────────────────────
       case "saveMember":
+        var saveMemberAuth = _authorizeFinanceReport_(data.serverKey);
+        if (saveMemberAuth) return _json(saveMemberAuth);
         return _json(saveMember(
           data.userId, data.username, data.days,
           data.password || "", data.package || "CH"
@@ -82,6 +84,8 @@ function doPost(e) {
 
       // ── Get Members List ─────────────────────────────────
       case "getMembers":
+        var getMembersAuth = _authorizeFinanceReport_(data.serverKey);
+        if (getMembersAuth) return _json(getMembersAuth);
         return _json({status:"ok", members: getMembers()});
 
       // ── Verify Login (Password → Token) ─────────────────
@@ -108,18 +112,26 @@ function doPost(e) {
 
       // ── Get Password by UserID ───────────────────────────
       case "getPassword":
+        var getPasswordAuth = _authorizeFinanceReport_(data.serverKey);
+        if (getPasswordAuth) return _json(getPasswordAuth);
         return _json(getPassword(data.userId));
 
       // ── Reset Password ───────────────────────────────────
       case "resetPassword":
+        var resetPasswordAuth = _authorizeFinanceReport_(data.serverKey);
+        if (resetPasswordAuth) return _json(resetPasswordAuth);
         return _json(resetPassword(data.username, data.password));
 
       // ── Update Member Telegram ID ────────────────────────
       case "updateMemberId":
+        var updateMemberIdAuth = _authorizeFinanceReport_(data.serverKey);
+        if (updateMemberIdAuth) return _json(updateMemberIdAuth);
         return _json(updateMemberId(data.username, data.newId, data.password));
 
       // ── Backup CSV ───────────────────────────────────────
       case "getBackupCSV":
+        var getBackupCSVAuth = _authorizeFinanceReport_(data.serverKey);
+        if (getBackupCSVAuth) return _json(getBackupCSVAuth);
         return _json(getBackupCSV());// ── Get Cars Count ─────────────────────────
       case "getCarsCount":
         var gcSheet = ss.getSheetByName("Sheet1");
@@ -127,6 +139,8 @@ function doPost(e) {
         return _json({count: gcSheet.getLastRow() - 1});
         // —— Update Car (Price / Color / Model) ————
       case "updateCar":
+        var updateCarAuth = _authorizeFinanceReport_(data.serverKey);
+        if (updateCarAuth) return _json(updateCarAuth);
         var uc_sheet   = ss.getSheetByName("Sheet1");
         var uc_field   = data.field;
         var uc_chassis = data.chassis;
@@ -207,6 +221,8 @@ function doPost(e) {
         }
         return _json({status:"ok", stats:psData});// ── Verify Old ID // ── Update Member Status ──────────────────────────
       case "updateStatus":
+        var updateStatusAuth = _authorizeFinanceReport_(data.serverKey);
+        if (updateStatusAuth) return _json(updateStatusAuth);
         var usSheet = ss.getSheetByName("Members");
         if (!usSheet) return _json({status:"error", msg:"no_sheet"});
         var usId     = String(data.userId || "");
@@ -689,6 +705,8 @@ case 'saveCancelCount': {
 }
 
 case 'banCustomer': {
+  var banCustomerAuth = _authorizeFinanceReport_(data.serverKey);
+  if (banCustomerAuth) return _json(banCustomerAuth);
   const ss = SpreadsheetApp.openById(SS_ID);
   const sheet = ss.getSheetByName('Members');
   if (!sheet) return _json({ status: 'error', msg: 'no_sheet' });
@@ -788,6 +806,8 @@ case 'banCustomer': {
   return _json({status:'ok', cars:gdCars, page:{offset:gdOffset,limit:gdLimit,total:gdTotal,hasMore:(gdOffset + gdReadCount) < gdTotal}});
 }
 case 'removeBroker': {
+  var removeBrokerAuth = _authorizeFinanceReport_(data.serverKey);
+  if (removeBrokerAuth) return _json(removeBrokerAuth);
   const telegramId = String(payload.telegramId || '').trim();
   if (!telegramId) return _json({ status: 'error', msg: 'telegramId missing' });
 
@@ -1002,6 +1022,8 @@ case 'getMyRequestsWeb': {
   return _json({status:'ok', requests: results.reverse()});
 }
 case 'getMyRequests': {
+  var getMyRequestsAuth = _authorizeFinanceReport_(data.serverKey);
+  if (getMyRequestsAuth) return _json(getMyRequestsAuth);
   const ss = SpreadsheetApp.openById(SS_ID);
   const sheet = ss.getSheetByName('Requests');
   if (!sheet) return _json({status:'ok', requests:[]});
@@ -1078,6 +1100,8 @@ case 'getMyRequests': {
     }
     
     case 'setPaymentQR': {
+      var setPaymentQRAuth = _authorizeFinanceReport_(data.serverKey);
+      if (setPaymentQRAuth) return _json(setPaymentQRAuth);
       const method = data.method || '';
       const fileId = data.fileId || '';
       const adminName = data.adminName || 'admin';
@@ -1089,6 +1113,8 @@ case 'getMyRequests': {
     }
       // ── Price Data (POST) ─────────────────────────────────
       default:
+        var defaultAddCarAuth = _authorizeFinanceReport_(data.serverKey);
+        if (defaultAddCarAuth) return _json(defaultAddCarAuth);
         var sheet = ss.getSheetByName("Sheet1");
         sheet.appendRow([
           data.date, data.chassis, data.model, data.color,
@@ -3147,4 +3173,197 @@ function _verifyTokenForReadOnlyGetData_(token, deviceId, app, userId) {
   }
 
   return {status:'error', message:'invalid_token'};
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ONE-TIME BACKFILL: normalize Sheet1's historical "Model" column text.
+// ------------------------------------------------------------------------
+// Ports Python's normalize_model_name() (legacy_bot.py) to Apps Script so
+// the ~5,000 existing rows match the same spelling/casing rules new bot
+// entries now use: fixes typos, drops the brand-name prefix (chassis code
+// already implies brand), merges the one confirmed synonym (HR-V -> Vezel),
+// and PRESERVES genuinely distinct nameplates (Noah/Voxy, Hijet/Pixis/
+// Sambar, etc.) and Hybrid/PHV trim suffixes as entered.
+//
+// These are plain functions, NOT wired into doPost — they only run when
+// YOU execute them manually from the Apps Script editor (select the
+// function in the toolbar dropdown, then click Run ▶). Nothing external
+// can trigger them.
+//
+// HOW TO RUN THIS SAFELY:
+//   1. Select "previewBackfillModelNames" in the function dropdown, click
+//      Run. Open View > Executions (or check the new
+//      "ModelBackfill_Preview" sheet tab it creates) to see every row
+//      that WOULD change, old value -> new value. Nothing is written to
+//      Sheet1 in this step.
+//   2. Review the preview sheet. If it looks right, select
+//      "backfillModelNames" in the dropdown and click Run. This is the
+//      one that actually writes to Sheet1 — it first saves every
+//      original value into a "ModelBackfill_Backup" sheet tab so you can
+//      manually revert if something looks wrong.
+// ══════════════════════════════════════════════════════════════════════
+
+var MODEL_BRAND_WORDS = {
+  "TOYOTA":1, "HONDA":1, "NISSAN":1, "NISSIAN":1, "MAZDA":1, "SUZUKI":1, "DAIHATSU":1,
+  "SUBARU":1, "MITSUBISHI":1, "LEXUS":1, "HINO":1, "ISUZU":1, "UD":1
+};
+var MODEL_NOISE_WORDS = {
+  "FREEZON":1, "FREEZONE":1, "KLANG9":1, "MAESOT":1, "44GATE":1, "WITE":1, "92000":1
+};
+var MODEL_TYPO_FIX = [
+  ["NISSIAN", "NISSAN"], ["XTRAIL", "X-TRAIL"], ["WIAH", "WISH"], ["VIZEL", "VEZEL"],
+  ["HONDAFIT", "FIT"], ["CX5", "CX-5"], ["JUAKE", "JUKE"], ["SABARU", "SUBARU"],
+  ["FEILDER", "FIELDER"], ["VANNTEE", "VANETTE"], ["VANNETTE", "VANETTE"],
+  ["VANETTEE", "VANETTE"], ["OUTLANDAR", "OUTLANDER"], ["MERA", "MIRA"],
+  ["CRV", "CR-V"], ["SUCCEDD", "SUCCEED"], ["PARADO", "PRADO"]
+];
+var MODEL_KEEP_UPPER = {
+  "CR-V":1, "CR-Z":1, "X-TRAIL":1, "HR-V":1, "LS460":1, "CT200H":1, "LX470":1, "UD":1,
+  "CX-5":1, "CX-3":1, "CX-8":1, "RAV4":1, "C-HR":1, "NV200":1, "NV350":1, "LS":1, "AD":1,
+  "RX":1, "NX":1, "GX":1, "LX":1, "IS":1, "ES":1, "GS":1, "UX":1, "LC":1
+};
+
+function normalizeModelNameGS(rawModel) {
+  // Exact port of Python's normalize_model_name() — see legacy_bot.py.
+  // Returns "" for empty/UNKNOWN input (caller should then leave the
+  // original value untouched; there is no chassis-lookup fallback here).
+  var m = String(rawModel || "").trim().toUpperCase();
+  if (!m || m === "UNKNOWN" || m === "N/A" || m === "-" || m === "NONE") return "";
+
+  for (var i = 0; i < MODEL_TYPO_FIX.length; i++) {
+    var typo = MODEL_TYPO_FIX[i][0], fix = MODEL_TYPO_FIX[i][1];
+    m = m.split(typo).join(fix); // replace ALL occurrences, like Python str.replace
+  }
+
+  var tokens = m.split(/\s+/).filter(function (t) { return t.length > 0; });
+  tokens = tokens.filter(function (t) {
+    return !MODEL_BRAND_WORDS[t] && !MODEL_NOISE_WORDS[t];
+  });
+  if (tokens.length === 0) return "";
+
+  var joined = tokens.join(" ");
+  if ((tokens.length === 1 && tokens[0] === "HR-V") ||
+      joined === "HR-V" || joined === "HR-V (VEZEL)" || joined === "HR-V VEZEL") {
+    tokens = ["VEZEL"];
+  }
+
+  var out = [];
+  for (var j = 0; j < tokens.length; j++) {
+    var t = tokens[j];
+    if (MODEL_KEEP_UPPER[t]) {
+      out.push(t);
+    } else {
+      out.push(t.charAt(0).toUpperCase() + t.slice(1).toLowerCase());
+    }
+  }
+  return out.join(" ");
+}
+
+function _modelBackfillCompute_() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Sheet1');
+  if (!sheet) throw new Error('Sheet1 not found');
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2) return { sheet: sheet, modelCol: -1, chassisCol: -1, changes: [], total: 0, same: 0, skipped: 0 };
+
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0]
+    .map(function (v) { return String(v || '').trim().toLowerCase(); });
+  var modelCol = headers.indexOf('model');
+  var chassisCol = headers.indexOf('chassis');
+  if (modelCol < 0) throw new Error('Model column not found in Sheet1 headers');
+
+  var numRows = lastRow - 1;
+  var modelValues = sheet.getRange(2, modelCol + 1, numRows, 1).getValues();
+  var chassisValues = chassisCol >= 0
+    ? sheet.getRange(2, chassisCol + 1, numRows, 1).getValues()
+    : null;
+
+  var changes = []; // {row, chassis, oldVal, newVal}
+  var same = 0, skipped = 0;
+  for (var i = 0; i < numRows; i++) {
+    var raw = modelValues[i][0];
+    var rawStr = String(raw || '').trim();
+    var normalized = normalizeModelNameGS(rawStr);
+    var sheetRow = i + 2;
+    var chassis = chassisValues ? chassisValues[i][0] : '';
+    if (!normalized) { skipped++; continue; }
+    if (normalized !== rawStr) {
+      changes.push({ row: sheetRow, chassis: chassis, oldVal: rawStr, newVal: normalized });
+    } else {
+      same++;
+    }
+  }
+  return { sheet: sheet, modelCol: modelCol, chassisCol: chassisCol, changes: changes,
+           total: numRows, same: same, skipped: skipped };
+}
+
+function previewBackfillModelNames() {
+  var result = _modelBackfillCompute_();
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  var summary = 'Model backfill PREVIEW — total rows: ' + result.total +
+    ' | will change: ' + result.changes.length +
+    ' | already correct: ' + result.same +
+    ' | blank/UNKNOWN (left as-is): ' + result.skipped;
+  Logger.log(summary);
+
+  var previewSheetName = 'ModelBackfill_Preview';
+  var previewSheet = ss.getSheetByName(previewSheetName);
+  if (previewSheet) ss.deleteSheet(previewSheet);
+  previewSheet = ss.insertSheet(previewSheetName);
+  previewSheet.getRange(1, 1, 1, 5).setValues([['Sheet1 Row', 'Chassis', 'Old Model', 'New Model', summary]]);
+  previewSheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+
+  if (result.changes.length > 0) {
+    var out = result.changes.map(function (c) { return [c.row, c.chassis, c.oldVal, c.newVal, '']; });
+    previewSheet.getRange(2, 1, out.length, 5).setValues(out);
+  }
+  previewSheet.autoResizeColumns(1, 4);
+
+  return summary; // visible in Executions log when run from the editor
+}
+
+function backfillModelNames() {
+  var result = _modelBackfillCompute_();
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  if (result.changes.length === 0) {
+    Logger.log('No changes to apply — Model column already normalized.');
+    return 'No changes to apply.';
+  }
+
+  // 1) Back up every value about to change, so this can be manually
+  //    reverted (Sheet1 row -> original Model text) if needed.
+  var backupSheetName = 'ModelBackfill_Backup';
+  var backupSheet = ss.getSheetByName(backupSheetName);
+  if (backupSheet) ss.deleteSheet(backupSheet);
+  backupSheet = ss.insertSheet(backupSheetName);
+  var stamp = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss');
+  backupSheet.getRange(1, 1, 1, 4).setValues([['Sheet1 Row', 'Chassis', 'Original Model (before backfill)', 'Backfilled at ' + stamp]]);
+  backupSheet.getRange(1, 1, 1, 4).setFontWeight('bold');
+  var backupRows = result.changes.map(function (c) { return [c.row, c.chassis, c.oldVal, '']; });
+  backupSheet.getRange(2, 1, backupRows.length, 4).setValues(backupRows);
+  backupSheet.autoResizeColumns(1, 3);
+
+  // 2) Write the new Model values back, one row at a time is too slow for
+  //    ~5k rows — batch into a single per-contiguous-block write where
+  //    possible, otherwise fall back to individual setValue calls grouped
+  //    by column (still one Range object, sparse rows use a full-column
+  //    write built in memory to keep this to ONE Sheets API call).
+  var sheet = result.sheet;
+  var modelCol = result.modelCol;
+  var numRows = result.total;
+  var fullColumn = sheet.getRange(2, modelCol + 1, numRows, 1).getValues();
+  for (var k = 0; k < result.changes.length; k++) {
+    var c = result.changes[k];
+    fullColumn[c.row - 2][0] = c.newVal;
+  }
+  sheet.getRange(2, modelCol + 1, numRows, 1).setValues(fullColumn);
+
+  var summary = 'Model backfill APPLIED — changed ' + result.changes.length + ' of ' + result.total +
+    ' rows. Original values saved in "' + backupSheetName + '" tab.';
+  Logger.log(summary);
+  return summary;
 }
