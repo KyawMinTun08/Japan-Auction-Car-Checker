@@ -704,9 +704,13 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
       <div class="card">
         <div class="card-header"><div class="card-title">🏆 Monthly Best Seller</div><span class="card-meta">လ ရွေးပြီး ranking ကြည့်</span></div>
         <div class="card-body">
-          <div style="margin-bottom:14px"><label class="field-label">Select Month · လ ရွေးပါ</label><select id="mbsMonth" onchange="renderMonthlyBestSellerContent();renderMissingModels()" style="width:100%"><option value="">Loading...</option></select></div>
+          <div style="margin-bottom:14px"><label class="field-label">Select Month · လ ရွေးပါ</label><select id="mbsMonth" onchange="renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown()" style="width:100%"><option value="">Loading...</option></select></div>
           <div id="mbsContent"></div>
         </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">📅 Weekly Breakdown</div><span class="card-meta">ဘယ်အပတ်မှာ ဘယ်ကား ထည့်လဲ</span></div>
+        <div class="card-body" id="weeklyBreakdownContent"><div class="empty"><div class="ei">⏳</div><p>Loading...</p></div></div>
       </div>
       <div class="card">
         <div class="card-header"><div class="card-title">⚠️ Missing Models</div><span class="card-meta">၃ လ ရှိ၊ ဒီလ မရှိ</span></div>
@@ -1917,7 +1921,7 @@ function renderMonthlyBestSeller(){
   if(!months.length){sel.innerHTML='<option value="">No data</option>';document.getElementById('mbsContent').innerHTML='<div class="empty"><div class="ei">📭</div><p>No data</p></div>';return;}
   const current=sel.value&&monthly[sel.value]?sel.value:months[0];
   sel.innerHTML=months.map(m=>{const total=Object.values(monthly[m]).reduce((s,v)=>s+v,0);return '<option value="'+esc(m)+'"'+(m===current?' selected':'')+'>'+esc(monthLabel(m))+' ('+total+' cars)</option>';}).join('');
-  renderMonthlyBestSellerContent();renderMissingModels();
+  renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown();
 }
 
 function renderMonthlyBestSellerContent(){
@@ -1960,6 +1964,55 @@ function renderMissingModels(){
     brandHtml+='<div style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);margin-bottom:10px;overflow:hidden"><div onclick="document.getElementById(\''+gid+'\').style.display=document.getElementById(\''+gid+'\').style.display===\'none\'?\'block\':\'none\'" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;cursor:pointer;background:'+grp.color+'0F;border-bottom:1px solid '+grp.color+'22"><div style="display:flex;align-items:center;gap:10px"><div style="width:10px;height:10px;border-radius:50%;background:'+grp.color+';flex-shrink:0"></div><div style="font-size:13px;font-weight:800;color:var(--ink-1)">'+esc(brand)+'</div><span style="background:'+grp.color+';color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;font-family:var(--font-mono)">'+grp.models.length+' models</span></div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:var(--ink-4);font-family:var(--font-mono)">'+total2+' total</span><span style="font-size:12px;color:var(--ink-4)">▼</span></div></div><div id="'+gid+'" style="display:block">'+modelRows+'</div></div>';
   });
   el.innerHTML=header+brandHtml;
+}
+
+/* ── Weekly Breakdown: which cars got listed in which week of the selected month ── */
+function weekOfMonthBucket(d){return Math.floor((d.getDate()-1)/7)+1;}
+function weekDateRangeLabel(monthKey,wk){
+  const[y,m]=monthKey.split('/').map(Number);
+  const startDay=(wk-1)*7+1;const lastDayOfMonth=new Date(y,m,0).getDate();
+  const endDay=Math.min(wk*7,lastDayOfMonth);
+  return startDay+'–'+endDay;
+}
+function getWeeklyDataForMonth(monthKey){
+  const[y,m]=monthKey.split('/').map(Number);
+  const weeks={};
+  allCars.forEach(c=>{
+    const d=parseDate(c.date);if(!d||d.getTime()===0)return;
+    if(d.getFullYear()!==y||(d.getMonth()+1)!==m)return;
+    const wk=weekOfMonthBucket(d);
+    if(!weeks[wk])weeks[wk]={cars:[],modelCounts:{}};
+    weeks[wk].cars.push(c);
+    const mk=c.model||'UNKNOWN';
+    weeks[wk].modelCounts[mk]=(weeks[wk].modelCounts[mk]||0)+1;
+  });
+  return weeks;
+}
+function toggleWeeklyGroup(id){const el=document.getElementById(id);if(el)el.style.display=el.style.display==='none'?'block':'none';}
+function renderWeeklyBreakdown(){
+  const sel=document.getElementById('mbsMonth');const el=document.getElementById('weeklyBreakdownContent');if(!sel||!el)return;
+  const month=sel.value;
+  if(!month){el.innerHTML='';return;}
+  const weeks=getWeeklyDataForMonth(month);
+  const wkNums=Object.keys(weeks).map(Number).sort((a,b)=>a-b);
+  if(!wkNums.length){el.innerHTML='<div class="empty"><div class="ei">📭</div><p>'+esc(monthLabel(month))+' အတွက် data မရှိပါ</p></div>';return;}
+  const html=wkNums.map(wk=>{
+    const data=weeks[wk];const gid='wkg_'+month.replace('/','_')+'_'+wk;
+    const total=data.cars.length;
+    const topModels=Object.entries(data.modelCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    const badgesHtml=topModels.map(([mdl,cnt])=>'<span style="background:var(--brand-soft);color:var(--brand);border:1px solid var(--line);border-radius:10px;padding:2px 9px;font-size:11px;font-weight:700;margin-right:5px;margin-bottom:4px;display:inline-block">'+esc(mdl)+' ×'+cnt+'</span>').join('');
+    const carsSorted=data.cars.slice().sort((a,b)=>parseDate(a.date)-parseDate(b.date));
+    const rowsHtml=carsSorted.map(c=>'<tr><td>'+esc(c.date)+'</td><td class="mono">'+esc(c.chassis)+'</td><td class="t-brand">'+esc(c.model)+'</td><td>'+esc(c.color)+'</td><td>'+(c.year>0?esc(c.year):'-')+'</td><td>'+esc(c.location)+'</td></tr>').join('');
+    return '<div style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);margin-bottom:10px;overflow:hidden">'
+      +'<div onclick="toggleWeeklyGroup(\''+gid+'\')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;cursor:pointer;background:var(--surface-2);border-bottom:1px solid var(--line-soft)">'
+      +'<div><div style="font-size:13px;font-weight:800;color:var(--ink-1)">Week '+wk+' <span style="font-weight:500;color:var(--ink-4);font-size:11px">('+weekDateRangeLabel(month,wk)+')</span></div>'
+      +'<div style="margin-top:6px">'+badgesHtml+'</div></div>'
+      +'<div style="display:flex;align-items:center;gap:8px;flex-shrink:0"><span style="background:var(--brand);color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;font-family:var(--font-mono)">'+total+' cars</span><span style="font-size:12px;color:var(--ink-4)">▼</span></div>'
+      +'</div>'
+      +'<div id="'+gid+'" style="display:none"><div class="table-wrap"><table><thead><tr><th>Date</th><th>Chassis</th><th>Model</th><th>Color</th><th>Year</th><th>Location</th></tr></thead><tbody>'+rowsHtml+'</tbody></table></div></div>'
+      +'</div>';
+  }).join('');
+  el.innerHTML=html;
 }
 
 function renderLocationActivity(){
