@@ -955,14 +955,19 @@ async def is_active_member(user_id: int) -> bool:
     if user_id in ADMIN_IDS:
         return True
     try:
+        # Same getMembers() timeout ceiling as get_member_record(): Apps
+        # Script's project-wide LockService lock (up to 30s wait) plus O(n)
+        # session-sheet scans means 10s here used to time out and silently
+        # report an active paying member as "not a member" — e.g. blocking
+        # /mypassword — with the exception swallowed and no log trail.
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=10)
+            resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=40)
         members = resp.json().get("members", [])
         for m in members:
             if str(m.get("userId","")) == str(user_id):
                 return m.get("status","") == "ACTIVE"
-    except:
-        pass
+    except Exception as exc:
+        logger.error(f"is_active_member getMembers failed user={user_id} type={type(exc).__name__} err={exc}")
     return False
 
 
@@ -1088,7 +1093,7 @@ async def check_promo10d_eligibility(str_uid: str) -> dict:
     """Returns {eligible, reason, active, carreq_count}"""
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=10)
+            resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=40)
         members = resp.json().get("members", [])
         for m in members:
             if str(m.get("userId","")) == str_uid:
@@ -1197,7 +1202,7 @@ async def get_member_package(user_id: int) -> str | None:
             resp = await client.post(
                 SHEET_WEBHOOK,
                 json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
-                timeout=10,
+                timeout=40,
             )
         resp.raise_for_status()
         members = resp.json().get("members", [])
@@ -2018,7 +2023,7 @@ async def enrich_member_save_result(
                 resp = await client.post(
                     SHEET_WEBHOOK,
                     json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
-                    timeout=10,
+                    timeout=40,
                     follow_redirects=True,
                 )
             payload = resp.json()
@@ -3145,7 +3150,7 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resp = await client.post(
                 SHEET_WEBHOOK,
                 json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
-                timeout=15,
+                timeout=40,
                 follow_redirects=True
             )
         data = resp.json()
@@ -3550,7 +3555,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 resp = await client.post(
                     SHEET_WEBHOOK,
                     json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
-                    timeout=15, follow_redirects=True)
+                    timeout=40, follow_redirects=True)
             data = resp.json()
             members = data.get("members", [])
         except Exception as e:
@@ -5360,7 +5365,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
                     SHEET_WEBHOOK, json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
-                    timeout=15, follow_redirects=True)
+                    timeout=40, follow_redirects=True)
             data_resp = resp.json()
             members = data_resp.get("members", [])
         except Exception as e:
@@ -6569,7 +6574,7 @@ async def members_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်"); return
     try:
         async with httpx.AsyncClient() as client:
-            resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=10, follow_redirects=True)
+            resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=40, follow_redirects=True)
             members = resp.json().get("members",[])
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}"); return
@@ -8136,7 +8141,7 @@ async def check_expired_members(context):
     global warned_3days
     try:
         async with httpx.AsyncClient() as client:
-            resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=10, follow_redirects=True)
+            resp    = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=40, follow_redirects=True)
             members = resp.json().get("members",[])
         now = datetime.now(); kicked = []; kick_failed = []; expiring = []
         for m in members:
@@ -8295,7 +8300,7 @@ async def is_valid_member(user_id: int) -> bool:
             resp = await client.post(
                 SHEET_WEBHOOK,
                 json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
-                timeout=15,
+                timeout=40,
                 follow_redirects=True
             )
         members = resp.json().get("members", [])
@@ -8352,7 +8357,7 @@ async def check_unknown_channel_members(context):
             resp = await client.post(
                 SHEET_WEBHOOK,
                 json={"action": "getMembers", "serverKey": SHEET_SERVER_KEY},
-                timeout=15,
+                timeout=40,
                 follow_redirects=True
             )
         members = resp.json().get("members", [])
