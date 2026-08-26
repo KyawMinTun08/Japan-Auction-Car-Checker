@@ -762,8 +762,12 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.26-mobile-web-fetch-restore-v13';
-const REQUEST_TIMEOUT_MS = 12000;
+const APP_VERSION     = '2026.08.26-login-timeout-headroom-v14';
+// Login (verifyLogin) and session-restore share the Apps Script doPost()
+// project-wide lock with every other action (up to ~30s wait under load) —
+// the same contention already root-caused for /renew and /mypassword on the
+// bot side. 12s wasn't enough headroom over that; 40s matches the bot-side fix.
+const REQUEST_TIMEOUT_MS = 40000;
 // Google Apps Script may need extra time for a large Sheet1 response on mobile networks.
 const DATA_REQUEST_TIMEOUT_MS = 90000;
 const STARTUP_WATCHDOG_TIMEOUT_MS = 120000;
