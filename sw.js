@@ -1,7 +1,7 @@
 // JACC PWA Service Worker
-// Version 2026.08.21-startup-renderer-isolation-v12
+// Version 2026.08.26-mobile-web-fetch-restore-v13
 const CACHE_PREFIX = 'jacc-';
-const CACHE_NAME = 'jacc-2026.08.21-startup-renderer-isolation-v12';
+const CACHE_NAME = 'jacc-2026.08.26-mobile-web-fetch-restore-v13';
 const BASE_PATH = '/Japan-Auction-Car-Checker';
 const APP_SHELL = [
   BASE_PATH + '/',
