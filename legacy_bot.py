@@ -4174,16 +4174,21 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         warn = (f"\n⚠️ မသေချာ: *{', '.join(dict.fromkeys(missing))}*\n" if missing else "") + match_warning + model_warning + year_warning
         field_labels = {"Chassis":"🔑 Chassis","Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
-        fill_btns = [InlineKeyboardButton(f"✏️ {field_labels.get(f,f)} ဖြည့်",
-                     callback_data=f"fill_{user_id}_{f.lower()}") for f in missing]
+        # Edit buttons for ALL fields are always shown (not just ones the bot
+        # flags as missing/needs-review) — OCR can misread a field it's
+        # otherwise "confident" about (e.g. Model/Year), and the admin must
+        # be able to fix just that one field instead of hitting Cancel and
+        # re-entering the whole submission.
+        fill_btns = [InlineKeyboardButton(
+                        f"✏️ {field_labels.get(f,f)} {'ဖြည့်' if f in missing else 'ပြင်'}",
+                        callback_data=f"fill_{user_id}_{f.lower()}")
+                     for f in ("Chassis", "Model", "Color", "Year")]
         loc_row = [
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_MAESOT else '📍'} MaeSot",    callback_data=f"setloc_{user_id}_MaeSot"),
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_KLANG9 else '📍'} Klang9",    callback_data=f"setloc_{user_id}_Klang9"),
             InlineKeyboardButton(f"{'✅' if car_loc == LOC_BORDER44 else '📍'} Border44", callback_data=f"setloc_{user_id}_Border44"),
         ]
-        rows = []
-        if fill_btns:
-            rows.append(fill_btns)
+        rows = [fill_btns[:2], fill_btns[2:]]
         rows.append(loc_row)
         rows.append([
             InlineKeyboardButton("✅ Save",    callback_data=f"cs_{user_id}"),
@@ -4516,10 +4521,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not pdata.get("color") or pdata["color"] == "-":       m2.append("Color")
             if not pdata.get("year"):                                   m2.append("Year")
             field_labels = {"Chassis":"🔑 Chassis","Model":"🚗 Model","Color":"🎨 Color","Year":"📅 Year"}
-            fill_btns = [InlineKeyboardButton(f"✏️ {field_labels.get(f,f)} ဖြည့်",
-                         callback_data=f"fill_{photo_uid}_{f.lower()}") for f in m2]
-            rows = []
-            if fill_btns: rows.append(fill_btns)
+            fill_btns = [InlineKeyboardButton(
+                            f"✏️ {field_labels.get(f,f)} {'ဖြည့်' if f in m2 else 'ပြင်'}",
+                            callback_data=f"fill_{photo_uid}_{f.lower()}")
+                         for f in ("Chassis", "Model", "Color", "Year")]
+            rows = [fill_btns[:2], fill_btns[2:]]
             rows.append([
                 InlineKeyboardButton("✅ Save",   callback_data=f"cs_{photo_uid}"),
                 InlineKeyboardButton("❌ Cancel", callback_data=f"cc_{photo_uid}"),
@@ -4601,9 +4607,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 price            = int(text.replace(',','').replace(' ',''))
                 data['price']    = price
                 pending_photo[user_id] = data
-                review_row = ([InlineKeyboardButton("✏️ Model ဖြည့်", callback_data=f"fill_{user_id}_model")]
-                              if data.get("model_needs_review") else [])
-                kb_rows = [review_row] if review_row else []
+                field_labels = {"chassis":"🔑 Chassis","model":"🚗 Model","color":"🎨 Color","year":"📅 Year"}
+                fill_btns = [InlineKeyboardButton(
+                                f"✏️ {field_labels[f]} {'ဖြည့်' if data.get(f+'_needs_review') else 'ပြင်'}",
+                                callback_data=f"fill_{user_id}_{f}")
+                             for f in ("chassis", "model", "color", "year")]
+                kb_rows = [fill_btns[:2], fill_btns[2:]]
                 kb_rows.append([
                     InlineKeyboardButton("✅ မှန်တယ် Save",    callback_data=f"cs_{user_id}"),
                     InlineKeyboardButton("❌ မှားတယ် Cancel", callback_data=f"cc_{user_id}"),
