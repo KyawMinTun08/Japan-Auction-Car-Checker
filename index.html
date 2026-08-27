@@ -704,7 +704,7 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
       <div class="card">
         <div class="card-header"><div class="card-title">🏆 Monthly Best Seller</div><span class="card-meta">လ ရွေးပြီး ranking ကြည့်</span></div>
         <div class="card-body">
-          <div style="margin-bottom:14px"><label class="field-label">Select Month · လ ရွေးပါ</label><select id="mbsMonth" onchange="renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown()" style="width:100%"><option value="">Loading...</option></select></div>
+          <div style="margin-bottom:14px"><label class="field-label">Select Month · လ ရွေးပါ</label><select id="mbsMonth" onchange="mbsMonthUserPicked=true;renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown()" style="width:100%"><option value="">Loading...</option></select></div>
           <div id="mbsContent"></div>
         </div>
       </div>
@@ -762,7 +762,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.27-missing-models-sync-state-v15';
+const APP_VERSION     = '2026.08.27-mbs-month-autodefault-v16';
 // Login (verifyLogin) and session-restore share the Apps Script doPost()
 // project-wide lock with every other action (up to ~30s wait under load) —
 // the same contention already root-caused for /renew and /mypassword on the
@@ -817,6 +817,13 @@ let allCars=[],charts={};
 // against older months (Missing Models) must not treat "background pages
 // haven't arrived yet" as "no historical data exists".
 let allCarsFullyLoaded=false;
+// Sheet1 rows load oldest-first, so the very first data page can make the
+// "Select Month" dropdown auto-pick an old month (whatever's in that first
+// page) before newer months have streamed in. Once picked, that value stays
+// "valid" as more months arrive, so the dropdown never catches up to the
+// latest month on its own — this flag distinguishes an actual user pick
+// (preserve it) from the auto-default (always re-point at the newest month).
+let mbsMonthUserPicked=false;
 const SAVED_SEARCHES_KEY='jacc_saved_searches_v1';
 let currentCarResult=null;
 let pendingSharedChassis='';
@@ -1938,7 +1945,7 @@ function renderMonthlyBestSeller(){
   const sel=document.getElementById('mbsMonth');if(!sel)return;
   const monthly=getMonthlyData();const months=Object.keys(monthly).sort().reverse();
   if(!months.length){sel.innerHTML='<option value="">No data</option>';document.getElementById('mbsContent').innerHTML='<div class="empty"><div class="ei">📭</div><p>No data</p></div>';return;}
-  const current=sel.value&&monthly[sel.value]?sel.value:months[0];
+  const current=(mbsMonthUserPicked&&sel.value&&monthly[sel.value])?sel.value:months[0];
   sel.innerHTML=months.map(m=>{const total=Object.values(monthly[m]).reduce((s,v)=>s+v,0);return '<option value="'+esc(m)+'"'+(m===current?' selected':'')+'>'+esc(monthLabel(m))+' ('+total+' cars)</option>';}).join('');
   renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown();
 }
