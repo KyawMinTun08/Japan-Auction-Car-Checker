@@ -1604,7 +1604,12 @@ async def lookup_sheet_car_by_candidates(chassis_input: str):
         payload = json.loads(raw[start:end])
         return find_sheet_car_by_candidates_in_rows(payload.get("table", {}).get("rows", []), chassis_input)
     except Exception as e:
-        logger.error(f"sheet candidate car lookup: {e}")
+        # Same diagnostic as sheet loc lookup: a JSON-parse failure here
+        # usually means Google returned something other than the gviz
+        # payload (e.g. a sign-in/permission page), not a code bug — log a
+        # slice of the actual response instead of guessing blind.
+        raw_prefix = locals().get('raw', '')[:200]
+        logger.error(f"sheet candidate car lookup: {e} raw_prefix={raw_prefix!r}")
         return None, "none"
 
 def normalize_model_label(value: str) -> str:
@@ -1761,9 +1766,9 @@ async def save_price(chassis, model, color, year, price, user_name, image_url=""
     if SHEET_WEBHOOK:
         try:
             async with httpx.AsyncClient() as client:
-                await client.post(SHEET_WEBHOOK, json=entry, timeout=10, follow_redirects=True)
+                await client.post(SHEET_WEBHOOK, json=entry, timeout=40, follow_redirects=True)
         except Exception as e:
-            logger.error(f"save_price: {e}")
+            logger.error(f"save_price: {type(e).__name__} {e}")
     return entry
 
 async def post_to_channel(context, chassis, model, color, year, price, image_url="", location=LOC_MAESOT):
@@ -4103,7 +4108,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 sheet_loc = str(loc_val)
                             break
             except Exception as e:
-                logger.error(f"sheet loc lookup: {e}")
+                # A malformed-JSON failure here almost always means the raw
+                # response wasn't the expected gviz payload at all (e.g. a
+                # Google sign-in/permission HTML page because the Sheet's
+                # public-link sharing changed) — log a slice of the actual
+                # response so that's diagnosable without guessing.
+                raw_prefix = locals().get('raw', '')[:200]
+                logger.error(f"sheet loc lookup: {e} raw_prefix={raw_prefix!r}")
 
         if sheet_loc:
             car_loc = loc_display(sheet_loc)
@@ -8482,7 +8493,7 @@ async def remind_unused_premium_members(context):
             txt += "\n".join(f"• @{m.get('username','?')} — `{m.get('userId','?')}`" for m in failed[:15])
             await notify_admins(context, txt)
     except Exception as e:
-        logger.error(f"remind_unused_premium_members: {e}")
+        logger.error(f"remind_unused_premium_members: {type(e).__name__} {e}")
 
 # ── Main ──────────────────────────────────────────────
 async def main():
