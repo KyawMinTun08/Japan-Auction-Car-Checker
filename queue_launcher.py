@@ -8,6 +8,14 @@ Extends ``completion_launcher`` and safely adds:
 
 The large production implementation remains in ``legacy_bot.py``.  This file
 only patches runtime entry points before ``legacy_bot.main`` registers them.
+
+NOTE: the Procfile now starts ``phase1_production_launcher.py``, which
+imports this file as a module (not as ``__main__``) and layers a few more
+patches on top (phase1_healthcheck, membership_approval_patch,
+device_reset_patch). This file's own ``mypassword_cmd``/``CommandHandler``
+patches below are not the final word on what actually runs — see
+PATCH_LOAD_ORDER.md at the repo root for the full chain and which module's
+version of each patched name wins.
 """
 
 from __future__ import annotations
@@ -21,9 +29,12 @@ import completion_launcher as _completion
 from telegram.ext import ExtBot
 
 
-# Railway currently starts this file directly as ``__main__``.  Expose the
-# running module under its import name so phase1_healthcheck patches this exact
-# runtime instead of loading a second copy of queue_launcher.
+# Historically Railway started this file directly as ``__main__`` (it now
+# starts phase1_production_launcher.py, which imports this module instead —
+# see the note above and PATCH_LOAD_ORDER.md). Kept for the case this file
+# is ever run standalone again: expose the running module under its import
+# name so phase1_healthcheck patches this exact runtime instead of loading a
+# second copy of queue_launcher.
 sys.modules.setdefault("queue_launcher", sys.modules[__name__])
 
 _legacy = _completion._legacy
