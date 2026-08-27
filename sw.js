@@ -1,7 +1,7 @@
 // JACC PWA Service Worker
-// Version 2026.08.27-mbs-month-autodefault-v16
+// Version 2026.08.27-total-cars-true-count-v17
 const CACHE_PREFIX = 'jacc-';
-const CACHE_NAME = 'jacc-2026.08.27-mbs-month-autodefault-v16';
+const CACHE_NAME = 'jacc-2026.08.27-total-cars-true-count-v17';
 const BASE_PATH = '/Japan-Auction-Car-Checker';
 const APP_SHELL = [
   BASE_PATH + '/',

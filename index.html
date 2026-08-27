@@ -762,7 +762,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.27-mbs-month-autodefault-v16';
+const APP_VERSION     = '2026.08.27-total-cars-true-count-v17';
 // Login (verifyLogin) and session-restore share the Apps Script doPost()
 // project-wide lock with every other action (up to ~30s wait under load) —
 // the same contention already root-caused for /renew and /mypassword on the
@@ -824,6 +824,12 @@ let allCarsFullyLoaded=false;
 // latest month on its own — this flag distinguishes an actual user pick
 // (preserve it) from the auto-default (always re-point at the newest month).
 let mbsMonthUserPicked=false;
+// renderCarsData() drops rows with no classified model (Model=UNKNOWN in
+// Sheet1) from allCars, since most breakdowns need a real model to group by.
+// That undercounts "Total Cars" against the actual Sheet1 row count — track
+// the backend's real row total (page.total from getData) separately so the
+// headline stat reflects every row, classified or not.
+let sheetTotalRowCount=0;
 const SAVED_SEARCHES_KEY='jacc_saved_searches_v1';
 let currentCarResult=null;
 let pendingSharedChassis='';
@@ -1012,7 +1018,7 @@ function renderCarsData(cars){
     const wrapped=new Error('render_cars_map_failed');wrapped.code='RENDER_CARS_MAP_FAILED';throw wrapped;
   }
   const liveCountEl=document.getElementById('liveCount');
-  if(liveCountEl)liveCountEl.textContent=allCars.length;
+  if(liveCountEl)liveCountEl.textContent=sheetTotalRowCount||allCars.length;
   const failed=[];
   [['populateFilters',populateFilters],['dashboard',renderDashboard],['explorer',renderExplorer],['price',renderPrice],['chassis',renderChassisTbl],['trends',renderTrends],['savedSearches',renderSavedSearches]].forEach(([name,renderer])=>{
     try{renderer();}catch(error){failed.push(name);console.error('[JACC] renderer failed',name,error);}
@@ -1400,6 +1406,7 @@ async function init(){
       throw new Error(result.msg||result.message||'Data fetch failed');
     }
 
+    if(result.page&&Number.isFinite(Number(result.page.total)))sheetTotalRowCount=Number(result.page.total);
     markStartupStage('GETDATA_MAP_START','');
     allCars=mapCarRows(result.cars);
     markStartupStage('GETDATA_MAP_OK','');
@@ -1468,7 +1475,7 @@ async function toggleSavedSearchAlert(id){const item=readSavedSearches().find(en
 function removeSavedSearch(id){const item=readSavedSearches().find(entry=>entry.id===id);if(item&&item.alertId)toggleSavedSearchAlert(id).catch(()=>{});writeSavedSearches(readSavedSearches().filter(item=>item.id!==id));renderSavedSearches();showToast('Saved search ကို ဖျက်ပြီးပါပြီ','ok');}
 
 function renderDashboard(){
-  document.getElementById('k-total').textContent=allCars.length.toLocaleString();
+  document.getElementById('k-total').textContent=(sheetTotalRowCount||allCars.length).toLocaleString();
   const priced=allCars.filter(c=>c.price>0);
   const avg=priced.length?Math.round(priced.reduce((s,c)=>s+c.price,0)/priced.length):0;
   document.getElementById('k-avg').textContent=avg?'฿'+avg.toLocaleString():'N/A';
