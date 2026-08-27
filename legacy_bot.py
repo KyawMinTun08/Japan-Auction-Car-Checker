@@ -6676,10 +6676,10 @@ async def get_brokers() -> list:
     if not SHEET_WEBHOOK: return []
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json={"action":"getBrokers"}, timeout=10)
+            resp = await client.post(SHEET_WEBHOOK, json={"action":"getBrokers"}, timeout=40)
         return resp.json().get("brokers", [])
     except Exception as e:
-        logger.error(f"getBrokers: {e}")
+        logger.error(f"getBrokers: {type(e).__name__} {e}")
         return []
 
 def get_broker_session_types(broker_tg_id: str) -> set:
