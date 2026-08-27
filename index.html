@@ -762,7 +762,7 @@ const SESSION_KEY = JACCDeviceBinding.SESSION_KEY;
 const SESSION_VER = JACCDeviceBinding.SESSION_VERSION;
 const MAX_LOGIN_TRIES = 5;
 const LOCKOUT_MINUTES = 15;
-const APP_VERSION     = '2026.08.26-login-timeout-headroom-v14';
+const APP_VERSION     = '2026.08.27-missing-models-sync-state-v15';
 // Login (verifyLogin) and session-restore share the Apps Script doPost()
 // project-wide lock with every other action (up to ~30s wait under load) —
 // the same contention already root-caused for /renew and /mypassword on the
@@ -812,6 +812,11 @@ let waitingServiceWorker = null;
 if(typeof Chart!=='undefined'){Chart.defaults.color='#78716C';Chart.defaults.borderColor='rgba(28,25,23,0.06)';Chart.defaults.font.family="'Outfit',-apple-system,sans-serif";}
 
 let allCars=[],charts={};
+// Sheet1 loads in STARTUP_DATA_PAGE_SIZE pages in the background after login;
+// only the first page is in allCars until this flips true. Views that compare
+// against older months (Missing Models) must not treat "background pages
+// haven't arrived yet" as "no historical data exists".
+let allCarsFullyLoaded=false;
 const SAVED_SEARCHES_KEY='jacc_saved_searches_v1';
 let currentCarResult=null;
 let pendingSharedChassis='';
@@ -1405,7 +1410,11 @@ async function init(){
     document.getElementById('loadingOverlay').style.display='none';
     if(cached)showToast('Live data update ပြီးပါပြီ','ok');
     if(result.page&&result.page.hasMore){
-      loadRemainingCarPages(result.page).catch(e=>{console.warn('[JACC] background data sync failed',e);showToast('ကား data အချို့သာ ရသေးပါတယ်','warn');});
+      loadRemainingCarPages(result.page)
+        .then(()=>{allCarsFullyLoaded=true;renderTrends();})
+        .catch(e=>{allCarsFullyLoaded=true;renderTrends();console.warn('[JACC] background data sync failed',e);showToast('ကား data အချို့သာ ရသေးပါတယ်','warn');});
+    }else{
+      allCarsFullyLoaded=true;
     }
   }catch(e){
     try{console.error('[JACC_STARTUP] init() failed',e&&e.name,e&&e.message,e);}catch(ignore){}
@@ -1959,7 +1968,12 @@ function renderMissingModels(){
   const monthly=getMonthlyData();const months=Object.keys(monthly).sort().reverse();const current=sel.value;const idx=months.indexOf(current);
   if(idx===-1){el.innerHTML='';return;}
   const pastMonths=months.slice(idx+1,idx+4);
-  if(!pastMonths.length){el.innerHTML='<div class="empty"><div class="ei">📭</div><p>ပြီးခဲ့တဲ့လ data မရှိ</p></div>';return;}
+  if(!pastMonths.length){
+    el.innerHTML=allCarsFullyLoaded
+      ?'<div class="empty"><div class="ei">📭</div><p>ပြီးခဲ့တဲ့လ data မရှိ</p></div>'
+      :'<div class="empty"><div class="ei">⏳</div><p>Data အားလုံး sync လုပ်နေသေးသည် — ခဏစောင့်ပါ</p></div>';
+    return;
+  }
   const currentModels=new Set(Object.keys(monthly[current]||{}));
   const missing={};
   pastMonths.forEach(m=>{Object.entries(monthly[m]||{}).forEach(([model,count])=>{if(!currentModels.has(model)){if(!missing[model])missing[model]={months:[],total:0,years:{}};missing[model].months.push({m,count});missing[model].total+=count;allCars.filter(c=>c.model===model&&c.year>0).forEach(c=>{missing[model].years[c.year]=(missing[model].years[c.year]||0)+1;});}});});
