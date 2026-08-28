@@ -2431,13 +2431,26 @@ async def get_finance_report(month: str) -> dict:
         return {"status": "error", "message": "request_failed"}
 
 
-async def create_invite_link(context, days: int) -> str:
+async def create_invite_link(context, days: int, user_id: int | str | None = None) -> str:
     """Create a single-use channel link that stays valid long enough to use.
 
     The old code expired links after 30 minutes (1800 seconds), which caused
     genuine members to see "Expired Link" when they opened the approval DM
     later. Keep the link single-use, but allow up to 7 days.
+
+    If user_id is given, unban them from the channel first. Telegram treats
+    a kicked member as banned until explicitly unbanned -- a brand new
+    invite link alone does not let a previously-kicked member back in, even
+    though our own kick_with_retry() already does ban+unban at kick time
+    (Telegram's own "Removed Users" list can outlive that). A fresh
+    reactivation/renewal approval otherwise hands out a link that silently
+    fails for exactly the member it was meant for.
     """
+    if user_id is not None:
+        try:
+            await context.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id), only_if_banned=True)
+        except Exception as e:
+            logger.warning(f"create_invite_link: unban {user_id} before invite failed: {e}")
     try:
         import time
 
@@ -2480,7 +2493,7 @@ async def channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # A user who has never joined may not be readable as a channel member.
         logger.info(f"channel status check {user_id}: {e}")
 
-    invite_url = await create_invite_link(context, 7)
+    invite_url = await create_invite_link(context, 7, user_id)
     if not invite_url:
         await update.message.reply_text(
             "❌ Channel link အသစ်ထုတ်မရသေးပါ။ Admin ကို ဆက်သွယ်ပေးပါ။"
@@ -5710,7 +5723,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await clear_payment_draft(member_id, transaction_no)
         pending_payment.pop(member_id, None)
 
-        invite_url = await create_invite_link(context, months * 30)
+        invite_url = await create_invite_link(context, months * 30, member_id)
         await send_approval_dm(
             context,
             member_id,
@@ -6599,7 +6612,7 @@ async def approve_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     canonical_password = str(atomic_result.get("password") or member.get("password") or password or "")
     canonical_expire = str(member.get("expireDate") or "")
     canonical_package = str(atomic_result.get("package") or member.get("package") or package).upper()
-    invite_url = await create_invite_link(context, days)
+    invite_url = await create_invite_link(context, days, member_id)
     if member_id:
         await send_approval_dm(
             context, member_id, months, canonical_password, invite_url,
@@ -7784,7 +7797,7 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Code={code}; member was extended {days} days but no Finance "
             f"row was recorded — please add one manually.",
         )
-    invite_url = await create_invite_link(context, days)
+    invite_url = await create_invite_link(context, days, user_id)
     await send_approval_dm(
         context, user_id, max(1, days // 30), canonical_password, invite_url,
         package=str(saved.get("package") or pkg), expire_date=canonical_expire)
