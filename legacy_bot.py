@@ -962,7 +962,17 @@ async def is_active_member(user_id: int) -> bool:
         # /mypassword — with the exception swallowed and no log trail.
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(SHEET_WEBHOOK, json={"action":"getMembers","serverKey":SHEET_SERVER_KEY}, timeout=40)
-        members = resp.json().get("members", [])
+        payload = resp.json()
+        # Apps Script answers HTTP 200 even for its own backend errors (e.g.
+        # server_key_not_configured), so an error body's missing "members"
+        # key would otherwise silently look identical to "no members at
+        # all" -- reporting a real active member as inactive. Log it
+        # distinctly so it's diagnosable instead of looking like a genuine
+        # non-member.
+        if str(payload.get("status") or "").strip().lower() == "error":
+            logger.error(f"is_active_member backend error user={user_id}: {payload.get('message') or payload}")
+            return False
+        members = payload.get("members", [])
         for m in members:
             if str(m.get("userId","")) == str(user_id):
                 return m.get("status","") == "ACTIVE"
@@ -998,7 +1008,21 @@ async def get_member_record(user_id: int | str) -> dict | None:
                 timeout=40,
             )
         resp.raise_for_status()
-        members = resp.json().get("members", [])
+        payload = resp.json()
+        # Apps Script always answers HTTP 200, even for its own backend errors
+        # (e.g. server_key_not_configured) -- resp.raise_for_status() never
+        # catches those. Without this check, payload.get("members", []) on an
+        # error body silently returns [], indistinguishable from "this
+        # Telegram account genuinely has no Members row" -- which is exactly
+        # what let a real KICKED-but-existing member get told to use
+        # /newmember instead of /renew during a serverKey misconfiguration.
+        if str(payload.get("status") or "").strip().lower() == "error":
+            logger.warning(
+                "get_member_record backend error for %s: %s",
+                user_id, payload.get("message") or payload,
+            )
+            return {"__lookup_error__": "member_lookup_backend_error"}
+        members = payload.get("members", [])
         target_id = str(user_id).strip()
         for member in members:
             member_id = (
@@ -1205,7 +1229,11 @@ async def get_member_package(user_id: int) -> str | None:
                 timeout=40,
             )
         resp.raise_for_status()
-        members = resp.json().get("members", [])
+        payload = resp.json()
+        if str(payload.get("status") or "").strip().lower() == "error":
+            logger.error(f"get_member_package backend error user={user_id}: {payload.get('message') or payload}")
+            return None
+        members = payload.get("members", [])
 
         for member in members:
             member_id = (
@@ -5469,6 +5497,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_payment[member_id] = pay_data
         flow = await validate_payment_flow(member_id, payment_action)
         if not flow.get("ok"):
+            if flow.get("reason") == "member_lookup_unavailable":
+                await query.message.reply_text(
+                    "⏳ Approve မလုပ်နိုင်သေးပါ — Member record ကို Apps Script ကနေ ယာယီ ဆွဲမရသေးပါ။\n"
+                    "ဒါက flow မကိုက်ညီတာ မဟုတ်ပါ — server တစ်ခဏ slow ဖြစ်နေတာသာ ဖြစ်နိုင်ပါတယ်။\n"
+                    "ခဏနေရင် Confirm ကို ထပ်နှိပ်ကြည့်ပါ။",
+                    parse_mode="Markdown")
+                return
             await query.message.reply_text(
                 "❌ Approve မလုပ်နိုင်ပါ — Member အသစ်/Renew flow မကိုက်ညီပါ။\n"
                 "Payment ကို Member အသစ်အဖြစ်ပို့ထားသော်လည်း record ရှိပြီးသား သို့မဟုတ် Renew အဖြစ်ပို့ထားသော်လည်း record မရှိသေးနိုင်ပါတယ်။\n\n"
@@ -5553,6 +5588,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_payment[member_id] = pay_data
         flow = await validate_payment_flow(member_id, payment_action)
         if not flow.get("ok"):
+            if flow.get("reason") == "member_lookup_unavailable":
+                await query.message.reply_text(
+                    "⏳ Final Approve မလုပ်နိုင်သေးပါ — Member record ကို Apps Script ကနေ ယာယီ ဆွဲမရသေးပါ။\n"
+                    "ခဏနေရင် ထပ်နှိပ်ကြည့်ပါ။",
+                    parse_mode="Markdown")
+                return
             await query.message.reply_text(
                 "❌ Final Approve မလုပ်နိုင်ပါ — Member record နှင့် payment flow မကိုက်ညီပါ။\n"
                 "Payment မှားပို့မိပါက repayment ကြာနိုင်သောကြောင့် မသိမ်းဆည်းသေးပါ။",
