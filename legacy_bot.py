@@ -1084,7 +1084,7 @@ async def get_cancel_count(str_uid: str) -> int:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getCancelCount", "userId": str_uid,
-            }, timeout=10)
+            }, timeout=40)
         return resp.json().get("cancelCount", 0)
     except:
         return 0
@@ -1131,7 +1131,7 @@ async def activate_promo10d(context, user_id: int, username: str) -> bool:
                 "days":     10,
                 "password": password,
                 "package":  "PROMO10D",
-            }, timeout=10, follow_redirects=True)
+            }, timeout=40, follow_redirects=True)
         return resp.json().get("status") == "ok"
     except Exception as e:
         logger.error(f"activate_promo10d: {e}")
@@ -1566,7 +1566,7 @@ async def persist_staged_auction_rows(staged_rows):
                     "date", "chassis", "model", "color", "year", "price",
                     "location", "added_by", "image_url")}
                 try:
-                    resp = await client.post(SHEET_WEBHOOK, json=payload, timeout=12)
+                    resp = await client.post(SHEET_WEBHOOK, json=payload, timeout=40)
                     resp.raise_for_status()
                     result = resp.json()
                     if result.get("status") != "ok":
@@ -1948,7 +1948,7 @@ async def get_payment_qr(method: str) -> str:
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getPaymentQR",
                 "method": method,
-            }, timeout=10)
+            }, timeout=40)
         data = resp.json()
         if data.get("ok") and data.get("fileId"):
             file_id = data["fileId"]
@@ -1970,7 +1970,7 @@ async def set_payment_qr(method: str, file_id: str, admin_name: str) -> bool:
                 "method":    method,
                 "fileId":    file_id,
                 "adminName": admin_name,
-            }, timeout=10)
+            }, timeout=40)
         result = resp.json()
         if result.get("ok"):
             payment_qr_cache.pop(method, None)  # cache invalidate
@@ -1993,7 +1993,7 @@ async def save_member_to_sheet(user_id: str, username: str, days: int,
                 "days":     days,
                 "password": password,
                 "package":  package or "CH",
-            }, timeout=10, follow_redirects=True)
+            }, timeout=40, follow_redirects=True)
         payload = resp.json()
         if not isinstance(payload, dict):
             return {"status": "error", "message": "invalid_sheet_response"}
@@ -2064,7 +2064,7 @@ async def enrich_member_save_result(
                 resp = await client.post(
                     SHEET_WEBHOOK,
                     json={"action": "getPassword", "userId": str(user_id), "serverKey": SHEET_SERVER_KEY},
-                    timeout=10,
+                    timeout=40,
                     follow_redirects=True,
                 )
             password_result = resp.json()
@@ -2104,7 +2104,7 @@ async def log_finance_entry(payment: dict) -> bool:
                         "payment": payload,
                         "serverKey": SHEET_SERVER_KEY,
                     },
-                    timeout=15,
+                    timeout=40,
                 )
             result = response.json()
             if response.status_code < 400 and (
@@ -2271,7 +2271,7 @@ async def save_payment_draft(payment: dict) -> dict:
             response = await client.post(
                 SHEET_WEBHOOK,
                 json={"action": "savePaymentDraft", "draft": draft, "serverKey": SHEET_SERVER_KEY},
-                timeout=15,
+                timeout=40,
             )
         result = response.json()
         return result if isinstance(result, dict) else {"status": "error", "message": "invalid_draft_response"}
@@ -2293,7 +2293,7 @@ async def get_payment_draft(user_id: int | str) -> dict:
                     "draft": {"userId": str(user_id)},
                     "serverKey": SHEET_SERVER_KEY,
                 },
-                timeout=15,
+                timeout=40,
             )
         result = response.json()
         if isinstance(result, dict) and result.get("status") == "ok" and result.get("found"):
@@ -2318,7 +2318,7 @@ async def clear_payment_draft(user_id: int | str, transaction_no: str = "") -> b
                     "draft": {"userId": str(user_id), "transactionNo": str(transaction_no or "")},
                     "serverKey": SHEET_SERVER_KEY,
                 },
-                timeout=15,
+                timeout=40,
             )
         result = response.json()
         return isinstance(result, dict) and result.get("status") == "ok"
@@ -2756,12 +2756,12 @@ async def add_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await client.post(SHEET_WEBHOOK, json={
                             "action": "updateCar", "chassis": chassis, "serverKey": SHEET_SERVER_KEY,
                             "field": "color", "value": override_color
-                        }, timeout=10, follow_redirects=True)
+                        }, timeout=40, follow_redirects=True)
                     if override_model:
                         await client.post(SHEET_WEBHOOK, json={
                             "action": "updateCar", "chassis": chassis, "serverKey": SHEET_SERVER_KEY,
                             "field": "model", "value": override_model
-                        }, timeout=10, follow_redirects=True)
+                        }, timeout=40, follow_redirects=True)
             except Exception as e:
                 logger.error(f"updateCar in price cmd: {e}")
     else:
@@ -2962,7 +2962,7 @@ async def mypassword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getPassword", "serverKey": SHEET_SERVER_KEY,
                 "userId": str(user_id),
-            }, timeout=10, follow_redirects=True)
+            }, timeout=40, follow_redirects=True)
         data = resp.json()
         if data.get("status") == "ok" and data.get("password"):
             await update.message.reply_text(
@@ -2998,7 +2998,7 @@ async def resetpass_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "action":   "resetPassword", "serverKey": SHEET_SERVER_KEY,
                 "username": target,
                 "password": new_pw,
-            }, timeout=10, follow_redirects=True)
+            }, timeout=40, follow_redirects=True)
         data = resp.json()
         if data.get("status") == "ok":
             member_id = data.get("userId")
@@ -3053,7 +3053,7 @@ async def updateid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "action": "verifyOldId",
                 "username": target_username,
                 "oldId": str(old_id),
-            }, timeout=10, follow_redirects=True)
+            }, timeout=40, follow_redirects=True)
         data = resp.json()
         if data.get("status") != "ok":
             await update.message.reply_text(
@@ -4319,7 +4319,7 @@ async def log_chat_message(req_id: str, sender_id: str, sender_label: str, msg_t
                 "msgType":     msg_type,
                 "content":     content[:500],
                 "timestamp":   datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            }, timeout=8)
+            }, timeout=40)
     except Exception as e:
         logger.warning(f"log_chat_message: {e}")
 
@@ -4337,7 +4337,7 @@ async def chatlog_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getChatLog",
                 "reqId":  req_id,
-            }, timeout=10)
+            }, timeout=40)
         logs = resp.json().get("logs", [])
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
@@ -4607,7 +4607,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "chassis": car['chassis'],
                         "field": field,
                         "value": str(new_val),
-                    }, timeout=10, follow_redirects=True)
+                    }, timeout=40, follow_redirects=True)
             except Exception as e:
                 logger.error(f"updateCar webhook: {e}")
 
@@ -4754,7 +4754,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "action": "updateRequest",
                     "reqId":  req_id,
                     "status": "CLOSED",
-                }, timeout=10)
+                }, timeout=40)
         except Exception as e:
             logger.error(f"closechat updateRequest: {e}")
 
@@ -4845,7 +4845,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "telegramId": broker_tg_id,
                         "status":    "TEMP_BAN",
                         "banUntil":  ban_until,
-                    }, timeout=10)
+                    }, timeout=40)
             except Exception as e:
                 logger.error(f"report temp ban: {e}")
 
@@ -5744,7 +5744,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "username": target_username,
                     "newId":    str(new_id),
                     "password": new_pw,
-                }, timeout=10, follow_redirects=True)
+                }, timeout=40, follow_redirects=True)
             result = resp.json()
             old_id = result.get("oldId", "?")
             if result.get("status") == "ok":
@@ -5900,7 +5900,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "txnNo":      slip_info.get("TRANSACTION_NO", ""),
                     "payType":    slip_info.get("TYPE", ""),
                     "status":     "HOLD",
-                }, timeout=10)
+                }, timeout=40)
         except Exception as e:
             logger.error(f"saveDeposit: {e}")
 
@@ -6008,7 +6008,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 resp_nd = await client.post(SHEET_WEBHOOK, json={
                     "action":     "getAuctionCancelCount",
                     "customerId": customer_id_nd,
-                }, timeout=10)
+                }, timeout=40)
             ban_count_nd = resp_nd.json().get("banCount", 0)
         except Exception as e:
             logger.error(f"nodep_ok banCount: {e}")
@@ -6037,7 +6037,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "banCount":   new_ban,
                     "banStatus":  ban_status_nd,
                     "banExpire":  ban_expire_nd,
-                }, timeout=10)
+                }, timeout=40)
         except Exception as e:
             logger.error(f"nodep_ok saveAuctionCancel: {e}")
 
@@ -6096,7 +6096,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     resp_ban = await client.post(SHEET_WEBHOOK, json={
                         "action":     "getAuctionCancelCount",
                         "customerId": str_uid,
-                    }, timeout=10)
+                    }, timeout=40)
                 ban_data   = resp_ban.json()
                 ban_count  = ban_data.get("banCount", 0)
                 ban_status = ban_data.get("banStatus", "")
@@ -6170,7 +6170,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "action": "updateRequest",
                         "reqId":  req_id,
                         "status": "CLOSED",
-                    }, timeout=10)
+                    }, timeout=40)
             except Exception as e:
                 logger.error(f"endchat confirm: {e}")
 
@@ -6237,7 +6237,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 resp = await client.post(SHEET_WEBHOOK, json={
                     "action": "getRequest", "reqId": req_id,
-                }, timeout=10)
+                }, timeout=40)
             rdata = resp.json()
             if rdata.get("status") == "ok":
                 customer_id       = rdata.get("customerId")
@@ -6283,7 +6283,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await client.post(SHEET_WEBHOOK, json={
                     "action": "updateRequest", "reqId": req_id,
                     "status": "MATCHED", "brokerId": broker["brokerId"],
-                }, timeout=10)
+                }, timeout=40)
         except Exception as e:
             logger.error(f"breq_accept updateRequest: {e}")
 
@@ -6367,7 +6367,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await client.post(SHEET_WEBHOOK, json={
                     "action":     "incrementDecline",
                     "telegramId": user_id_dec,
-                }, timeout=10)
+                }, timeout=40)
         except Exception as e:
             logger.error(f"incrementDecline: {e}")
 
@@ -6440,7 +6440,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "brokerId":   broker_id,
                     "stars":      stars,
                     "customerId": rater_id,
-                }, timeout=10)
+                }, timeout=40)
             result         = resp.json()
             ban            = result.get("ban", False)
             new_rating     = result.get("newRating", 0)
@@ -6633,7 +6633,7 @@ async def kick_member_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "action": "updateStatus", "serverKey": SHEET_SERVER_KEY,
                         "userId": str(target_id),
                         "status": "KICKED"
-                    }, timeout=10)
+                    }, timeout=40)
                 sheet_ok = resp.json().get("status") == "ok"
             except Exception as e:
                 logger.error(f"kick sheet: {e}")
@@ -6667,7 +6667,7 @@ async def get_sheet_car_count() -> int:
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(SHEET_WEBHOOK,
-                json={"action": "getCarsCount"}, timeout=8)
+                json={"action": "getCarsCount"}, timeout=40)
         return resp.json().get("count", len(CARS))
     except Exception:
         return len(CARS)
@@ -6708,7 +6708,7 @@ async def update_broker(telegram_id: str, **kwargs) -> bool:
         payload = {"action": "updateBroker", "telegramId": telegram_id}
         payload.update(kwargs)
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(SHEET_WEBHOOK, json=payload, timeout=10)
+            resp = await client.post(SHEET_WEBHOOK, json=payload, timeout=40)
         return resp.json().get("status") == "ok"
     except Exception as e:
         logger.error(f"updateBroker: {e}")
@@ -6736,7 +6736,7 @@ async def addbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "brokerId":   broker_id,
                 "telegramId": tg_id,
                 "username":   username,
-            }, timeout=10)
+            }, timeout=40)
         if resp.json().get("status") == "ok":
             try:
                 await context.bot.send_message(
@@ -6785,7 +6785,7 @@ async def kickbroker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action":     "removeBroker", "serverKey": SHEET_SERVER_KEY,
                 "telegramId": tg_id,
-            }, timeout=10)
+            }, timeout=40)
 
         if resp.json().get("status") == "ok":
             try:
@@ -7021,7 +7021,7 @@ async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dep_resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getDeposit",
                 "reqId":  req_id,
-            }, timeout=10)
+            }, timeout=40)
         dep = dep_resp.json()
         if dep.get("status") == "ok" and dep.get("depositStatus") in ("HOLD","WON"):
             await update.message.reply_text(
@@ -7040,7 +7040,7 @@ async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             count_resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getCancelCount",
                 "userId": str_uid,
-            }, timeout=10)
+            }, timeout=40)
         cancel_count = count_resp.json().get("cancelCount", 0)
     except Exception as e:
         logger.error(f"getCancelCount: {e}")
@@ -7065,13 +7065,13 @@ async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "userId":      str_uid,
                 "cancelCount": new_count,
                 "reqId":       req_id,
-            }, timeout=10)
+            }, timeout=40)
             await client.post(SHEET_WEBHOOK, json={
                 "action": "updateRequest",
                 "reqId":  req_id,
                 "customerId": str_uid,
                 "status": "CANCELLED_BY_CUSTOMER",
-            }, timeout=10)
+            }, timeout=40)
     except Exception as e:
         logger.error(f"saveCancelCount: {e}")
 
@@ -7083,7 +7083,7 @@ async def cancelrequest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "action":    "banCustomer", "serverKey": SHEET_SERVER_KEY,
                     "userId":    str_uid,
                     "banExpire": ban_expire,
-                }, timeout=10)
+                }, timeout=40)
         except Exception as e:
             logger.error(f"banCustomer: {e}")
 
@@ -7252,7 +7252,7 @@ async def _lookup_legacy_request(request_code: str, user_id: int):
                     "reqId": safe_req_id,
                     "customerId": str(user_id),
                 },
-                timeout=10,
+                timeout=40,
             )
         response.raise_for_status()
         result = response.json()
@@ -7295,7 +7295,7 @@ async def submit_request(context, user_id: int, username: str):
                 "grade":      d.get("grade",""),
                 "condition":  d.get("condition",""),
                 "timeline":   d.get("timeline",""),
-            }, timeout=10)
+            }, timeout=40)
             request_resp.raise_for_status()
             request_result = request_resp.json()
             validated_req_id, validation_reason = _validate_legacy_add_request_response(
@@ -7447,7 +7447,7 @@ async def mystatus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action":     "getMyRequests", "serverKey": SHEET_SERVER_KEY,
                 "customerId": str_uid,
-            }, timeout=10)
+            }, timeout=40)
         data     = resp.json()
         requests = data.get("requests", [])
         if requests:
@@ -7491,7 +7491,7 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getRequest",
                 "reqId":  req_id,
-            }, timeout=10)
+            }, timeout=40)
         rdata = resp.json()
         if rdata.get("status") == "ok":
             customer_id       = rdata.get("customerId")
@@ -7544,7 +7544,7 @@ async def accept_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "reqId":    req_id,
                 "status":   "MATCHED",
                 "brokerId": broker["brokerId"],
-            }, timeout=10)
+            }, timeout=40)
     except Exception as e:
         logger.error(f"accept updateRequest: {e}")
 
@@ -7668,7 +7668,7 @@ async def redeem_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "action": "redeemPromo",
                 "code":   code,
                 "userId": str(user_id),
-            }, timeout=15)
+            }, timeout=40)
         result = resp.json()
     except Exception as e:
         logger.error(f"redeemPromo: {e}")
@@ -7811,7 +7811,7 @@ async def request_timer_task(context, req_id: str, broker_tg_id: str,
                     "action": "updateRequest",
                     "reqId":  req_id,
                     "status": "CANCELLED_TIMEOUT",
-                }, timeout=10)
+                }, timeout=40)
         except Exception as e:
             logger.error(f"timer cancel sheet: {e}")
 
@@ -7934,7 +7934,7 @@ async def auctionwon_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getDeposit",
                 "reqId":  req_id,
-            }, timeout=10)
+            }, timeout=40)
         dep = resp.json()
     except Exception as e:
         logger.error(f"auctionwon getDeposit: {e}")
@@ -7967,7 +7967,7 @@ async def auctionwon_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "reqId":         req_id,
                 "auctionResult": "WON",
                 "carPrice":      car_price,
-            }, timeout=10)
+            }, timeout=40)
     except Exception as e:
         logger.error(f"auctionwon updateDeposit: {e}")
 
@@ -8022,7 +8022,7 @@ async def auctionlost_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getDeposit",
                 "reqId":  req_id,
-            }, timeout=10)
+            }, timeout=40)
         dep = resp.json()
     except Exception as e:
         logger.error(f"auctionlost getDeposit: {e}")
@@ -8044,7 +8044,7 @@ async def auctionlost_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "action":        "updateDeposit",
                 "reqId":         req_id,
                 "auctionResult": "LOST",
-            }, timeout=10)
+            }, timeout=40)
     except Exception as e:
         logger.error(f"auctionlost updateDeposit: {e}")
 
@@ -8104,7 +8104,7 @@ async def refunddone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dep_resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "getDeposit",
                 "reqId":  req_id,
-            }, timeout=10)
+            }, timeout=40)
         dep = dep_resp.json()
     except Exception as e:
         logger.error(f"refunddone getDeposit: {e}")
@@ -8121,7 +8121,7 @@ async def refunddone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "action":        "updateDeposit",
                 "reqId":         req_id,
                 "auctionResult": "REFUNDED",
-            }, timeout=10)
+            }, timeout=40)
     except Exception as e:
         logger.error(f"refunddone updateDeposit: {e}")
         await update.message.reply_text("❌ Sheet error — refund မှတ်တမ်း မတင်နိုင်ပါ")
@@ -8243,7 +8243,7 @@ async def check_expired_members(context):
                                     "action": "updateStatus", "serverKey": SHEET_SERVER_KEY,
                                     "userId": uid,
                                     "status": "KICKED"
-                                }, timeout=10, follow_redirects=True)
+                                }, timeout=40, follow_redirects=True)
                         except Exception as e:
                             logger.error(f"updateStatus kicked: {e}")
                 else:
@@ -8274,7 +8274,7 @@ async def check_expired_bans(context):
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(SHEET_WEBHOOK, json={
                 "action": "liftExpiredBans",
-            }, timeout=15)
+            }, timeout=40)
         status_code = getattr(resp, "status_code", 0)
         if not (200 <= status_code < 300):
             logger.warning("check_expired_bans: webhook returned HTTP %s", status_code)
@@ -8459,7 +8459,7 @@ async def remind_unused_premium_members(context):
             try:
                 async with httpx.AsyncClient() as pw_client:
                     pw_resp = await pw_client.post(SHEET_WEBHOOK, json={
-                        "action": "getPassword", "userId": uid, "serverKey": SHEET_SERVER_KEY}, timeout=15, follow_redirects=True)
+                        "action": "getPassword", "userId": uid, "serverKey": SHEET_SERVER_KEY}, timeout=40, follow_redirects=True)
                 password = pw_resp.json().get("password", "")
             except Exception:
                 password = ""
