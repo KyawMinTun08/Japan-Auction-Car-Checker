@@ -1423,7 +1423,14 @@ function _financeEntryType_(entryType, source) {
 }
 
 function _authorizeFinanceReport_(serverKey) {
-  var expected = String(PropertiesService.getScriptProperties().getProperty("JACC_SERVER_KEY") || "").trim();
+  // The Railway env var this value is copied from is named SHEET_SERVER_KEY,
+  // which has twice led to the Script Property being saved under that same
+  // name instead of JACC_SERVER_KEY (the name this code actually reads) —
+  // each time silently breaking every gated action with server_key_not_configured
+  // until someone notices. Accept either property name so a mismatched name
+  // no longer breaks production; JACC_SERVER_KEY still wins if both are set.
+  var props = PropertiesService.getScriptProperties();
+  var expected = String(props.getProperty("JACC_SERVER_KEY") || props.getProperty("SHEET_SERVER_KEY") || "").trim();
   if (!expected) return {status:"error", message:"server_key_not_configured"};
   if (!serverKey || String(serverKey).trim() !== expected) return {status:"error", message:"unauthorized"};
   return null;
