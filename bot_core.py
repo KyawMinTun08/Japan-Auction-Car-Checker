@@ -240,7 +240,7 @@ async def _save_request_to_legacy_sheet(
                     "condition": request_data.get("condition", ""),
                     "timeline": request_data.get("timeline", ""),
                 },
-                timeout=10,
+                timeout=40,
             )
         ok, reason = _validate_legacy_sheet_mirror_response(
             response,
@@ -524,7 +524,7 @@ async def _handle_phase1_accept(update, context, offer_id: str) -> None:
                     "status": "MATCHED",
                     "brokerId": legacy_broker.get("brokerId"),
                 },
-                timeout=10,
+                timeout=40,
             )
     except Exception:
         _legacy.logger.exception(
@@ -628,7 +628,7 @@ async def _handle_phase1_decline(update, context, offer_id: str) -> None:
                     "action": "incrementDecline",
                     "telegramId": str(broker_tg_id),
                 },
-                timeout=10,
+                timeout=40,
             )
     except Exception:
         _legacy.logger.exception(

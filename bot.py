@@ -254,7 +254,7 @@ async def cancelrequest_cmd(update, context):
                         "customerId": str(user_id),
                         "status": "CANCELLED_BY_CUSTOMER",
                     },
-                    timeout=10,
+                    timeout=40,
                 )
         except Exception:
             _core._legacy.logger.exception(

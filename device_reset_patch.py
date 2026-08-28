@@ -64,7 +64,7 @@ async def resetdevice_cmd(update, context):
             response = await client.post(
                 _legacy.SHEET_WEBHOOK,
                 json=_sheet_payload("resetMemberDevice", userId=target),
-                timeout=15,
+                timeout=40,
             )
         response.raise_for_status()
         data = response.json()

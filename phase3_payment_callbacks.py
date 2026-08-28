@@ -68,7 +68,7 @@ async def handle_phase3_payment_callback(
         payload["reason"] = "Payment slip could not be verified by admin"
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=25) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=40) as client:
             response = await client.post(sheet_webhook, json=payload)
             response.raise_for_status()
             result = response.json()

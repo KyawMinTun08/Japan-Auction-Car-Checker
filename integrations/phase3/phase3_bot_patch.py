@@ -17,7 +17,7 @@ async def handle_web_payment_callback(query, context, data: str) -> bool:
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.post(SHEET_WEBHOOK, json=payload, timeout=20)
+            response = await client.post(SHEET_WEBHOOK, json=payload, timeout=40)
         result = response.json()
     except Exception as exc:
         logger.exception('website payment callback failed: %s', exc)

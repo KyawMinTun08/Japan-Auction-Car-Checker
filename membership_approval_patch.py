@@ -78,7 +78,7 @@ async def _fetch_sheet_member(user_id: str, attempts: int = 3) -> dict[str, str]
         try:
             async with _legacy.httpx.AsyncClient(
                 follow_redirects=True,
-                timeout=12.0,
+                timeout=40.0,
             ) as client:
                 response = await client.post(
                     _legacy.SHEET_WEBHOOK,
@@ -159,7 +159,7 @@ async def save_member_to_sheet(
         try:
             async with _legacy.httpx.AsyncClient(
                 follow_redirects=True,
-                timeout=20.0,
+                timeout=40.0,
             ) as client:
                 response = await client.post(
                     _legacy.SHEET_WEBHOOK,

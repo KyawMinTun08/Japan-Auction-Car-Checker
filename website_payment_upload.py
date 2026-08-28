@@ -120,7 +120,12 @@ class WebsitePaymentHttp:
         if app_name:
             payload["app"] = app_name
         try:
-            async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+            # Same Apps Script doPost() lock-contention exposure as every other
+            # SHEET_WEBHOOK call in legacy_bot.py -- 12s wasn't enough headroom
+            # over the project-wide LockService lock (up to ~30s under load),
+            # causing this to read as a 401 "session unavailable" to the Web
+            # App even for a genuinely valid session/token.
+            async with httpx.AsyncClient(timeout=40, follow_redirects=True) as client:
                 response = await client.post(
                     self.sheet_webhook,
                     headers={"Content-Type": "text/plain"},
