@@ -384,6 +384,24 @@ async def button_callback(update, context):
                 pass
             return
 
+        # The current legacy handler approves through approve_payment_transaction
+        # (an atomic Apps Script endpoint) rather than save_member_to_sheet, so
+        # this patch's own bookkeeping is never populated on that path. Missing
+        # bookkeeping is therefore not evidence of failure — treat it exactly
+        # like the post-completion branch below does, instead of restoring an
+        # already-cleared payment draft and telling the admin to re-approve
+        # money that was already committed and DM'd to the member.
+        if not save_result:
+            _legacy.logger.exception(
+                "Membership approval callback raised after delegating, with no "
+                "patch-local save bookkeeping (likely approved via "
+                "approve_payment_transaction); not treating as a failed "
+                "approval user=%s error=%s",
+                member_id,
+                exc,
+            )
+            return
+
         if payment_snapshot:
             _legacy.pending_payment[member_id] = payment_snapshot
         _legacy.logger.exception(

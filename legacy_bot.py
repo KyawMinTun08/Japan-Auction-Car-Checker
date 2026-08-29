@@ -21,6 +21,7 @@ from payment_audit import (
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram import BotCommandScopeAllPrivateChats, BotCommandScopeChat
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ChatMemberHandler, filters, ContextTypes
+from telegram.helpers import escape_markdown
 
 try:
     import pytesseract
@@ -5743,9 +5744,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).strftime("%d/%m/%Y")
         pw_line = f"🔑 Password: `{canonical_password}`\n" if canonical_package == "WEB" else ""
 
+        # name/username are raw Telegram first_name/username values and can
+        # contain unbalanced Markdown special characters (_, *, `, [). The
+        # approval (approve_payment_transaction, send_approval_dm) is already
+        # committed above, so a parse failure here must not look like the
+        # approval itself failed — escape rather than risk a BadRequest.
+        safe_name = escape_markdown(str(name), version=1)
+        safe_username = escape_markdown(str(username), version=1)
+
         await query.message.reply_text(
             f"✅ *Payment Confirmed + Approved!*\n\n"
-            f"👤 {name} ({username})\n"
+            f"👤 {safe_name} ({safe_username})\n"
             f"📦 {PLAN_NAMES.get(package, package)} — {months} လ\n"
             f"⏰ ကုန်ဆုံး: `{expire_date}`\n"
             f"{pw_line}\n"
@@ -8003,6 +8012,14 @@ async def auctionwon_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ `{req_id}` Deposit မတွေ့ပါ", parse_mode='Markdown')
         return
 
+    current_status = str(dep.get("depositStatus", "") or "").strip().upper()
+    if current_status in ("WON", "LOST", "REFUNDED"):
+        await update.message.reply_text(
+            f"⚠️ `{req_id}` ကို Auction result မှတ်တမ်းတင်ပြီးသားပါ (Status: `{current_status}`)။\n"
+            "ထပ်မံ /auctionwon မလုပ်ပါနှင့် — Customer/Broker ဆီ Notification ထပ်ပို့မိနိုင်ပြီး ကားဖိုးကိုလည်း ထပ်ရေးမိနိုင်ပါတယ်။",
+            parse_mode='Markdown')
+        return
+
     customer_id  = dep.get("customerId")
     broker_tg_id = dep.get("brokerTgId")
     thb_amount   = dep.get("thbAmount", 20000)
@@ -8091,6 +8108,14 @@ async def auctionlost_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ `{req_id}` Deposit မတွေ့ပါ", parse_mode='Markdown')
         return
 
+    current_status = str(dep.get("depositStatus", "") or "").strip().upper()
+    if current_status in ("WON", "LOST", "REFUNDED"):
+        await update.message.reply_text(
+            f"⚠️ `{req_id}` ကို Auction result မှတ်တမ်းတင်ပြီးသားပါ (Status: `{current_status}`)။\n"
+            "ထပ်မံ /auctionlost မလုပ်ပါနှင့် — Customer/Broker ဆီ Notification ထပ်ပို့မိနိုင်ပြီး Admin ဆီကို Refund page ထပ်ပို့မိနိုင်ပါတယ်။",
+            parse_mode='Markdown')
+        return
+
     customer_id  = dep.get("customerId")
     broker_tg_id = dep.get("brokerTgId")
     mmk_amount   = dep.get("mmkAmount", 0)
@@ -8171,6 +8196,19 @@ async def refunddone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if dep.get("status") != "ok":
         await update.message.reply_text(f"❌ `{req_id}` Deposit မတွေ့ပါ", parse_mode='Markdown')
+        return
+
+    current_status = str(dep.get("depositStatus", "") or "").strip().upper()
+    if current_status == "REFUNDED":
+        await update.message.reply_text(
+            f"⚠️ `{req_id}` ကို Refund လုပ်ပြီးသားပါ — ထပ်မံ /refunddone မလုပ်ပါနှင့်။",
+            parse_mode='Markdown')
+        return
+    if current_status != "LOST":
+        await update.message.reply_text(
+            f"❌ `{req_id}` ကို /auctionlost နဲ့ Lost အဖြစ် မှတ်တမ်းတင်ပြီးမှသာ Refund လုပ်နိုင်ပါတယ်\n"
+            f"(လက်ရှိ Status: `{current_status or 'HOLD'}`)",
+            parse_mode='Markdown')
         return
 
     try:
@@ -8726,6 +8764,7 @@ async def main():
         transaction_key=slip_transaction_key,
         payment_summary=payment_slip_summary,
         payment_qr_getter=get_payment_qr,
+        save_payment_draft=save_payment_draft,
     )
     if payment_http is not None:
         web_app.router.add_options("/api/payment/slip", payment_http.options)
