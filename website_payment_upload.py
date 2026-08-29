@@ -1,9 +1,11 @@
 """Authenticated website payment-slip upload adapter for the existing Railway bot.
 
-The adapter deliberately forwards the submitted image to the existing Telegram
-admin review flow instead of persisting payment images in a new database. The
-existing in-memory pending_payment map remains the source of truth for the
-current bot process; a restart requires the member to submit the slip again.
+The adapter forwards the submitted image to the existing Telegram admin review
+flow. Like the Telegram-submitted slip path, every accepted slip is persisted
+to the durable Payment_Drafts sheet via ``save_payment_draft`` before the
+in-memory pending_payment entry is relied on further, so a Railway restart
+between "slip received" and "admin approves" can restore the session instead
+of silently losing a payment that already reached admin review.
 """
 from __future__ import annotations
 
@@ -48,6 +50,7 @@ class WebsitePaymentHttp:
         transaction_key: Callable[[dict[str, Any]], str],
         payment_summary: Callable[[list[dict[str, Any]]], tuple[int, list[str]]],
         payment_qr_getter: Callable[[str], Awaitable[str]] | None = None,
+        save_payment_draft: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self.bot = bot
         self.sheet_webhook = str(sheet_webhook or "").strip()
@@ -61,6 +64,7 @@ class WebsitePaymentHttp:
         self.transaction_key = transaction_key
         self.payment_summary = payment_summary
         self.payment_qr_getter = payment_qr_getter
+        self.save_payment_draft = save_payment_draft
         self.max_upload_bytes = min(
             MAX_UPLOAD_BYTES,
             max(256 * 1024, int(os.environ.get("PAYMENT_SLIP_MAX_BYTES", MAX_UPLOAD_BYTES))),
@@ -405,6 +409,18 @@ class WebsitePaymentHttp:
         pay_data["file_bytes"] = file_bytes
         total_paid, _ = self.payment_summary(slips)
         pay_data["total_paid"] = total_paid
+        pay_data["userId"] = str(user_id)
+
+        if self.save_payment_draft is not None:
+            try:
+                draft_result = await self.save_payment_draft(pay_data)
+            except Exception:
+                logger.exception("Website payment draft persistence raised user=%s", user_id)
+                draft_result = None
+            if not isinstance(draft_result, dict) or draft_result.get("status") != "ok":
+                logger.error("Website payment draft persistence failed user=%s result=%s", user_id, draft_result)
+                return self._json(request, {"status": "error", "code": "DRAFT_SAVE_FAILED"}, 503)
+
         remaining = expected - total_paid
         if remaining > 0:
             return self._json(
@@ -437,6 +453,7 @@ def build_website_payment_http_service(
     transaction_key: Callable[[dict[str, Any]], str],
     payment_summary: Callable[[list[dict[str, Any]]], tuple[int, list[str]]],
     payment_qr_getter: Callable[[str], Awaitable[str]] | None = None,
+    save_payment_draft: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
 ) -> WebsitePaymentHttp | None:
     enabled = os.environ.get("PAYMENT_UPLOAD_ENABLED", "1").strip().lower()
     if enabled in {"0", "false", "no", "off"}:
@@ -458,4 +475,5 @@ def build_website_payment_http_service(
         transaction_key=transaction_key,
         payment_summary=payment_summary,
         payment_qr_getter=payment_qr_getter,
+        save_payment_draft=save_payment_draft,
     )
