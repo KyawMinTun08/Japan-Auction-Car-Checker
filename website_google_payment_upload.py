@@ -277,7 +277,11 @@ class GoogleMemberPaymentHttp:
                     "owner": self._safe_label(info.get("owner"), "JACC payment account"),
                 }
             )
-        return self._json(request, {"status": "ok", "methods": methods})
+        plans = [
+            {"months": months, "amount": int(amount)}
+            for months, amount in sorted(self.plan_prices.get("WEB", {}).items())
+        ]
+        return self._json(request, {"status": "ok", "methods": methods, "plans": plans})
 
     async def payment_qr(self, request: web.Request) -> web.StreamResponse:
         """Proxy a configured Telegram-hosted QR without exposing bot credentials."""

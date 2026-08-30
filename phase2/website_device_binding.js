@@ -19,7 +19,7 @@
   const SESSION_KEY = 'jan_session';
   const SESSION_VERSION = 'v4';
   const ID_PATTERN = /^JACC-[a-f0-9]{48}$/;
-  const DEVICE_ACTIONS = new Set(['verifyLogin', 'verifyToken', 'getData']);
+  const DEVICE_ACTIONS = new Set(['verifyLogin', 'verifyToken', 'getData', 'verifyGoogleLogin']);
 
   function storageOrThrow(storage) {
     const target = storage || global.localStorage;
@@ -188,6 +188,13 @@
       username: result.username || session.username,
       package: result.package || session.package,
       expireDate: result.expireDate || result.expiredDate || session.expireDate,
+      // JACC Google Login: memberStatus distinguishes a PENDING signup
+      // (awaiting its first payment) from an approved ACTIVE member. Without
+      // refreshing it here, a member approved via /googleapprove would stay
+      // stuck on the pending-payment screen forever after their next reload,
+      // since the stale PENDING value from the original sign-in would never
+      // be overwritten even though verifyToken now reports ACTIVE.
+      memberStatus: result.memberStatus || session.memberStatus,
       verifiedAt: Date.now(),
     }), storage);
 
