@@ -8253,23 +8253,16 @@ async def refunddone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # button-based flow for Telegram-origin members stays completely untouched.
 # Both reuse approve_payment_transaction(), the same atomic Apps Script
 # money-crediting call the button flow uses -- only the trigger differs.
-async def googleapprove_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not ADMIN_IDS or user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
-        return
-    if not context.args:
-        await update.message.reply_text(
-            "❌ Format: `/googleapprove G_xxxxxxxxxxxxxxxxxxx`",
-            parse_mode='Markdown')
-        return
+def _google_member_id_from_text(text: str) -> str:
+    return str(text or "").strip()
 
-    member_id = context.args[0].strip()
+
+async def _google_approve_member(member_id: str, approved_by: str) -> str:
+    """Core /googleapprove logic, shared by the typed command and the
+    gapprove_ button callback so there's exactly one place that talks to
+    approve_payment_transaction() for Google Login members."""
     if not member_id.startswith("G_"):
-        await update.message.reply_text(
-            "❌ ဒါ Google Login member ID မဟုတ်ပါ (`G_` နဲ့ မစပါ)",
-            parse_mode='Markdown')
-        return
+        return "❌ ဒါ Google Login member ID မဟုတ်ပါ (`G_` နဲ့ မစပါ)"
 
     pay_data = pending_payment.get(member_id)
     if not pay_data:
@@ -8277,30 +8270,22 @@ async def googleapprove_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if pay_data:
             pending_payment[member_id] = pay_data
     if not pay_data:
-        await update.message.reply_text(
-            f"❌ `{member_id}` အတွက် Payment data မတွေ့ပါ — အရင် Approve/Reject လုပ်ပြီးသားလား စစ်ပါ",
-            parse_mode='Markdown')
-        return
+        return f"❌ `{member_id}` အတွက် Payment data မတွေ့ပါ — အရင် Approve/Reject လုပ်ပြီးသားလား စစ်ပါ"
 
     slips = pay_data.get("slips", [])
     months = int(pay_data.get("months", 1) or 1)
     expected_amount = int(pay_data.get("amount", 0) or 0)
     total_paid, _ = payment_slip_summary(slips)
     if expected_amount <= 0 or total_paid != expected_amount:
-        await update.message.reply_text(
+        return (
             f"❌ ငွေပမာဏ မကိုက်ညီသေးပါ — Expected {expected_amount:,} ks, Received {total_paid:,} ks\n"
-            "Slip အားလုံး ပို့ပြီးမှသာ Approve လုပ်ပါ",
-            parse_mode='Markdown')
-        return
+            "Slip အားလုံး ပို့ပြီးမှသာ Approve လုပ်ပါ"
+        )
 
     slip_info = pay_data.get("slip_info", {}) or {}
     transaction_no = str(slip_info.get("TRANSACTION_NO") or slip_info.get("REFERENCE") or "").strip()
     if transaction_no.upper() == "UNKNOWN":
         transaction_no = ""
-    approved_by = str(
-        getattr(update.effective_user, "username", "")
-        or getattr(update.effective_user, "id", "")
-    ).strip()
     password = generate_password()
 
     atomic_payment = {
@@ -8330,42 +8315,60 @@ async def googleapprove_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if atomic_result.get("result") == "duplicate":
         await clear_payment_draft(member_id, transaction_no)
         pending_payment.pop(member_id, None)
-        await update.message.reply_text(
-            "⚠️ ဒီ Payment Transaction ကို အရင် Approve လုပ်ပြီးသားဖြစ်ပါတယ်။\n"
-            "ထပ်မံ Approve မလုပ်တော့ပါနှင့်။",
-            parse_mode='Markdown')
-        return
+        return "⚠️ ဒီ Payment Transaction ကို အရင် Approve လုပ်ပြီးသားဖြစ်ပါတယ်။\nထပ်မံ Approve မလုပ်တော့ပါနှင့်။"
     if atomic_result.get("status") != "ok":
         if atomic_message == "transaction_already_used":
-            await update.message.reply_text(
-                "⚠️ ဒီ Payment Transaction ကို အရင် Approve လုပ်ပြီးသားဖြစ်ပါတယ်။",
-                parse_mode='Markdown')
-        elif atomic_message == "transaction_in_progress":
-            await update.message.reply_text(
-                "⚠️ ဒီ Payment ကို အခြား Approve request တစ်ခုက စစ်ဆေးနေဆဲပါ။",
-                parse_mode='Markdown')
-        else:
-            await update.message.reply_text(
-                f"❌ Approve မအောင်မြင်ပါ — `{atomic_message or 'approval_failed'}`\n"
-                "Member သက်တမ်းကို မပြောင်းထားပါ။",
-                parse_mode='Markdown')
-        return
+            return "⚠️ ဒီ Payment Transaction ကို အရင် Approve လုပ်ပြီးသားဖြစ်ပါတယ်။"
+        if atomic_message == "transaction_in_progress":
+            return "⚠️ ဒီ Payment ကို အခြား Approve request တစ်ခုက စစ်ဆေးနေဆဲပါ။"
+        return (
+            f"❌ Approve မအောင်မြင်ပါ — `{atomic_message or 'approval_failed'}`\n"
+            "Member သက်တမ်းကို မပြောင်းထားပါ။"
+        )
 
     canonical_password = str(atomic_result.get("password") or password)
     canonical_expire = str((atomic_result.get("member") or {}).get("expireDate") or "")
     await clear_payment_draft(member_id, transaction_no)
     pending_payment.pop(member_id, None)
 
-    await update.message.reply_text(
+    return (
         f"✅ *Google Login Member Approved!*\n\n"
         f"🆔 `{member_id}`\n"
         f"📦 Web Premium — {months} လ\n"
         f"⏰ ကုန်ဆုံး: `{canonical_expire}`\n"
         f"🔑 Password: `{canonical_password}`\n\n"
         f"⚠️ Member ဟာ Telegram DM မရနိုင်ပါ — website ကို ပြန်ဝင်ရင် (Sign in with "
-        f"Google) access အသစ်ကို အလိုအလျောက် တွေ့ရပါလိမ့်မယ်။",
-        parse_mode='Markdown',
+        f"Google) access အသစ်ကို အလိုအလျောက် တွေ့ရပါလိမ့်မယ်။"
     )
+
+
+async def _google_reject_member(member_id: str) -> str:
+    if not member_id.startswith("G_"):
+        return "❌ ဒါ Google Login member ID မဟုတ်ပါ (`G_` နဲ့ မစပါ)"
+    pending_payment.pop(member_id, None)
+    await clear_payment_draft(member_id, "")
+    return f"✅ `{member_id}` ရဲ့ Payment ကို Reject လုပ်ပြီးပါပြီ — Member ဟာ website ကနေ slip အသစ် ပြန်ပို့နိုင်ပါတယ်"
+
+
+async def googleapprove_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not ADMIN_IDS or user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Format: `/googleapprove G_xxxxxxxxxxxxxxxxxxx`\n\n"
+            "(Slip အသစ်ရောက်တဲ့ admin notification message ထဲက ✅ Approve button ကို "
+            "နှိပ်တာက ပိုလွယ်ပါတယ် — ID ကို လက်နဲ့ ကူးစရာ မလိုပါ)",
+            parse_mode='Markdown')
+        return
+    member_id = _google_member_id_from_text(context.args[0])
+    approved_by = str(
+        getattr(update.effective_user, "username", "")
+        or getattr(update.effective_user, "id", "")
+    ).strip()
+    result_text = await _google_approve_member(member_id, approved_by)
+    await update.message.reply_text(result_text, parse_mode='Markdown')
 
 
 async def googlereject_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -8378,20 +8381,39 @@ async def googlereject_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Format: `/googlereject G_xxxxxxxxxxxxxxxxxxx`",
             parse_mode='Markdown')
         return
+    member_id = _google_member_id_from_text(context.args[0])
+    result_text = await _google_reject_member(member_id)
+    await update.message.reply_text(result_text, parse_mode='Markdown')
 
-    member_id = context.args[0].strip()
-    if not member_id.startswith("G_"):
-        await update.message.reply_text(
-            "❌ ဒါ Google Login member ID မဟုတ်ပါ (`G_` နဲ့ မစပါ)",
-            parse_mode='Markdown')
+
+# ── JACC Google Login admin approval buttons ───────────────
+# Separate CallbackQueryHandlers (registered with their own patterns ahead
+# of the generic button_callback in main()) rather than new branches inside
+# button_callback/membership_approval_patch.py -- those are shared,
+# money-critical code for Telegram-origin members keyed by a numeric
+# chat_id parsed with int(...); gapprove_/greject_ callback_data carries a
+# "G_<sub>" string on purpose and must never flow through that int(...) path.
+async def google_approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not ADMIN_IDS or query.from_user.id not in ADMIN_IDS:
+        await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
         return
+    await query.answer()
+    member_id = _google_member_id_from_text(str(query.data or "").replace("gapprove_", "", 1))
+    approved_by = str(getattr(query.from_user, "username", "") or getattr(query.from_user, "id", "")).strip()
+    result_text = await _google_approve_member(member_id, approved_by)
+    await query.message.reply_text(result_text, parse_mode='Markdown')
 
-    pending_payment.pop(member_id, None)
-    await clear_payment_draft(member_id, "")
-    await update.message.reply_text(
-        f"✅ `{member_id}` ရဲ့ Payment ကို Reject လုပ်ပြီးပါပြီ — Member ဟာ website ကနေ "
-        f"slip အသစ် ပြန်ပို့နိုင်ပါတယ်",
-        parse_mode='Markdown')
+
+async def google_reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not ADMIN_IDS or query.from_user.id not in ADMIN_IDS:
+        await query.answer("❌ Admin သာ လုပ်နိုင်တယ်", show_alert=True)
+        return
+    await query.answer()
+    member_id = _google_member_id_from_text(str(query.data or "").replace("greject_", "", 1))
+    result_text = await _google_reject_member(member_id)
+    await query.message.reply_text(result_text, parse_mode='Markdown')
 
 
 # ── Auto Expire Check ─────────────────────────────────
@@ -8792,6 +8814,12 @@ async def main():
     app.add_handler(CommandHandler("chatlog",        chatlog_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    # Registered ahead of the generic button_callback handler below so
+    # gapprove_/greject_ (Google Login admin approval) are caught by their
+    # own string-safe handlers first, never reaching button_callback's
+    # int(...)-based Telegram-numeric-id parsing.
+    app.add_handler(CallbackQueryHandler(google_approve_callback, pattern=r"^gapprove_"))
+    app.add_handler(CallbackQueryHandler(google_reject_callback, pattern=r"^greject_"))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(ChatMemberHandler(handle_channel_member_join, ChatMemberHandler.CHAT_MEMBER))
     app.job_queue.run_repeating(check_expired_members,          interval=43200, first=60)

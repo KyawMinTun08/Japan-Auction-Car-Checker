@@ -28,6 +28,11 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 from aiohttp import web
+try:
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+except ImportError:  # Unit tests can exercise the HTTP adapter without Telegram installed.
+    InlineKeyboardButton = None
+    InlineKeyboardMarkup = None
 
 logger = logging.getLogger(__name__)
 
@@ -231,14 +236,22 @@ class GoogleMemberPaymentHttp:
             f"Method: {method_label}\n"
             f"Expected: {expected:,} ks\n"
             f"Total received: {total_paid:,} ks — {status}\n\n"
-            "Slip အားလုံးကို Payment app ထဲတွင် Transaction No. တစ်ခုချင်းစီစစ်ပြီးမှ:\n"
-            f"✅ Approve → /googleapprove {member_id}\n"
-            f"❌ Reject → /googlereject {member_id}"
+            "Slip ကို Payment app ထဲတွင် Transaction No. စစ်ပြီးမှ အောက်က button နှိပ်ပါ။"
         )
+        markup = None
+        if InlineKeyboardButton is not None and InlineKeyboardMarkup is not None:
+            markup = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("✅ Approve", callback_data=f"gapprove_{member_id}"),
+                        InlineKeyboardButton("❌ Reject", callback_data=f"greject_{member_id}"),
+                    ]
+                ]
+            )
         delivered = 0
         for admin_id in self.admin_ids:
             try:
-                await self.bot.send_message(chat_id=admin_id, text=admin_text)
+                await self.bot.send_message(chat_id=admin_id, text=admin_text, reply_markup=markup)
                 for index, slip in enumerate(slips, 1):
                     file_bytes = slip.get("file_bytes")
                     if not file_bytes:
