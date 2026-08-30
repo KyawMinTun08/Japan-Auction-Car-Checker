@@ -3,6 +3,16 @@
 //  Members Sheet Columns:
 //  [0] UserID  [1] Username  [2] StartDate  [3] ExpireDate
 //  [4] Status  [5] CancelCount  [6] Password  [7] Package  [8] Token
+//  Columns A-I above are a load-bearing contract read/written by the
+//  Telegram bot, patch files, and this script positionally — never
+//  reorder or repurpose them. New fields are appended after [8] only.
+//  [9] GoogleSub  [10] GoogleEmail — JACC Google Login (website-only
+//  signup path for members who never touch Telegram). A row with
+//  Status "PENDING" is a Google-authenticated identity that has not
+//  completed its first payment yet: Package is pre-set to "WEB" (the
+//  only package this signup path issues) but ExpireDate is empty, so
+//  it must never be treated as an active/expired member by the usual
+//  date math until an admin approval sets a real ExpireDate and status.
 // ═══════════════════════════════════════════════════════════
 
 var SS_ID    = "1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHDO6K3zG1mpY";
@@ -21,6 +31,10 @@ var C_CANCELCOUNT = 5;
 var C_PASSWORD = 6;
 var C_PACKAGE  = 7;
 var C_TOKEN    = 8;
+var C_GOOGLE_SUB   = 9;
+var C_GOOGLE_EMAIL = 10;
+
+var MEMBER_STATUS_PENDING = "PENDING";
 
 // ── doGet — Price Data ─────────────────────────────────────
 function doGet(e) {
@@ -103,6 +117,20 @@ function doPost(e) {
       // ── Verify Token (on page load) ──────────────────────
       case "verifyToken":
         return _json(verifyToken(data.token, data.deviceId, data.app, data.userId));
+
+      // ── Verify Google Login (Google ID token → Token) ────
+      // Website-only signup path: no Telegram identity involved. See the
+      // Members-sheet header comment and verifyGoogleLogin() for the
+      // PENDING/synthetic-userId design this depends on.
+      case "verifyGoogleLogin":
+        var googleLoginResult = verifyGoogleLogin(data.idToken, data.deviceId, data.app);
+        writeAuditLog(
+          googleLoginResult.username || "Unknown",
+          "GOOGLE_LOGIN",
+          "WebApp",
+          googleLoginResult.status === "ok" ? "SUCCESS" : "FAIL:" + (googleLoginResult.message || "")
+        );
+        return _json(googleLoginResult);
 
       // ── Admin-only Device Reset ──────────────────────────
       case "resetMemberDevice":
@@ -2303,15 +2331,22 @@ function getMembers() {
     var rawDate    = rows[i][C_EXPIRE];
     var expireDate = _parseMemberDate(rawDate);
     var savedStatus = String(rows[i][C_STATUS] || "").trim().toUpperCase();
-    var status = (savedStatus === "KICKED" || savedStatus === "BANNED")
+    // A PENDING row (Google Login signup awaiting its first payment) has no
+    // ExpireDate yet by design -- never recompute it into EXPIRED, and never
+    // strip its session token, or the member is locked out before an admin
+    // ever gets to approve their first payment.
+    var status = savedStatus === MEMBER_STATUS_PENDING
       ? savedStatus
-      : (expireDate && expireDate >= now ? "ACTIVE" : "EXPIRED");
+      : (savedStatus === "KICKED" || savedStatus === "BANNED")
+        ? savedStatus
+        : (expireDate && expireDate >= now ? "ACTIVE" : "EXPIRED");
     if (status !== savedStatus) {
       statusUpdates.push({row: i + 1, value: status});
     }
     // Expired/kicked/banned and non-WEB accounts must never retain a web
-    // session token.
-    if (status !== "ACTIVE" || _normalizePackage(rows[i][C_PACKAGE]) !== "WEB") {
+    // session token. PENDING (Google Login, not yet approved) keeps its
+    // token so the member can complete their first payment.
+    if (status !== MEMBER_STATUS_PENDING && (status !== "ACTIVE" || _normalizePackage(rows[i][C_PACKAGE]) !== "WEB")) {
       if (rows[i][C_TOKEN]) {
         tokenUpdates.push({row: i + 1, value: ""});
       }
@@ -2423,9 +2458,13 @@ function verifyToken(token, deviceId, app, userId) {
       _revokeMemberSessions_(memberId);
       return {status:"error", message:memberStatus.toLowerCase()};
     }
+    var isPending = memberStatus === MEMBER_STATUS_PENDING;
     var rawDate    = rows[i][C_EXPIRE];
     var expireDate = _parseMemberDate(rawDate);
-    if (!expireDate || expireDate < now) {
+    // PENDING (Google Login signup, first payment not yet approved) has no
+    // ExpireDate by design -- it is not an "expired" account, just one with
+    // nothing to expire yet.
+    if (!isPending && (!expireDate || expireDate < now)) {
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
       _revokeMemberSessions_(memberId);
       return {status:"error", message:"expired"};
@@ -2433,7 +2472,7 @@ function verifyToken(token, deviceId, app, userId) {
 
     var deviceCheck = _verifyAndBindDevice_(memberId, deviceId, app);
     if (!deviceCheck.ok) return deviceCheck;
-    var sessionCheck = _verifyAuthSession_(safeToken, memberId, deviceCheck, expireDate);
+    var sessionCheck = _verifyAuthSession_(safeToken, memberId, deviceCheck, isPending ? null : expireDate);
     if (sessionCheck.status !== 'ok') return sessionCheck;
 
     return {
@@ -2441,13 +2480,156 @@ function verifyToken(token, deviceId, app, userId) {
       userId:     memberId,
       username:   String(rows[i][C_USERNAME]),
       package:    _normalizePackage(rows[i][C_PACKAGE]),
-      expireDate: Utilities.formatDate(expireDate, "Asia/Bangkok", "dd/MM/yyyy"),
+      memberStatus: memberStatus,
+      expireDate: (isPending || !expireDate) ? "" : Utilities.formatDate(expireDate, "Asia/Bangkok", "dd/MM/yyyy"),
       deviceBound: !!deviceCheck.deviceBound,
       clientApp: deviceCheck.clientApp || 'web'
     };
   }
 
   return {status:"error", message:"invalid_token"};
+}
+
+// ── Google ID token verification ────────────────────────────
+// Uses Google's tokeninfo endpoint rather than a JWT/JWKS library: Apps
+// Script has no built-in RS256 verification, and tokeninfo is Google's own
+// supported lightweight path for a server-side ID-token check without a
+// client library. One extra HTTPS round trip at login time is an acceptable
+// cost for this.
+function _verifyGoogleIdToken_(idToken) {
+  var safeToken = String(idToken || '').trim();
+  if (!safeToken) return {ok:false, message:'no_id_token'};
+  var clientId = PropertiesService.getScriptProperties().getProperty('GOOGLE_OAUTH_CLIENT_ID');
+  if (!clientId) return {ok:false, message:'google_login_not_configured'};
+
+  var response;
+  try {
+    response = UrlFetchApp.fetch(
+      'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(safeToken),
+      {muteHttpExceptions: true}
+    );
+  } catch (e) {
+    return {ok:false, message:'google_verify_failed'};
+  }
+  if (response.getResponseCode() !== 200) {
+    return {ok:false, message:'invalid_google_token'};
+  }
+
+  var payload;
+  try {
+    payload = JSON.parse(response.getContentText());
+  } catch (e) {
+    return {ok:false, message:'invalid_google_response'};
+  }
+  if (!payload || !payload.sub || !payload.email) {
+    return {ok:false, message:'invalid_google_payload'};
+  }
+  if (String(payload.aud) !== String(clientId)) {
+    return {ok:false, message:'google_client_mismatch'};
+  }
+  if (payload.email_verified !== 'true' && payload.email_verified !== true) {
+    return {ok:false, message:'google_email_unverified'};
+  }
+  return {ok:true, sub: String(payload.sub), email: String(payload.email).toLowerCase()};
+}
+
+// ── verifyGoogleLogin (Google ID token → return token) ───────
+// Website-only signup path for members who never touch Telegram. A member
+// who signs in with Google has no Telegram identity, so this issues a
+// synthetic "G_<sub>" userId instead of a Telegram numeric id. First-time
+// sign-in auto-creates a PENDING row with Package pre-set to "WEB" (the
+// only package this path ever issues) and an empty ExpireDate; the member
+// becomes a real ACTIVE WEB member only once an admin approves their first
+// payment through the existing Telegram approval flow, exactly like every
+// other WEB member -- this function never sets Package/Status to anything
+// beyond WEB/PENDING itself.
+//
+// Called from inside doPost()'s script lock, so the read-then-append below
+// (checking for an existing GoogleSub row before creating a new one) cannot
+// race with a second concurrent sign-in for the same Google account.
+function verifyGoogleLogin(idToken, deviceId, app) {
+  var verified = _verifyGoogleIdToken_(idToken);
+  if (!verified.ok) return {status:"error", message: verified.message};
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName(MEMBERS);
+  var rows  = sheet.getDataRange().getValues();
+  var now   = new Date();
+
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][C_GOOGLE_SUB] || '').trim() !== verified.sub) continue;
+
+    var memberStatus = String(rows[i][C_STATUS] || "").trim().toUpperCase();
+    if (memberStatus === "KICKED" || memberStatus === "BANNED") {
+      return {status:"error", message: memberStatus.toLowerCase()};
+    }
+    var isPending = memberStatus === MEMBER_STATUS_PENDING;
+    var rawDate    = rows[i][C_EXPIRE];
+    var expireDate = _parseMemberDate(rawDate);
+    if (!isPending && (!expireDate || expireDate < now)) {
+      return {status:"error", message:"expired"};
+    }
+
+    var memberId = String(rows[i][C_USERID] || '').trim();
+    var deviceCheck = _verifyAndBindDevice_(memberId, deviceId, app);
+    if (!deviceCheck.ok) return deviceCheck;
+
+    _revokeMemberSessions_(memberId);
+    var token = Utilities.getUuid();
+    var sessionResult = _createAuthSession_(token, memberId, deviceCheck, isPending ? null : expireDate);
+    if (sessionResult.status !== 'ok') return sessionResult;
+    sheet.getRange(i+1, C_TOKEN+1).setValue(token);
+    return {
+      status:       "ok",
+      token:        token,
+      userId:       memberId,
+      username:     String(rows[i][C_USERNAME]),
+      package:      _normalizePackage(rows[i][C_PACKAGE]),
+      memberStatus: memberStatus,
+      expireDate:   (isPending || !expireDate) ? "" : Utilities.formatDate(expireDate, "Asia/Bangkok", "dd/MM/yyyy"),
+      deviceBound:  !!deviceCheck.deviceBound,
+      clientApp:    deviceCheck.clientApp || 'web',
+      isNewSignup:  false
+    };
+  }
+
+  // No existing row for this Google account -- provision a new PENDING
+  // member so the frontend can go straight to package selection and
+  // payment through the same website payment endpoint every WEB renewal
+  // already uses.
+  var syntheticUserId = "G_" + verified.sub;
+  var newDeviceCheck = _verifyAndBindDevice_(syntheticUserId, deviceId, app);
+  if (!newDeviceCheck.ok) return newDeviceCheck;
+
+  var newToken = Utilities.getUuid();
+  sheet.appendRow([
+    syntheticUserId,        // A UserID
+    verified.email,         // B Username
+    Utilities.formatDate(now, "Asia/Bangkok", "dd/MM/yyyy"), // C StartDate
+    "",                      // D ExpireDate
+    MEMBER_STATUS_PENDING,  // E Status
+    0,                       // F CancelCount
+    "",                      // G Password (Google Login members never get one)
+    "WEB",                   // H Package
+    newToken,                // I Token
+    verified.sub,            // J GoogleSub
+    verified.email           // K GoogleEmail
+  ]);
+  var newSessionResult = _createAuthSession_(newToken, syntheticUserId, newDeviceCheck, null);
+  if (newSessionResult.status !== 'ok') return newSessionResult;
+
+  return {
+    status:       "ok",
+    token:        newToken,
+    userId:       syntheticUserId,
+    username:     verified.email,
+    package:      "WEB",
+    memberStatus: MEMBER_STATUS_PENDING,
+    expireDate:   "",
+    deviceBound:  !!newDeviceCheck.deviceBound,
+    clientApp:    newDeviceCheck.clientApp || 'web',
+    isNewSignup:  true
+  };
 }
 
 // ── getPassword ────────────────────────────────────────────
