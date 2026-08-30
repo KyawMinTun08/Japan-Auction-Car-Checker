@@ -11,6 +11,7 @@ from phase1.phase1_client import JaccPhase1Client, JaccPhase1Error
 from jdm_lookup_service import build_jdm_http_service
 from qwen_text_service import build_qwen_text_http_service
 from website_payment_upload import build_website_payment_http_service
+from website_google_payment_upload import build_google_member_payment_http_service
 from datetime import datetime, timedelta, timezone
 from payment_audit import (
     normalize_amount,
@@ -8243,6 +8244,156 @@ async def refunddone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown')
 
 
+# ── JACC Google Login admin approval (Admin only) ──────
+# Google Login members (synthetic "G_<sub>" userId, issued by
+# verifyGoogleLogin in Code.gs) have no Telegram identity to receive the
+# existing slip_confirm_/slip_ok_/slip_no_ button-callback approval flow --
+# that flow assumes a Telegram numeric chat_id throughout. These two
+# commands are a deliberately separate approval path so the existing
+# button-based flow for Telegram-origin members stays completely untouched.
+# Both reuse approve_payment_transaction(), the same atomic Apps Script
+# money-crediting call the button flow uses -- only the trigger differs.
+async def googleapprove_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not ADMIN_IDS or user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Format: `/googleapprove G_xxxxxxxxxxxxxxxxxxx`",
+            parse_mode='Markdown')
+        return
+
+    member_id = context.args[0].strip()
+    if not member_id.startswith("G_"):
+        await update.message.reply_text(
+            "❌ ဒါ Google Login member ID မဟုတ်ပါ (`G_` နဲ့ မစပါ)",
+            parse_mode='Markdown')
+        return
+
+    pay_data = pending_payment.get(member_id)
+    if not pay_data:
+        pay_data = await get_payment_draft(member_id)
+        if pay_data:
+            pending_payment[member_id] = pay_data
+    if not pay_data:
+        await update.message.reply_text(
+            f"❌ `{member_id}` အတွက် Payment data မတွေ့ပါ — အရင် Approve/Reject လုပ်ပြီးသားလား စစ်ပါ",
+            parse_mode='Markdown')
+        return
+
+    slips = pay_data.get("slips", [])
+    months = int(pay_data.get("months", 1) or 1)
+    expected_amount = int(pay_data.get("amount", 0) or 0)
+    total_paid, _ = payment_slip_summary(slips)
+    if expected_amount <= 0 or total_paid != expected_amount:
+        await update.message.reply_text(
+            f"❌ ငွေပမာဏ မကိုက်ညီသေးပါ — Expected {expected_amount:,} ks, Received {total_paid:,} ks\n"
+            "Slip အားလုံး ပို့ပြီးမှသာ Approve လုပ်ပါ",
+            parse_mode='Markdown')
+        return
+
+    slip_info = pay_data.get("slip_info", {}) or {}
+    transaction_no = str(slip_info.get("TRANSACTION_NO") or slip_info.get("REFERENCE") or "").strip()
+    if transaction_no.upper() == "UNKNOWN":
+        transaction_no = ""
+    approved_by = str(
+        getattr(update.effective_user, "username", "")
+        or getattr(update.effective_user, "id", "")
+    ).strip()
+    password = generate_password()
+
+    atomic_payment = {
+        "userId": member_id,
+        "username": str(pay_data.get("username") or member_id).replace("@", ""),
+        "package": "WEB",
+        "months": months,
+        "days": months * 30,
+        "expectedAmount": expected_amount,
+        "receivedAmount": total_paid,
+        "amount": total_paid,
+        "payType": slip_info.get("TYPE", "") or str(pay_data.get("method", "")).upper(),
+        "method": str(pay_data.get("method", "")).upper(),
+        "transactionNo": transaction_no,
+        "paymentId": transaction_no,
+        "receiver": slip_info.get("TRANSFER_TO", slip_info.get("RECEIVER", "")),
+        "sender": slip_info.get("SENDER", ""),
+        "date": slip_info.get("DATE", datetime.now().strftime("%d/%m/%Y")),
+        "time": slip_info.get("TIME", datetime.now().strftime("%H:%M")),
+        "source": "PAYMENT_SLIP",
+        "approvedBy": approved_by,
+        "password": password,
+    }
+    atomic_result = await approve_payment_transaction(atomic_payment)
+    atomic_message = str(atomic_result.get("message") or "").strip()
+
+    if atomic_result.get("result") == "duplicate":
+        await clear_payment_draft(member_id, transaction_no)
+        pending_payment.pop(member_id, None)
+        await update.message.reply_text(
+            "⚠️ ဒီ Payment Transaction ကို အရင် Approve လုပ်ပြီးသားဖြစ်ပါတယ်။\n"
+            "ထပ်မံ Approve မလုပ်တော့ပါနှင့်။",
+            parse_mode='Markdown')
+        return
+    if atomic_result.get("status") != "ok":
+        if atomic_message == "transaction_already_used":
+            await update.message.reply_text(
+                "⚠️ ဒီ Payment Transaction ကို အရင် Approve လုပ်ပြီးသားဖြစ်ပါတယ်။",
+                parse_mode='Markdown')
+        elif atomic_message == "transaction_in_progress":
+            await update.message.reply_text(
+                "⚠️ ဒီ Payment ကို အခြား Approve request တစ်ခုက စစ်ဆေးနေဆဲပါ။",
+                parse_mode='Markdown')
+        else:
+            await update.message.reply_text(
+                f"❌ Approve မအောင်မြင်ပါ — `{atomic_message or 'approval_failed'}`\n"
+                "Member သက်တမ်းကို မပြောင်းထားပါ။",
+                parse_mode='Markdown')
+        return
+
+    canonical_password = str(atomic_result.get("password") or password)
+    canonical_expire = str((atomic_result.get("member") or {}).get("expireDate") or "")
+    await clear_payment_draft(member_id, transaction_no)
+    pending_payment.pop(member_id, None)
+
+    await update.message.reply_text(
+        f"✅ *Google Login Member Approved!*\n\n"
+        f"🆔 `{member_id}`\n"
+        f"📦 Web Premium — {months} လ\n"
+        f"⏰ ကုန်ဆုံး: `{canonical_expire}`\n"
+        f"🔑 Password: `{canonical_password}`\n\n"
+        f"⚠️ Member ဟာ Telegram DM မရနိုင်ပါ — website ကို ပြန်ဝင်ရင် (Sign in with "
+        f"Google) access အသစ်ကို အလိုအလျောက် တွေ့ရပါလိမ့်မယ်။",
+        parse_mode='Markdown',
+    )
+
+
+async def googlereject_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not ADMIN_IDS or user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin သာ သုံးနိုင်တယ်")
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Format: `/googlereject G_xxxxxxxxxxxxxxxxxxx`",
+            parse_mode='Markdown')
+        return
+
+    member_id = context.args[0].strip()
+    if not member_id.startswith("G_"):
+        await update.message.reply_text(
+            "❌ ဒါ Google Login member ID မဟုတ်ပါ (`G_` နဲ့ မစပါ)",
+            parse_mode='Markdown')
+        return
+
+    pending_payment.pop(member_id, None)
+    await clear_payment_draft(member_id, "")
+    await update.message.reply_text(
+        f"✅ `{member_id}` ရဲ့ Payment ကို Reject လုပ်ပြီးပါပြီ — Member ဟာ website ကနေ "
+        f"slip အသစ် ပြန်ပို့နိုင်ပါတယ်",
+        parse_mode='Markdown')
+
+
 # ── Auto Expire Check ─────────────────────────────────
 async def check_expired_members(context):
     global warned_3days
@@ -8636,6 +8787,8 @@ async def main():
     app.add_handler(CommandHandler("auctionwon",     auctionwon_cmd))
     app.add_handler(CommandHandler("auctionlost",    auctionlost_cmd))
     app.add_handler(CommandHandler("refunddone",     refunddone_cmd))
+    app.add_handler(CommandHandler("googleapprove",  googleapprove_cmd))
+    app.add_handler(CommandHandler("googlereject",   googlereject_cmd))
     app.add_handler(CommandHandler("chatlog",        chatlog_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
@@ -8774,6 +8927,29 @@ async def main():
         web_app.router.add_options("/api/payment/qr/{method}", payment_http.options)
         web_app.router.add_get("/api/payment/qr/{method}", payment_http.payment_qr)
         logger.info("Website payment slip, methods, and QR endpoints mounted")
+
+    google_payment_http = build_google_member_payment_http_service(
+        bot=app.bot,
+        sheet_webhook=SHEET_WEBHOOK,
+        admin_ids=ADMIN_IDS,
+        pending_payment=pending_payment,
+        plan_prices=PLAN_PRICES,
+        payment_method_info=PAYMENT_METHOD_INFO,
+        gemini_reader=gemini_read_slip,
+        parse_amount=parse_slip_amount,
+        transaction_key=slip_transaction_key,
+        payment_summary=payment_slip_summary,
+        save_payment_draft=save_payment_draft,
+        payment_qr_getter=get_payment_qr,
+    )
+    if google_payment_http is not None:
+        web_app.router.add_options("/api/google/payment/slip", google_payment_http.options)
+        web_app.router.add_post("/api/google/payment/slip", google_payment_http.upload)
+        web_app.router.add_options("/api/google/payment/methods", google_payment_http.options)
+        web_app.router.add_get("/api/google/payment/methods", google_payment_http.payment_methods)
+        web_app.router.add_options("/api/google/payment/qr/{method}", google_payment_http.options)
+        web_app.router.add_get("/api/google/payment/qr/{method}", google_payment_http.payment_qr)
+        logger.info("JACC Google Login payment slip, methods, and QR endpoints mounted")
 
     runner = web.AppRunner(web_app)
     await runner.setup()
