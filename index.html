@@ -781,7 +781,7 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
       <div class="card">
         <div class="card-header"><div class="card-title">🏆 Monthly Best Seller</div><span class="card-meta">လ ရွေးပြီး ranking ကြည့်</span></div>
         <div class="card-body">
-          <div style="margin-bottom:14px"><label class="field-label">Select Month · လ ရွေးပါ</label><select id="mbsMonth" onchange="mbsMonthUserPicked=true;renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown()" style="width:100%"><option value="">Loading...</option></select></div>
+          <div style="margin-bottom:14px;display:grid;grid-template-columns:110px 1fr;gap:8px"><div><label class="field-label">Year · နှစ်</label><select id="mbsYear" onchange="mbsYearChanged()" style="width:100%"><option value="">…</option></select></div><div><label class="field-label">Select Month · လ ရွေးပါ</label><select id="mbsMonth" onchange="mbsMonthUserPicked=true;renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown()" style="width:100%"><option value="">Loading...</option></select></div></div>
           <div id="mbsContent"></div>
         </div>
       </div>
@@ -2199,13 +2199,34 @@ function getMonthlyData(){
 }
 function monthLabel(key){const[y,m]=key.split('/');const names=['January','February','March','April','May','June','July','August','September','October','November','December'];return names[parseInt(m)-1]+' '+y;}
 
+let mbsYearUserPicked=false,mbsPreferredMonthNum=null;
 function renderMonthlyBestSeller(){
-  const sel=document.getElementById('mbsMonth');if(!sel)return;
+  const yearSel=document.getElementById('mbsYear');const sel=document.getElementById('mbsMonth');if(!sel||!yearSel)return;
   const monthly=getMonthlyData();const months=Object.keys(monthly).sort().reverse();
-  if(!months.length){sel.innerHTML='<option value="">No data</option>';document.getElementById('mbsContent').innerHTML='<div class="empty"><div class="ei">📭</div><p>No data</p></div>';return;}
-  const current=(mbsMonthUserPicked&&sel.value&&monthly[sel.value])?sel.value:months[0];
-  sel.innerHTML=months.map(m=>{const total=Object.values(monthly[m]).reduce((s,v)=>s+v,0);return '<option value="'+esc(m)+'"'+(m===current?' selected':'')+'>'+esc(monthLabel(m))+' ('+total+' cars)</option>';}).join('');
+  if(!months.length){yearSel.innerHTML='<option value="">—</option>';sel.innerHTML='<option value="">No data</option>';document.getElementById('mbsContent').innerHTML='<div class="empty"><div class="ei">📭</div><p>No data</p></div>';return;}
+  const years=[...new Set(months.map(m=>m.split('/')[0]))].sort().reverse();
+  const currentFull=(mbsMonthUserPicked&&sel.value&&monthly[sel.value])?sel.value:months[0];
+  const currentYear=(mbsYearUserPicked&&yearSel.value&&years.includes(yearSel.value))?yearSel.value:currentFull.split('/')[0];
+  yearSel.innerHTML=years.map(y=>{const yTotal=months.filter(m=>m.split('/')[0]===y).reduce((s,m)=>s+Object.values(monthly[m]).reduce((a,b)=>a+b,0),0);return '<option value="'+esc(y)+'"'+(y===currentYear?' selected':'')+'>'+esc(y)+' ('+yTotal+')</option>';}).join('');
+  // Switching Year alone tries to land on the same calendar month in the new
+  // year (e.g. July 2026 -> pick Year 2025 -> lands on July 2025) so "what
+  // was listed around this time last year" is one dropdown away, not a
+  // scroll through every month ever recorded.
+  const monthsInYear=months.filter(m=>m.split('/')[0]===currentYear).sort();
+  let currentMonth;
+  if(mbsPreferredMonthNum&&monthsInYear.includes(currentYear+'/'+mbsPreferredMonthNum)){currentMonth=currentYear+'/'+mbsPreferredMonthNum;}
+  else if(monthsInYear.includes(currentFull)){currentMonth=currentFull;}
+  else if(sel.value&&monthsInYear.includes(sel.value)){currentMonth=sel.value;}
+  else{currentMonth=monthsInYear[monthsInYear.length-1];}
+  mbsPreferredMonthNum=null;
+  sel.innerHTML=monthsInYear.map(m=>{const total=Object.values(monthly[m]).reduce((s,v)=>s+v,0);return '<option value="'+esc(m)+'"'+(m===currentMonth?' selected':'')+'>'+esc(monthLabel(m).split(' ')[0])+' ('+total+' cars)</option>';}).join('');
   renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown();
+}
+function mbsYearChanged(){
+  const sel=document.getElementById('mbsMonth');
+  mbsPreferredMonthNum=sel&&sel.value?sel.value.split('/')[1]:null;
+  mbsYearUserPicked=true;
+  renderMonthlyBestSeller();
 }
 
 function renderMonthlyBestSellerContent(){
