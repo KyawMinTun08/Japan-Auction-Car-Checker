@@ -1409,7 +1409,11 @@ async function restoreSession(){
 }
 
 function showApp(){
-  if(SESSION&&String(SESSION.memberStatus||'').toUpperCase()==='PENDING'){showGooglePendingScreen();return;}
+  // Only a synthetic Google Login id (userId starts with "G_") can ever be a
+  // genuine PENDING signup -- gating on userId too (not memberStatus alone)
+  // guarantees a Telegram/password member can never be routed to the
+  // Google pending-payment screen, no matter what memberStatus holds.
+  if(SESSION&&String(SESSION.userId||'').startsWith('G_')&&String(SESSION.memberStatus||'').toUpperCase()==='PENDING'){showGooglePendingScreen();return;}
   document.getElementById('loginOverlay').style.display='none';
   document.getElementById('loadingOverlay').style.display='flex';
   const loadingText=document.querySelector('#loadingOverlay .load-text');
