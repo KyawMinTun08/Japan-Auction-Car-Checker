@@ -6,7 +6,13 @@
 //  Columns A-I above are a load-bearing contract read/written by the
 //  Telegram bot, patch files, and this script positionally — never
 //  reorder or repurpose them. New fields are appended after [8] only.
-//  [9] GoogleSub  [10] GoogleEmail — JACC Google Login (website-only
+//  [9] (J) is reserved and left untouched: it carries "DeviceID" from the
+//  retired Approach-A device-binding patch (see
+//  apps-script/APPROACH_B_DEPLOYMENT.md: "Do not add DeviceID to Members" /
+//  "Do not copy the old J-column patch") -- current device binding lives in
+//  the separate DeviceBindings/AuthSessions sheets instead, but column J's
+//  old label and data are left alone rather than silently repurposed.
+//  [10] GoogleSub  [11] GoogleEmail — JACC Google Login (website-only
 //  signup path for members who never touch Telegram). A row with
 //  Status "PENDING" is a Google-authenticated identity that has not
 //  completed its first payment yet: Package is pre-set to "WEB" (the
@@ -34,8 +40,9 @@ var C_CANCELCOUNT = 5;
 var C_PASSWORD = 6;
 var C_PACKAGE  = 7;
 var C_TOKEN    = 8;
-var C_GOOGLE_SUB   = 9;
-var C_GOOGLE_EMAIL = 10;
+// Column 9 (J) is intentionally skipped -- see the header comment above.
+var C_GOOGLE_SUB   = 10;
+var C_GOOGLE_EMAIL = 11;
 
 var MEMBER_STATUS_PENDING = "PENDING";
 // A Google Login signup that never completes its first payment sits in
@@ -2645,8 +2652,9 @@ function verifyGoogleLogin(idToken, deviceId, app) {
     "",                      // G Password (Google Login members never get one)
     "WEB",                   // H Package
     newToken,                // I Token
-    verified.sub,            // J GoogleSub
-    verified.email           // K GoogleEmail
+    "",                      // J reserved -- legacy "DeviceID" column, left untouched
+    verified.sub,            // K GoogleSub
+    verified.email           // L GoogleEmail
   ]);
   var newSessionResult = _createAuthSession_(newToken, syntheticUserId, newDeviceCheck, null);
   if (newSessionResult.status !== 'ok') return newSessionResult;
