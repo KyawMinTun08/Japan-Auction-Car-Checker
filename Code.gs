@@ -12,7 +12,10 @@
 //  completed its first payment yet: Package is pre-set to "WEB" (the
 //  only package this signup path issues) but ExpireDate is empty, so
 //  it must never be treated as an active/expired member by the usual
-//  date math until an admin approval sets a real ExpireDate and status.
+//  ExpireDate-based date math until an admin approval sets a real
+//  ExpireDate and status. It does, however, expire on its own after
+//  PENDING_SIGNUP_EXPIRY_DAYS with no payment (measured from StartDate) --
+//  see _isPendingSignupExpired_.
 // ═══════════════════════════════════════════════════════════
 
 var SS_ID    = "1ZRw9xUS2pqZe5rJdmBtsX6yS7hAc65BHDO6K3zG1mpY";
@@ -35,6 +38,22 @@ var C_GOOGLE_SUB   = 9;
 var C_GOOGLE_EMAIL = 10;
 
 var MEMBER_STATUS_PENDING = "PENDING";
+// A Google Login signup that never completes its first payment sits in
+// PENDING with a live session token indefinitely otherwise. After this many
+// days from StartDate with no admin approval, getMembers()/verifyToken()
+// stop treating the row as a valid live session (EXPIRED, token revoked) --
+// but verifyGoogleLogin() always lets the same Google account sign back in
+// and refreshes StartDate, so nobody is ever permanently locked out, they
+// just need to re-authenticate with Google after being idle this long.
+var PENDING_SIGNUP_EXPIRY_DAYS = 14;
+
+function _isPendingSignupExpired_(startDateRaw, now) {
+  var startDate = _parseMemberDate(startDateRaw);
+  if (!startDate) return false;
+  var deadline = new Date(startDate.getTime());
+  deadline.setDate(deadline.getDate() + PENDING_SIGNUP_EXPIRY_DAYS);
+  return now > deadline;
+}
 
 // ── doGet — Price Data ─────────────────────────────────────
 function doGet(e) {
@@ -2332,11 +2351,13 @@ function getMembers() {
     var expireDate = _parseMemberDate(rawDate);
     var savedStatus = String(rows[i][C_STATUS] || "").trim().toUpperCase();
     // A PENDING row (Google Login signup awaiting its first payment) has no
-    // ExpireDate yet by design -- never recompute it into EXPIRED, and never
-    // strip its session token, or the member is locked out before an admin
-    // ever gets to approve their first payment.
+    // ExpireDate yet by design -- never recompute it via the usual date math,
+    // and never strip its session token while still within
+    // PENDING_SIGNUP_EXPIRY_DAYS of StartDate, or the member is locked out
+    // before an admin ever gets to approve their first payment. Past that
+    // window with still no payment, treat it like any other lapsed signup.
     var status = savedStatus === MEMBER_STATUS_PENDING
-      ? savedStatus
+      ? (_isPendingSignupExpired_(rows[i][C_START], now) ? "EXPIRED" : savedStatus)
       : (savedStatus === "KICKED" || savedStatus === "BANNED")
         ? savedStatus
         : (expireDate && expireDate >= now ? "ACTIVE" : "EXPIRED");
@@ -2344,8 +2365,9 @@ function getMembers() {
       statusUpdates.push({row: i + 1, value: status});
     }
     // Expired/kicked/banned and non-WEB accounts must never retain a web
-    // session token. PENDING (Google Login, not yet approved) keeps its
-    // token so the member can complete their first payment.
+    // session token. PENDING (Google Login, not yet approved, still within
+    // its signup window) keeps its token so the member can complete their
+    // first payment.
     if (status !== MEMBER_STATUS_PENDING && (status !== "ACTIVE" || _normalizePackage(rows[i][C_PACKAGE]) !== "WEB")) {
       if (rows[i][C_TOKEN]) {
         tokenUpdates.push({row: i + 1, value: ""});
@@ -2462,9 +2484,12 @@ function verifyToken(token, deviceId, app, userId) {
     var rawDate    = rows[i][C_EXPIRE];
     var expireDate = _parseMemberDate(rawDate);
     // PENDING (Google Login signup, first payment not yet approved) has no
-    // ExpireDate by design -- it is not an "expired" account, just one with
-    // nothing to expire yet.
-    if (!isPending && (!expireDate || expireDate < now)) {
+    // ExpireDate by design -- it is not an "expired" account on that basis,
+    // but a PENDING session does go stale after PENDING_SIGNUP_EXPIRY_DAYS
+    // with no payment, same window getMembers() enforces, so a forgotten
+    // browser session can't sit valid forever.
+    var pendingExpired = isPending && _isPendingSignupExpired_(rows[i][C_START], now);
+    if (pendingExpired || (!isPending && (!expireDate || expireDate < now))) {
       sheet.getRange(i+1, C_TOKEN+1).setValue("");
       _revokeMemberSessions_(memberId);
       return {status:"error", message:"expired"};
@@ -2571,6 +2596,14 @@ function verifyGoogleLogin(idToken, deviceId, app) {
     }
 
     var memberId = String(rows[i][C_USERID] || '').trim();
+    // A returning Google sign-in is itself a fresh, strong re-authentication
+    // -- rather than dead-ending on "expired" (which would just make the
+    // visitor click Sign in with Google again anyway), refresh the signup
+    // window so a PENDING member who was idle past PENDING_SIGNUP_EXPIRY_DAYS
+    // can go straight back to payment instead of getting stuck.
+    if (isPending && _isPendingSignupExpired_(rows[i][C_START], now)) {
+      sheet.getRange(i+1, C_START+1).setValue(Utilities.formatDate(now, "Asia/Bangkok", "dd/MM/yyyy"));
+    }
     var deviceCheck = _verifyAndBindDevice_(memberId, deviceId, app);
     if (!deviceCheck.ok) return deviceCheck;
 
