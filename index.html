@@ -781,13 +781,16 @@ select:focus,.input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--b
       <div class="card">
         <div class="card-header"><div class="card-title">🏆 Monthly Best Seller</div><span class="card-meta">လ ရွေးပြီး ranking ကြည့်</span></div>
         <div class="card-body">
-          <div style="margin-bottom:14px;display:grid;grid-template-columns:110px 1fr;gap:8px"><div><label class="field-label">Year · နှစ်</label><select id="mbsYear" onchange="mbsYearChanged()" style="width:100%"><option value="">…</option></select></div><div><label class="field-label">Select Month · လ ရွေးပါ</label><select id="mbsMonth" onchange="mbsMonthUserPicked=true;renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown()" style="width:100%"><option value="">Loading...</option></select></div></div>
+          <div style="margin-bottom:14px;display:grid;grid-template-columns:110px 1fr;gap:8px"><div><label class="field-label">Year · နှစ်</label><select id="mbsYear" onchange="mbsYearChanged()" style="width:100%"><option value="">…</option></select></div><div><label class="field-label">Select Month · လ ရွေးပါ</label><select id="mbsMonth" onchange="mbsMonthUserPicked=true;renderMonthlyBestSellerContent();renderMissingModels()" style="width:100%"><option value="">Loading...</option></select></div></div>
           <div id="mbsContent"></div>
         </div>
       </div>
       <div class="card">
         <div class="card-header"><div class="card-title">📅 Weekly Breakdown</div><span class="card-meta">ဘယ်အပတ်မှာ ဘယ်ကား ထည့်လဲ</span></div>
-        <div class="card-body" id="weeklyBreakdownContent"><div class="empty"><div class="ei">⏳</div><p>Loading...</p></div></div>
+        <div class="card-body">
+          <div style="margin-bottom:14px;display:grid;grid-template-columns:84px 1fr 84px;gap:8px"><div><label class="field-label">Year</label><select id="wbYear" onchange="wbYearChanged()" style="width:100%"><option value="">…</option></select></div><div><label class="field-label">Month</label><select id="wbMonth" onchange="wbMonthUserPicked=true;renderWeeklyBreakdownControls();renderWeeklyBreakdown()" style="width:100%"><option value="">Loading...</option></select></div><div><label class="field-label">Week</label><select id="wbWeek" onchange="renderWeeklyBreakdown()" style="width:100%"><option value="">All</option></select></div></div>
+          <div id="weeklyBreakdownContent"><div class="empty"><div class="ei">⏳</div><p>Loading...</p></div></div>
+        </div>
       </div>
       <div class="card">
         <div class="card-header"><div class="card-title">⚠️ Missing Models</div><span class="card-meta">၃ လ ရှိ၊ ဒီလ မရှိ</span></div>
@@ -2234,7 +2237,7 @@ function renderMonthlyBestSeller(){
   else{currentMonth=monthsInYear[monthsInYear.length-1];}
   mbsPreferredMonthNum=null;
   sel.innerHTML=monthsInYear.map(m=>{const total=Object.values(monthly[m]).reduce((s,v)=>s+v,0);return '<option value="'+esc(m)+'"'+(m===currentMonth?' selected':'')+'>'+esc(monthLabel(m).split(' ')[0])+' ('+total+' cars)</option>';}).join('');
-  renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdown();
+  renderMonthlyBestSellerContent();renderMissingModels();renderWeeklyBreakdownControls();renderWeeklyBreakdown();
 }
 function mbsYearChanged(){
   const sel=document.getElementById('mbsMonth');
@@ -2313,14 +2316,49 @@ function getWeeklyDataForMonth(monthKey){
   return weeks;
 }
 function toggleWeeklyGroup(id){const el=document.getElementById(id);if(el)el.style.display=el.style.display==='none'?'block':'none';}
+// Weekly Breakdown owns its own Year/Month/Week controls (independent of
+// Monthly Best Seller's mbsYear/mbsMonth) -- an earlier version relied on
+// the Best Seller card's month picker to drive this card too, which was
+// only visible after scrolling up to a different card, and read as "Year/
+// Month/Week selection doesn't work" from this card itself.
+let wbYearUserPicked=false,wbMonthUserPicked=false,wbPreferredMonthNum=null;
+function renderWeeklyBreakdownControls(){
+  const yearSel=document.getElementById('wbYear');const monthSel=document.getElementById('wbMonth');if(!yearSel||!monthSel)return;
+  const monthly=getMonthlyData();const months=Object.keys(monthly).sort().reverse();
+  if(!months.length){yearSel.innerHTML='<option value="">—</option>';monthSel.innerHTML='<option value="">No data</option>';return;}
+  const years=[...new Set(months.map(m=>m.split('/')[0]))].sort().reverse();
+  const currentFull=(wbMonthUserPicked&&monthSel.value&&monthly[monthSel.value])?monthSel.value:months[0];
+  const currentYear=(wbYearUserPicked&&yearSel.value&&years.includes(yearSel.value))?yearSel.value:currentFull.split('/')[0];
+  yearSel.innerHTML=years.map(y=>'<option value="'+esc(y)+'"'+(y===currentYear?' selected':'')+'>'+esc(y)+'</option>').join('');
+  const monthsInYear=months.filter(m=>m.split('/')[0]===currentYear).sort();
+  let currentMonth;
+  if(wbPreferredMonthNum&&monthsInYear.includes(currentYear+'/'+wbPreferredMonthNum)){currentMonth=currentYear+'/'+wbPreferredMonthNum;}
+  else if(monthsInYear.includes(currentFull)){currentMonth=currentFull;}
+  else if(monthSel.value&&monthsInYear.includes(monthSel.value)){currentMonth=monthSel.value;}
+  else{currentMonth=monthsInYear[monthsInYear.length-1];}
+  wbPreferredMonthNum=null;
+  monthSel.innerHTML=monthsInYear.map(m=>'<option value="'+esc(m)+'"'+(m===currentMonth?' selected':'')+'>'+esc(monthLabel(m).split(' ')[0])+'</option>').join('');
+}
+function wbYearChanged(){
+  const monthSel=document.getElementById('wbMonth');
+  wbPreferredMonthNum=monthSel&&monthSel.value?monthSel.value.split('/')[1]:null;
+  wbYearUserPicked=true;
+  renderWeeklyBreakdownControls();
+  renderWeeklyBreakdown();
+}
 function renderWeeklyBreakdown(){
-  const sel=document.getElementById('mbsMonth');const el=document.getElementById('weeklyBreakdownContent');if(!sel||!el)return;
-  const month=sel.value;
+  const monthSel=document.getElementById('wbMonth');const weekSel=document.getElementById('wbWeek');const el=document.getElementById('weeklyBreakdownContent');if(!monthSel||!weekSel||!el)return;
+  const month=monthSel.value;
   if(!month){el.innerHTML='';return;}
   const weeks=getWeeklyDataForMonth(month);
   const wkNums=Object.keys(weeks).map(Number).sort((a,b)=>a-b);
-  if(!wkNums.length){el.innerHTML='<div class="empty"><div class="ei">📭</div><p>'+esc(monthLabel(month))+' အတွက် data မရှိပါ</p></div>';return;}
-  const html=wkNums.map(wk=>{
+  const prevWeekChoice=weekSel.value;
+  weekSel.innerHTML='<option value="">All weeks</option>'+wkNums.map(wk=>'<option value="'+wk+'"'+(String(wk)===prevWeekChoice?' selected':'')+'>Week '+wk+' ('+weekDateRangeLabel(month,wk)+')</option>').join('');
+  if(prevWeekChoice&&!wkNums.includes(Number(prevWeekChoice)))weekSel.value='';
+  const weekFilter=weekSel.value?Number(weekSel.value):null;
+  const shownWeeks=weekFilter?wkNums.filter(wk=>wk===weekFilter):wkNums;
+  if(!shownWeeks.length){el.innerHTML='<div class="empty"><div class="ei">📭</div><p>'+esc(monthLabel(month))+' အတွက် data မရှိပါ</p></div>';return;}
+  const html=shownWeeks.map(wk=>{
     const data=weeks[wk];const gid='wkg_'+month.replace('/','_')+'_'+wk;
     const total=data.cars.length;
     const topModels=Object.entries(data.modelCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
