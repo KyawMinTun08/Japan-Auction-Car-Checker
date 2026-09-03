@@ -1251,11 +1251,25 @@ async function handleGoogleCredentialResponse(response){
     if(errEl){errEl.style.display='block';errEl.textContent='❌ Connection error — Internet စစ်ပြီး ပြန်ကြိုးစားပါ';}
   }
 }
-function initGoogleSignIn(){
+function initGoogleSignIn(attempt){
   const clientId=String(window.JACC_GOOGLE_CLIENT_ID||'').trim();
   const block=document.getElementById('googleLoginBlock');
   if(!clientId||!block)return;
-  if(!window.google||!window.google.accounts||!window.google.accounts.id){setTimeout(initGoogleSignIn,300);return;}
+  if(!window.google||!window.google.accounts||!window.google.accounts.id){
+    // accounts.google.com/gsi/client is a third-party script -- on a flaky
+    // mobile connection it can be slow, time out, or fail outright (with no
+    // error event we can catch, since it's a plain <script src> tag). This
+    // used to retry forever with no cap, so on a page load where the script
+    // never arrives, this loop would just silently spin -- explaining
+    // reports of the Google button "sometimes showing, sometimes not" with
+    // no visible reason. Cap it at ~10s; password login is the reliable
+    // fallback either way, so failing silently (not showing the button)
+    // beyond that is the right behavior, just not an unbounded loop.
+    const n=(attempt||0)+1;
+    if(n>34)return;
+    setTimeout(function(){initGoogleSignIn(n);},300);
+    return;
+  }
   block.hidden=false;
   google.accounts.id.initialize({client_id:clientId,callback:handleGoogleCredentialResponse});
   const target=document.getElementById('googleLoginBtn');
