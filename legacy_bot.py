@@ -2585,7 +2585,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔄 `/renew` → ရှိပြီးသား Member သက်တမ်းတိုးရန်\n"
             "⬆️ `/upgrade` → Premium Package ပြောင်းရန်\n"
             "🌐 `/web` → Web Link\n"
-            "📱 `/app` → Android App Download\n"
+            "📱 `/app` → App Download (Android + iPhone)\n"
             "🔑 `/mypassword` → Password ပြန်ယူ\n\n"
             "*Admin Commands:*\n"
             "📸 ကားပုံ တင် → Chassis auto ဖတ်\n"
@@ -2608,7 +2608,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔄 `/renew` → ရှိပြီးသား Member သက်တမ်းတိုးရန်\n"
             "⬆️ `/upgrade` → Premium Package ပြောင်းရန်\n"
             "🌐 `/web` → Web Link\n"
-            "📱 `/app` → Android App Download\n"
+            "📱 `/app` → App Download (Android + iPhone)\n"
             "🔑 `/mypassword` → Password ပြန်ယူ\n"
         )
 
@@ -2880,13 +2880,25 @@ async def list_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def app_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        f"📱 *Japan Auction Car Checker Android App v{ANDROID_APP_VERSION}*\n\n"
+        f"📱 *Japan Auction Car Checker — App Download*\n\n"
+        f"🤖 *Android*\n"
         "Professional JACC logo ပါသော Android app version အသစ်ကို ဒီနေရာမှာ download လုပ်နိုင်ပါတယ်။\n\n"
         f"{ANDROID_APP_URL}\n\n"
-        "Download ပြီး install/update လုပ်ပါ။ ဖုန်းထဲမှာ version 1.02 ဖြစ်ကြောင်း စစ်ဆေးပါ။",
+        "Download ပြီး install/update လုပ်ပါ။ ဖုန်းထဲမှာ version 1.02 ဖြစ်ကြောင်း စစ်ဆေးပါ။\n\n"
+        "🍎 *iPhone (iOS)*\n"
+        "iOS မှာ App Store ကနေချည်း app install ခွင့်ပြုထားလို့ (Apple ရဲ့ security rule) "
+        "Android လိုမျိုး file ဒေါင်းလုဒ်ဆွဲပြီး install လုပ်လို့ မရပါဘူး — ဒါပေမယ့် Safari ကနေ "
+        "\"Add to Home Screen\" လုပ်ရင် App တစ်ခုလိုပဲ Home Screen ပေါ်မှာ icon ပေါ်လာပြီး "
+        "browser bar မပါဘဲ full-screen ဖွင့်ပေးပါတယ်:\n\n"
+        "1️⃣ *Safari* ကို ဖွင့်ပြီး အောက်က button ကနေ website ကိုသွားပါ (Chrome စတာတွေက iOS မှာ မရပါ)\n"
+        "2️⃣ အောက်ခြေ/အပေါ်ခြေက *Share* (⬆️ box ပုံ) ကို နှိပ်ပါ\n"
+        "3️⃣ *\"Add to Home Screen\"* ကို ရွေးပါ\n"
+        "4️⃣ *\"Add\"* နှိပ်ပါ — Home Screen ပေါ်မှာ JACC icon ပေါ်လာပါလိမ့်မယ်",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"📥 Download Android App v{ANDROID_APP_VERSION}", url=ANDROID_APP_URL)]
+            [InlineKeyboardButton(f"📥 Download Android App v{ANDROID_APP_VERSION}", url=ANDROID_APP_URL)],
+            [InlineKeyboardButton("🍎 iPhone: Open Website (Safari)",
+                       url="https://kyawmintun08.github.io/Japan-Auction-Car-Checker/")]
         ]))
 
 async def web_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -8836,7 +8848,7 @@ async def main():
         BotCommand("mystatus",      "📋 Request Status စစ်ရန်"),
         BotCommand("upgrade",       "⬆️ Premium Package ပြောင်းရန်"),
         BotCommand("web",           "🌐 Web App link ကြည့်ရန်"),
-        BotCommand("app",           "📱 Android App download link"),
+        BotCommand("app",           "📱 App Download (Android + iPhone)"),
         BotCommand("renew",         "🔄 ရှိပြီးသား Member သက်တမ်းတိုး"),
         BotCommand("channel",       "📢 Channel link အသစ်ယူရန်"),
         BotCommand("mypassword",    "🔑 Password ပြန်ယူရန်"),
