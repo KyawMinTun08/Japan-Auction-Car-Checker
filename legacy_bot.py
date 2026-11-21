@@ -1600,6 +1600,7 @@ async def persist_staged_auction_rows(staged_rows):
                 payload = {k: row.get(k, "") for k in (
                     "date", "chassis", "model", "color", "year", "price",
                     "location", "added_by", "image_url")}
+                payload["serverKey"] = SHEET_SERVER_KEY
                 try:
                     resp = await client.post(SHEET_WEBHOOK, json=payload, timeout=40)
                     resp.raise_for_status()
